@@ -17,15 +17,21 @@ import { truncate } from '../util/width.js';
 export function PermissionModal({
   ask,
   theme,
+  offerAuto,
 }: {
   ask: PendingAsk;
   theme: Theme;
+  offerAuto?: boolean;
 }) {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Text bold>{ask.reason}</Text>
       <Text color={theme.dim}>{describeToolInput(ask.toolName, ask.input)}</Text>
-      <Text color={theme.dim}>[y] allow once  [a] always allow  [n/Esc] deny</Text>
+      <Text color={theme.dim}>
+        [y] allow once  [a] always allow
+        {offerAuto ? '  [s] yes, and switch to auto mode' : ''}
+        {'  '}[n/Esc] deny
+      </Text>
     </Box>
   );
 }
@@ -33,15 +39,25 @@ export function PermissionModal({
 export function PlanModal({
   plan,
   theme,
+  autoAvailable,
+  yesMode,
 }: {
   plan: PendingPlan;
   theme: Theme;
+  autoAvailable?: boolean;
+  yesMode?: string;
 }) {
+  const yes =
+    yesMode === 'auto' || (autoAvailable && yesMode !== 'acceptEdits' && yesMode !== 'ask')
+      ? '[y] yes, and use auto mode'
+      : '[y] yes, auto-accept edits';
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Text bold>{plan.title}</Text>
       <Markdown text={plan.body} theme={theme} />
-      <Text color={theme.dim}>[y] approve  [e] revise  [Esc] keep planning</Text>
+      <Text color={theme.dim}>
+        {yes}  [m] yes, manually approve edits  [e] revise  [Esc] keep planning
+      </Text>
     </Box>
   );
 }
@@ -84,7 +100,7 @@ export function Overlay({
         <Text color={theme.dim}>Esc — abort turn / close · Shift+Tab — cycle mode · Ctrl+C ×2 — quit · Ctrl+D — quit (empty) · Ctrl+O — expand output</Text>
         <Text bold>commands</Text>
         <Text color={theme.dim}>
-          /help /clear /quit /compact /cost /resume /mode /plan /effort /skills · Tab — complete · MCP prompts via /name
+          /help /clear /quit /compact /cost /resume /mode /plan /effort /permissions /auto-mode-setup /skills · Tab — complete · MCP prompts via /name
         </Text>
       </Box>
     );

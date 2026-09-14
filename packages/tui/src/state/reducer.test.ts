@@ -27,6 +27,8 @@ describe('sessionReducer (TUI wrapper)', () => {
     let s = base();
     s = sessionReducer(s, { type: 'OPEN_OVERLAY', overlay: 'help' });
     expect(s.overlay).toBe('help');
+    s = sessionReducer(s, { type: 'OPEN_OVERLAY', overlay: 'permissions' });
+    expect(s.overlay).toBe('permissions');
     s = sessionReducer(s, { type: 'CLOSE_OVERLAY' });
     expect(s.overlay).toBeNull();
   });

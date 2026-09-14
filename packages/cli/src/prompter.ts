@@ -18,15 +18,18 @@
 import { createInterface } from 'node:readline';
 import type { Interface } from 'node:readline';
 
-import type { AskHandler, PermissionEngine } from '@harness-code/core';
+import type { AskHandler, PermissionEngine, PermissionMode } from '@harness-code/core';
+import { offerAutoSwitch } from '@harness-code/core';
 
-export type ConfirmChoice = 'once' | 'always' | 'deny';
+export type ConfirmChoice = 'once' | 'always' | 'deny' | 'auto';
 
 export interface ConfirmRequest {
   title: string;
   detail: string;
   /** Shown after `[a]`, e.g. "Bash". Falls back to a generic phrase. */
   alwaysLabel?: string;
+  /** Show `[s] yes, and switch to auto mode`. */
+  offerAuto?: boolean;
   signal?: AbortSignal;
 }
 
@@ -38,13 +41,15 @@ export interface ConfirmResult {
 export interface ApproveRequest {
   title: string;
   body: string;
+  autoAvailable?: boolean;
+  yesMode?: PermissionMode;
   signal?: AbortSignal;
 }
 
 export interface Prompter {
   confirm(req: ConfirmRequest): Promise<ConfirmResult>;
   /** Show a body of text (a plan) and collect approve / revise-with-feedback. */
-  approve(req: ApproveRequest): Promise<{ approved: boolean; feedback?: string }>;
+  approve(req: ApproveRequest): Promise<{ approved: boolean; feedback?: string; mode?: PermissionMode }>;
   askText(query: string, signal?: AbortSignal): Promise<string>;
   close(): void;
 }
@@ -106,7 +111,8 @@ class ReadlinePrompter implements Prompter {
       const block = [
         `\n\x1b[1m? ${req.title}\x1b[0m`,
         ...req.detail.split('\n').map((l) => `    ${l}`),
-        `  [y] allow once   [n] deny   [a] always allow ${req.alwaysLabel ?? 'this tool'} (this session)`,
+        `  [y] allow once   [n] deny   [a] always allow ${req.alwaysLabel ?? 'this tool'} (this session)` +
+        (req.offerAuto ? '   [s] yes, and switch to auto mode' : ''),
         '> ',
       ].join('\n');
 
@@ -114,6 +120,7 @@ class ReadlinePrompter implements Prompter {
       if (req.signal?.aborted) return { choice: 'deny', feedback: '用户中断' };
       if (raw === 'y' || raw === 'yes') return { choice: 'once' };
       if (raw === 'a' || raw === 'always') return { choice: 'always' };
+      if (req.offerAuto && (raw === 's' || raw === 'auto')) return { choice: 'auto' };
 
       // Anything else denies; ask why so the model gets a usable reason.
       const feedback = (await this.question('  why (optional, Enter to skip): ', req.signal)).trim();
@@ -121,21 +128,29 @@ class ReadlinePrompter implements Prompter {
     });
   }
 
-  approve(req: ApproveRequest): Promise<{ approved: boolean; feedback?: string }> {
+  approve(req: ApproveRequest): Promise<{ approved: boolean; feedback?: string; mode?: PermissionMode }> {
     return this.enqueue(async () => {
       if (req.signal?.aborted) return { approved: false, feedback: '用户中断' };
 
+      const yes =
+        req.yesMode === 'auto' || (req.autoAvailable && req.yesMode !== 'acceptEdits' && req.yesMode !== 'ask')
+          ? '[y] yes, and use auto mode'
+          : '[y] yes, auto-accept edits';
       const block = [
         `\n\x1b[1m? ${req.title}\x1b[0m`,
         ...req.body.split('\n').map((l) => `  ${l}`),
         '',
-        '  [y] approve and start implementing   [n] revise',
+        `  ${yes}   [m] yes, manually approve edits   [e] revise`,
         '> ',
       ].join('\n');
 
       const raw = (await this.question(block, req.signal)).trim().toLowerCase();
       if (req.signal?.aborted) return { approved: false, feedback: '用户中断' };
-      if (raw === 'y' || raw === 'yes') return { approved: true };
+      if (raw === 'y' || raw === 'yes') {
+        const mode = req.yesMode ?? (req.autoAvailable ? 'auto' : 'acceptEdits');
+        return { approved: true, mode };
+      }
+      if (raw === 'm' || raw === 'manual') return { approved: true, mode: 'ask' };
 
       const feedback = (
         await this.question('  what should change (optional): ', req.signal)
@@ -172,6 +187,12 @@ export interface InteractiveAskOptions {
   onBeforePrompt?: () => void;
   /** Echoes the "+ allow X (this session)" confirmation line. */
   echo?: (line: string) => void;
+  /** Current permission mode, used to decide whether to offer `[s]`. */
+  getMode?: () => PermissionMode;
+  /** Whether auto mode can be switched to from this prompt. */
+  getAutoAvailable?: () => boolean;
+  /** Switch the live session into auto mode after `[s]`. */
+  onAuto?: () => void;
 }
 
 /**
@@ -184,21 +205,32 @@ export function interactiveAskHandler(
   prompter: Prompter,
   opts: InteractiveAskOptions = {},
 ): AskHandler {
-  return async ({ toolName, input, reason, signal }) => {
+  return async ({ toolName, input, reason, forcedByRule, signal }) => {
     opts.onBeforePrompt?.();
     // Builtins read better capitalized ("Bash …"); namespaced MCP tool names
     // (`mcp__linear__list_issues`) are left exactly as they are.
     const label = toolName.includes('__') ? toolName : capitalize(toolName);
+    const offerAuto = offerAutoSwitch({
+      mode: opts.getMode?.() ?? 'ask',
+      autoAvailable: opts.getAutoAvailable?.() ?? false,
+      toolName,
+      ...(forcedByRule ? { forcedByRule: true } : {}),
+    });
     const res = await prompter.confirm({
       title: reason.startsWith('mcp__') ? reason : capitalize(reason),
       detail: describeToolInput(toolName, input),
       alwaysLabel: label,
+      offerAuto,
       ...(signal ? { signal } : {}),
     });
     if (res.choice === 'once') return { decision: 'allow' };
     if (res.choice === 'always') {
       engine.addAllowRule(label);
       opts.echo?.(`+ allow ${label} (this session)`);
+      return { decision: 'allow' };
+    }
+    if (res.choice === 'auto') {
+      opts.onAuto?.();
       return { decision: 'allow' };
     }
     return {

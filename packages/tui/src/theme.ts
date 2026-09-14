@@ -19,6 +19,7 @@ export interface Theme {
   success: string;
   warning: string;
   error: string;
+  auto: string;
   toolBorder: string;
 }
 
@@ -31,6 +32,7 @@ export const DARK: Theme = {
   success: '#3FB950',
   warning: '#D29922',
   error: '#F85149',
+  auto: '#A371F7',
   toolBorder: '#5A5A5A',
 };
 
@@ -43,5 +45,6 @@ export const LIGHT: Theme = {
   success: '#1A7F37',
   warning: '#9A6700',
   error: '#CF222E',
+  auto: '#8250DF',
   toolBorder: '#C8C8C8',
 };

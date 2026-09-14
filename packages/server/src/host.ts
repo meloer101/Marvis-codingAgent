@@ -67,6 +67,7 @@ interface PendingAsk {
   toolName: string;
   input: unknown;
   reason: string;
+  forcedByRule?: boolean;
   resolve: (decision: PermissionDecision) => void;
 }
 
@@ -74,7 +75,7 @@ interface PendingPlan {
   planId: string;
   title: string;
   body: string;
-  resolve: (result: { approved: boolean; feedback?: string }) => void;
+  resolve: (result: { approved: boolean; feedback?: string; mode?: PermissionMode }) => void;
 }
 
 /** A subscriber's frame sink. Registered on `subscribe`, dropped on disconnect. */
@@ -185,11 +186,19 @@ export class SessionHost {
     toolName: string;
     input: unknown;
     reason: string;
+    forcedByRule?: boolean;
     signal?: AbortSignal;
   }): Promise<PermissionDecision> =>
     new Promise<PermissionDecision>((resolve) => {
       const askId = randomUUID();
-      this.#asks.push({ askId, toolName: req.toolName, input: req.input, reason: req.reason, resolve });
+      this.#asks.push({
+        askId,
+        toolName: req.toolName,
+        input: req.input,
+        reason: req.reason,
+        ...(req.forcedByRule ? { forcedByRule: true } : {}),
+        resolve,
+      });
       if (this.#asks.length === 1) this.#announceAsk();
       req.signal?.addEventListener(
         'abort',
@@ -207,8 +216,10 @@ export class SessionHost {
       );
     });
 
-  readonly confirm = (req: { title: string; body: string }): Promise<{ approved: boolean; feedback?: string }> =>
-    new Promise<{ approved: boolean; feedback?: string }>((resolve) => {
+  readonly confirm = (
+    req: { title: string; body: string },
+  ): Promise<{ approved: boolean; feedback?: string; mode?: PermissionMode }> =>
+    new Promise((resolve) => {
       const planId = randomUUID();
       this.#pendingPlan = { planId, title: req.title, body: req.body, resolve };
       this.#emit({ type: 'plan', planId, title: req.title, body: req.body });
@@ -217,10 +228,11 @@ export class SessionHost {
   // -- human-in-the-loop answers --------------------------------------------
 
   /** First answer wins; a stale/duplicate `askId` is a no-op. */
-  answerAsk(askId: string, decision: 'once' | 'always' | 'deny', feedback?: string): void {
+  answerAsk(askId: string, decision: 'once' | 'always' | 'deny' | 'auto', feedback?: string): void {
     const p = this.#pendingAsk;
     if (!p || p.askId !== askId) return;
     if (decision === 'always') this.#requireSession().engine.addAllowRule(p.toolName);
+    if (decision === 'auto') this.setMode('auto');
     const verdict: PermissionDecision =
       decision === 'deny'
         ? { decision: 'deny', reason: feedback ? `User declined: ${feedback}` : 'User declined' }
@@ -228,11 +240,15 @@ export class SessionHost {
     this.#settleAsk('user', verdict);
   }
 
-  answerPlan(planId: string, approved: boolean, feedback?: string): void {
+  answerPlan(planId: string, approved: boolean, feedback?: string, mode?: PermissionMode): void {
     const p = this.#pendingPlan;
     if (!p || p.planId !== planId) return;
     this.#pendingPlan = null;
-    p.resolve({ approved, ...(feedback ? { feedback } : {}) });
+    p.resolve({
+      approved,
+      ...(feedback ? { feedback } : {}),
+      ...(mode ? { mode } : {}),
+    });
     this.#emit({ type: 'resolved', requestId: planId, by: 'user' });
   }
 
@@ -248,7 +264,14 @@ export class SessionHost {
   #announceAsk(): void {
     const head = this.#pendingAsk;
     if (!head) return;
-    this.#emit({ type: 'ask', askId: head.askId, toolName: head.toolName, input: head.input, reason: head.reason });
+    this.#emit({
+      type: 'ask',
+      askId: head.askId,
+      toolName: head.toolName,
+      input: head.input,
+      reason: head.reason,
+      ...(head.forcedByRule ? { forcedByRule: true } : {}),
+    });
   }
 
   // -- control --------------------------------------------------------------
@@ -392,6 +415,7 @@ export class SessionHost {
         toolName: this.#pendingAsk.toolName,
         input: this.#pendingAsk.input,
         reason: this.#pendingAsk.reason,
+        ...(this.#pendingAsk.forcedByRule ? { forcedByRule: true } : {}),
       };
     }
     if (this.#pendingPlan) {

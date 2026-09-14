@@ -41,21 +41,21 @@ describe('exitPlanModeTool', () => {
     expect(body).toContain('step 1');
   });
 
-  it('approved: switches mode and does not end the run', async () => {
-    let exited = 0;
+  it('approved: switches to the mode the confirm result asked for', async () => {
+    let got: string | undefined;
     const control: AgentControl = {
       mode: 'plan',
-      exitPlanMode: () => {
-        exited++;
-        return 'acceptEdits';
+      exitPlanMode: (mode) => {
+        got = mode;
+        return mode ?? 'acceptEdits';
       },
-      confirm: async () => ({ approved: true }),
+      confirm: async () => ({ approved: true, mode: 'auto' }),
     };
     const res = await exitPlanModeTool.execute({ plan: 'the plan', title: 'My Plan' }, ctx(control));
-    expect(exited).toBe(1);
+    expect(got).toBe('auto');
     expect(res.endsRun).toBeFalsy();
     expect(res.content).toMatch(/approved/i);
-    expect(res.content).toContain('acceptEdits');
+    expect(res.content).toContain('auto');
     expect(await planFiles()).toHaveLength(1);
   });
 

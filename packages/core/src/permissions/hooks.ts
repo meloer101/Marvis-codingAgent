@@ -51,6 +51,7 @@ export function createPermissionHooks(
           toolName: call.name,
           input: call.input,
           reason: verdict.reason,
+          ...(verdict.forcedByRule ? { forcedByRule: true } : {}),
           ...(ctx.signal ? { signal: ctx.signal } : {}),
         });
       }

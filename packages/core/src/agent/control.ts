@@ -27,13 +27,17 @@ export interface AgentControl {
   /** Record that the model loaded a skill (called by the `skill` tool). */
   activateSkill?(skill: ActiveSkill): void;
   /**
-   * Approve leaving plan mode. Returns the mode now in effect (chosen by the
-   * CLI, not the tool). Safe to call when already out of plan mode.
+   * Approve leaving plan mode. `mode` overrides the session's planApprovedMode
+   * when the UI picked a destination (auto / ask / acceptEdits). Returns the
+   * mode now in effect. Safe to call when already out of plan mode.
    */
-  exitPlanMode(): PermissionMode;
+  exitPlanMode(mode?: PermissionMode): PermissionMode;
   /**
    * Present something for human approval. Absent in non-interactive runs — a
    * tool that needs a decision then must end the run instead (see `ToolResult.endsRun`).
    */
-  confirm?(req: { title: string; body: string }): Promise<{ approved: boolean; feedback?: string }>;
+  confirm?(req: {
+    title: string;
+    body: string;
+  }): Promise<{ approved: boolean; feedback?: string; mode?: PermissionMode }>;
 }

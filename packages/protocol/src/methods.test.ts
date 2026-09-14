@@ -31,17 +31,21 @@ describe('methods', () => {
     expect(schema.safeParse({ id: 's1', sinceSeq: 'nope' }).success).toBe(false);
   });
 
-  it('ask.answer only accepts the three known decisions', () => {
+  it('ask.answer accepts once/always/deny/auto', () => {
     const schema = methods['ask.answer'].params;
     expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'once' }).success).toBe(true);
     expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'always' }).success).toBe(true);
     expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'deny' }).success).toBe(true);
+    expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'auto' }).success).toBe(true);
     expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'maybe' }).success).toBe(false);
   });
 
-  it('plan.answer requires approved as a boolean', () => {
+  it('plan.answer requires approved as a boolean and accepts an optional mode', () => {
     const schema = methods['plan.answer'].params;
     expect(schema.safeParse({ sessionId: 's1', planId: 'p1', approved: true }).success).toBe(true);
+    expect(schema.safeParse({ sessionId: 's1', planId: 'p1', approved: true, mode: 'auto' }).success).toBe(
+      true,
+    );
     expect(schema.safeParse({ sessionId: 's1', planId: 'p1', approved: 'yes' }).success).toBe(false);
   });
 });

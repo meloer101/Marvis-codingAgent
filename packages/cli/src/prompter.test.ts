@@ -80,6 +80,16 @@ describe('ReadlinePrompter.confirm', () => {
     h.close();
   });
 
+  it('maps "s" to auto when offered', async () => {
+    const h = harness();
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', offerAuto: true });
+    await tick();
+    expect(h.out()).toContain('[s] yes, and switch to auto mode');
+    h.send('s');
+    expect(await p).toEqual({ choice: 'auto' });
+    h.close();
+  });
+
   it('serializes concurrent prompts — the second is not shown until the first is answered', async () => {
     const h = harness();
     const a = h.prompter.confirm({ title: 'FIRST', detail: 'a' });
@@ -136,5 +146,43 @@ describe('interactiveAskHandler', () => {
     const d = await ask({ toolName: 'bash', input: {}, reason: 'r' });
     expect(d.decision).toBe('deny');
     if (d.decision === 'deny') expect(d.reason).toContain('use the test db');
+  });
+
+  it('"auto" -> allow and calls onAuto', async () => {
+    const engine = { addAllowRule: () => {} };
+    let switched = false;
+    const ask = interactiveAskHandler(engine, fakePrompter({ choice: 'auto' }), {
+      getMode: () => 'ask',
+      getAutoAvailable: () => true,
+      onAuto: () => {
+        switched = true;
+      },
+    });
+    expect(await ask({ toolName: 'bash', input: { command: 'ls' }, reason: 'r' })).toEqual({
+      decision: 'allow',
+    });
+    expect(switched).toBe(true);
+  });
+});
+
+describe('ReadlinePrompter.approve', () => {
+  it('maps "y" to approve with auto mode when available', async () => {
+    const h = harness();
+    const p = h.prompter.approve({ title: 'Plan', body: 'do it', autoAvailable: true, yesMode: 'auto' });
+    await tick();
+    expect(h.out()).toContain('[y] yes, and use auto mode');
+    expect(h.out()).toContain('[m] yes, manually approve edits');
+    h.send('y');
+    expect(await p).toEqual({ approved: true, mode: 'auto' });
+    h.close();
+  });
+
+  it('maps "m" to approve with ask mode', async () => {
+    const h = harness();
+    const p = h.prompter.approve({ title: 'Plan', body: 'do it', autoAvailable: true, yesMode: 'auto' });
+    await tick();
+    h.send('m');
+    expect(await p).toEqual({ approved: true, mode: 'ask' });
+    h.close();
   });
 });

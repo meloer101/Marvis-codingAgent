@@ -31,18 +31,31 @@ export { PermissionEngine, createPermissionEngine } from './engine.js';
 export type { PermissionEngineOptions } from './engine.js';
 export { isAutoModeAvailable } from './available.js';
 export type { AutoModeAvailability } from './available.js';
+export {
+  permissionModeCycle,
+  nextPermissionMode,
+  offerAutoSwitch,
+  defaultPlanYesMode,
+} from './cycle.js';
 export { createPermissionHooks, nonInteractiveAskHandler } from './hooks.js';
 export type { AutoModeHookOptions, AutoModeNotice } from './hooks.js';
 export {
   AutoModeClassifier,
   AutoModeState,
   applySubagentReview,
+  collectAutoModeSetupContext,
+  draftAutoModeEnvironment,
   resolveAutoModeRules,
   listUsesDefaults,
   defaultRulesFor,
   classifierDenyMessage,
+  appendCustomRule,
+  DEFAULT_ENVIRONMENT,
+  DEFAULT_ALLOW,
+  DEFAULT_SOFT_DENY,
+  DEFAULT_HARD_DENY,
 } from './auto-mode/index.js';
-export type { AutoModeDenial, ClassifyResult } from './auto-mode/index.js';
+export type { AutoModeDenial, ClassifyResult, AutoModeRuleGroup } from './auto-mode/index.js';
 export { isSecretEnvKey, sandboxedEnv } from './sandbox.js';
 export { buildSandboxProfile, isSandboxExecAvailable, wrapCommand } from './macos-sandbox.js';
 export type { WrappedCommand } from './macos-sandbox.js';

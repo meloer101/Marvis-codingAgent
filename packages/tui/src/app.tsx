@@ -12,15 +12,25 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { Box, Static, Text, useInput, useStdout } from 'ink';
 
 import type { AgentSession, PermissionMode, ReasoningEffort } from '@harness-code/core';
-import { AGENT_DIR, findProjectRoot, listSessionIds, loadTranscript } from '@harness-code/core';
+import {
+  AGENT_DIR,
+  defaultPlanYesMode,
+  findProjectRoot,
+  listSessionIds,
+  loadTranscript,
+  nextPermissionMode,
+  offerAutoSwitch,
+} from '@harness-code/core';
 import type { EventBuffer } from '@harness-code/protocol';
 import { entriesFromTranscript } from '@harness-code/protocol';
 
+import { AutoModeSetupHint, AutoModeSetupOverlay } from './components/auto-setup.js';
 import { HistoryEntry, MeterBar, ModeBar, ToolCard } from './components/display.js';
 import { EffortPicker } from './components/EffortPicker.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { Input, type CommandInfo } from './components/Input.js';
 import { Overlay, PermissionModal, PlanModal } from './components/modals.js';
+import { PermissionsOverlay } from './components/permissions.js';
 import { Markdown } from './markdown/render.js';
 import type { UiStore } from './state/bridges.js';
 import { initialTuiState, sessionReducer } from './state/reducer.js';
@@ -30,9 +40,11 @@ import { useTheme } from './hooks/useTheme.js';
 const FLUSH_MS = 33;
 const BUILTIN_COMMANDS: CommandInfo[] = [
   { command: '/help', description: 'show keys and commands' },
-  { command: '/mode', description: 'switch permission mode (ask / acceptEdits / plan)' },
+  { command: '/mode', description: 'switch permission mode (ask / acceptEdits / plan / auto)' },
   { command: '/plan', description: 'enter plan mode' },
   { command: '/effort', description: 'adjust reasoning effort (←/→ picker)' },
+  { command: '/permissions', description: 'review auto-mode denials and classifier rules' },
+  { command: '/auto-mode-setup', description: 'draft auto-mode environment from this repo' },
   { command: '/compact', description: 'summarize history to free up context' },
   { command: '/cost', description: 'show token usage and cost' },
   { command: '/resume', description: 'resume a previous session' },
@@ -41,8 +53,6 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
   { command: '/clear', description: 'clear the transcript' },
   { command: '/quit', description: 'exit Marvis' },
 ];
-/** Shift+Tab-style permission-mode cycle for `/mode` with no argument. */
-const MODE_CYCLE: readonly PermissionMode[] = ['ask', 'acceptEdits', 'plan'];
 const ALL_MODES: readonly PermissionMode[] = ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo', 'auto'];
 
 export interface AppProps {
@@ -90,6 +100,8 @@ export function App({
   const lastCtrlCRef = useRef(0);
   const lastAskRef = useRef<unknown>(null);
   const lastPlanRef = useRef<unknown>(null);
+  const startedInYoloRef = useRef(initialSession.mode === 'yolo');
+  const autoSetupHintShownRef = useRef(false);
 
   // Keep the shared holder pointed at the live session so the store's
   // "always allow" seam targets the session `/resume` may have swapped in.
@@ -101,6 +113,32 @@ export function App({
   const flushNow = useCallback(() => {
     d({ type: 'FLUSH', live: buffer.snapshot() });
   }, [buffer, d]);
+
+  const cycleOpts = {
+    includeYolo: startedInYoloRef.current,
+    includeAuto: session.autoModeAvailable,
+  };
+
+  const applyMode = useCallback(
+    (next: PermissionMode) => {
+      session.setMode(next);
+      d({ type: 'SET_MODE', mode: session.mode });
+    },
+    [session, d],
+  );
+
+  const planYesMode = session.planApprovedModeIsExplicit
+    ? session.planApprovedMode
+    : defaultPlanYesMode(session.autoModeAvailable);
+
+  const offerAuto =
+    state.pendingAsk !== null &&
+    offerAutoSwitch({
+      mode: state.mode,
+      autoAvailable: session.autoModeAvailable,
+      toolName: state.pendingAsk.toolName,
+      ...(state.pendingAsk.forcedByRule ? { forcedByRule: true } : {}),
+    });
 
   // Flush loop: pull from the mutable buffer/store into React state.
   useEffect(() => {
@@ -152,6 +190,16 @@ export function App({
           context: session.contextSnapshot,
         });
         buffer.reset();
+        if (
+          !autoSetupHintShownRef.current &&
+          session.autoModeAvailable &&
+          session.autoModeCumulativeDenials >= 3 &&
+          !session.autoModeEnvironmentConfigured &&
+          !session.hideAutoModeSetup
+        ) {
+          autoSetupHintShownRef.current = true;
+          d({ type: 'OPEN_OVERLAY', overlay: 'auto-setup-hint' });
+        }
       } catch (err) {
         store.pushNotice({
           kind: 'error',
@@ -253,17 +301,19 @@ export function App({
           return;
         }
         case 'plan':
-          session.setMode('plan');
-          d({ type: 'SET_MODE', mode: 'plan' });
+          applyMode('plan');
+          return;
+        case 'permissions':
+          d({ type: 'OPEN_OVERLAY', overlay: 'permissions' });
+          return;
+        case 'auto-mode-setup':
+          d({ type: 'OPEN_OVERLAY', overlay: 'auto-setup' });
           return;
         case 'mode': {
           const arg = text.slice(1).split(/\s+/)[1] as PermissionMode | undefined;
           const next: PermissionMode =
-            arg && ALL_MODES.includes(arg)
-              ? arg
-              : (MODE_CYCLE[(MODE_CYCLE.indexOf(state.mode) + 1) % MODE_CYCLE.length] ?? 'ask');
-          session.setMode(next);
-          d({ type: 'SET_MODE', mode: next });
+            arg && ALL_MODES.includes(arg) ? arg : nextPermissionMode(state.mode, cycleOpts);
+          applyMode(next);
           return;
         }
         case 'effort': {
@@ -295,7 +345,7 @@ export function App({
         }
       }
     },
-    [session, store, d, runTurn, onExit, stdout, state.mode, skills, loadSkill, effortLevels],
+    [session, store, d, runTurn, onExit, stdout, state.mode, skills, loadSkill, effortLevels, applyMode, cycleOpts],
   );
 
   const submit = useCallback(
@@ -338,6 +388,7 @@ export function App({
           ...(next.contextSnapshot ? { context: next.contextSnapshot } : {}),
         });
         d({ type: 'CLOSE_OVERLAY' });
+        startedInYoloRef.current = next.mode === 'yolo';
       } catch (err) {
         store.pushNotice({
           kind: 'error',
@@ -349,16 +400,38 @@ export function App({
     [session, createSession, buffer, cwd, store, d],
   );
 
-  useInput((input, key) => {
+  const overlayOwnsKeys =
+    state.overlay === 'permissions' ||
+    state.overlay === 'auto-setup' ||
+    state.overlay === 'auto-setup-hint';
+
+  useInput(
+    (input, key) => {
     if (store.pendingAsk) {
       if (input === 'y') store.answerAsk('once');
       else if (input === 'a') store.answerAsk('always');
-      else if (input === 'n' || key.escape) store.answerAsk('deny');
+      else if (
+        input === 's' &&
+        offerAutoSwitch({
+          mode: state.mode,
+          autoAvailable: session.autoModeAvailable,
+          toolName: store.pendingAsk.toolName,
+          ...(store.pendingAsk.forcedByRule ? { forcedByRule: true } : {}),
+        })
+      ) {
+        store.answerAsk('once');
+        applyMode('auto');
+      } else if (input === 'n' || key.escape) store.answerAsk('deny');
       return;
     }
     if (store.pendingPlan) {
-      if (input === 'y') store.answerPlan(true);
-      else if (input === 'e') store.answerPlan(false, 'revise');
+      if (input === 'y') {
+        store.answerPlan(true, undefined, planYesMode);
+        d({ type: 'SET_MODE', mode: planYesMode });
+      } else if (input === 'm') {
+        store.answerPlan(true, undefined, 'ask');
+        d({ type: 'SET_MODE', mode: 'ask' });
+      } else if (input === 'e') store.answerPlan(false, 'revise');
       else if (key.escape) store.answerPlan(false);
       return;
     }
@@ -389,10 +462,7 @@ export function App({
       return;
     }
     if (key.tab && key.shift) {
-      // Shift+Tab cycles the permission mode (Tab alone stays with completion).
-      const next = MODE_CYCLE[(MODE_CYCLE.indexOf(state.mode) + 1) % MODE_CYCLE.length] ?? 'ask';
-      session.setMode(next);
-      d({ type: 'SET_MODE', mode: next });
+      applyMode(nextPermissionMode(state.mode, cycleOpts));
       return;
     }
     if (key.escape) {
@@ -420,7 +490,9 @@ export function App({
       d({ type: 'TOGGLE_EXPAND' });
       return;
     }
-  });
+  },
+    { isActive: !overlayOwnsKeys },
+  );
 
   // Load the resume list lazily when the overlay opens.
   useEffect(() => {
@@ -462,10 +534,41 @@ export function App({
         )}
       </ErrorBoundary>
 
-      {state.pendingAsk && <PermissionModal ask={state.pendingAsk} theme={theme} />}
-      {state.pendingPlan && <PlanModal plan={state.pendingPlan} theme={theme} />}
+      {state.pendingAsk && (
+        <PermissionModal ask={state.pendingAsk} theme={theme} offerAuto={offerAuto} />
+      )}
+      {state.pendingPlan && (
+        <PlanModal
+          plan={state.pendingPlan}
+          theme={theme}
+          autoAvailable={session.autoModeAvailable}
+          yesMode={planYesMode}
+        />
+      )}
       {state.overlay === 'effort' ? (
         <EffortPicker value={effortDraft} levels={effortLevels} theme={theme} />
+      ) : state.overlay === 'permissions' ? (
+        <PermissionsOverlay
+          session={session}
+          theme={theme}
+          onClose={() => d({ type: 'CLOSE_OVERLAY' })}
+        />
+      ) : state.overlay === 'auto-setup' ? (
+        <AutoModeSetupOverlay
+          session={session}
+          theme={theme}
+          onClose={() => d({ type: 'CLOSE_OVERLAY' })}
+        />
+      ) : state.overlay === 'auto-setup-hint' ? (
+        <AutoModeSetupHint
+          theme={theme}
+          onSetup={() => d({ type: 'OPEN_OVERLAY', overlay: 'auto-setup' })}
+          onDismiss={() => {
+            void session.dismissAutoModeSetupHint();
+            d({ type: 'CLOSE_OVERLAY' });
+          }}
+          onClose={() => d({ type: 'CLOSE_OVERLAY' })}
+        />
       ) : state.overlay ? (
         <Overlay
           kind={state.overlay}
@@ -480,7 +583,12 @@ export function App({
         onSubmit={submit}
         commands={commands}
         theme={theme}
-        disabled={working || state.pendingAsk !== null || state.pendingPlan !== null}
+        disabled={
+          working ||
+          state.pendingAsk !== null ||
+          state.pendingPlan !== null ||
+          state.overlay !== null
+        }
       />
       <ModeBar
         mode={state.mode}

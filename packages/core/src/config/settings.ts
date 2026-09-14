@@ -10,7 +10,7 @@
  * The merge strategy is fixed here so those additions inherit it.
  */
 
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
@@ -59,7 +59,7 @@ export interface Settings extends RouterSettings {
   /** Per-session telemetry trace under `.agent/traces`. Default enabled; `--no-trace` overrides per run. */
   telemetry?: { enabled?: boolean };
   /** TUI presentation hints. `theme` is a v1 stub: dark is the default, auto/light land later. */
-  tui?: { theme?: 'dark' | 'light' | 'auto' };
+  tui?: { theme?: 'dark' | 'light' | 'auto'; hideAutoModeSetup?: boolean };
   permissions?: PermissionConfig;
   /**
    * When auto mode is available, non-read-only bash in plan mode goes to the
@@ -189,7 +189,61 @@ export function mergeSettings(base: Settings, layer: Settings): Settings {
       hard_deny: [...(base.autoMode?.hard_deny ?? []), ...(layer.autoMode?.hard_deny ?? [])],
     };
   }
+  if (base.tui || layer.tui) {
+    merged.tui = { ...base.tui, ...layer.tui };
+  }
   return merged;
+}
+
+/** Path of the user-level settings file (`~/.agent/settings.json`). */
+export function userSettingsPath(homeDir = homedir()): string {
+  return join(homeDir, AGENT_DIR, SETTINGS_FILE);
+}
+
+/**
+ * Patch `~/.agent/settings.json` (create it if missing). Array fields in
+ * `autoMode` are replaced, not concatenated — callers pass the full list they
+ * want persisted. Project settings are never written here.
+ */
+export async function writeUserSettings(
+  patch: Settings,
+  opts?: { homeDir?: string },
+): Promise<string> {
+  const path = userSettingsPath(opts?.homeDir);
+  let existing: Settings = {};
+  try {
+    existing = JSON.parse(await readFile(path, 'utf8')) as Settings;
+  } catch {
+    // First write.
+  }
+  const next: Settings = { ...existing, ...patch };
+  if (patch.permissions) {
+    next.permissions = { ...existing.permissions, ...patch.permissions };
+  }
+  if (patch.autoMode) {
+    next.autoMode = { ...existing.autoMode, ...patch.autoMode };
+  }
+  if (patch.tui) {
+    next.tui = { ...existing.tui, ...patch.tui };
+  }
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+  return path;
+}
+
+/** Remove the `autoMode` block from `~/.agent/settings.json`. Other keys stay. */
+export async function clearUserAutoMode(opts?: { homeDir?: string }): Promise<string> {
+  const path = userSettingsPath(opts?.homeDir);
+  let existing: Settings = {};
+  try {
+    existing = JSON.parse(await readFile(path, 'utf8')) as Settings;
+  } catch {
+    return path;
+  }
+  delete existing.autoMode;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(existing, null, 2)}\n`, 'utf8');
+  return path;
 }
 
 /**

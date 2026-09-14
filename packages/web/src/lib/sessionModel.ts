@@ -145,7 +145,12 @@ export class SessionModel {
       case 'ask':
         this.#dispatch({
           type: 'PENDING_ASK',
-          ask: { toolName: event.toolName, input: event.input, reason: event.reason },
+          ask: {
+            toolName: event.toolName,
+            input: event.input,
+            reason: event.reason,
+            ...(event.forcedByRule ? { forcedByRule: true } : {}),
+          },
         });
         this.#state = { ...this.#state, askId: event.askId };
         return true;
@@ -220,7 +225,12 @@ export function stateFromSnapshot(
     ...(s.usage ? { usage: s.usage } : {}),
     ...(s.context ? { context: s.context } : {}),
     pendingAsk: s.pendingAsk
-      ? { toolName: s.pendingAsk.toolName, input: s.pendingAsk.input, reason: s.pendingAsk.reason }
+      ? {
+          toolName: s.pendingAsk.toolName,
+          input: s.pendingAsk.input,
+          reason: s.pendingAsk.reason,
+          ...(s.pendingAsk.forcedByRule ? { forcedByRule: true } : {}),
+        }
       : null,
     pendingPlan: s.pendingPlan ? { title: s.pendingPlan.title, body: s.pendingPlan.body } : null,
     id: s.id,

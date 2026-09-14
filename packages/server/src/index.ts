@@ -22,6 +22,7 @@ import {
   VERSION,
   buildSessionConfig,
   findProjectRoot,
+  isAutoModeAvailable,
   loadSettings,
 } from '@harness-code/core';
 import type { PermissionMode } from '@harness-code/core';
@@ -81,7 +82,11 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       projectRoot,
       defaultModel: opts.model ?? settings.model ?? '',
       models: providers.list(),
-      modes: PERMISSION_MODES,
+      modes: PERMISSION_MODES.filter(
+        (m) =>
+          m !== 'auto' ||
+          isAutoModeAvailable(settings, providers, opts.model ?? settings.model).available,
+      ),
     };
   };
 

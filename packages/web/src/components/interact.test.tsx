@@ -146,10 +146,23 @@ describe('PendingDock', () => {
       }),
     );
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'smaller steps' } });
-    fireEvent.click(screen.getByText(/Reject/));
-    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', false, 'smaller steps');
-    fireEvent.click(screen.getByText(/Approve/));
-    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', true);
+    fireEvent.click(screen.getByText(/Revise/));
+    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', false, 'revise');
+    fireEvent.click(screen.getByText(/Yes, auto-accept edits/));
+    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', true, undefined, 'acceptEdits');
+  });
+
+  it('approves a plan into ask mode with m', () => {
+    const sync = renderDock(
+      dockView({
+        pendingAsk: null,
+        askId: null,
+        pendingPlan: { title: 'Plan', body: '1. do it' },
+        planId: 'p1',
+      }),
+    );
+    fireEvent.click(screen.getByText(/Yes, approve manually/));
+    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', true, undefined, 'ask');
   });
 });
 

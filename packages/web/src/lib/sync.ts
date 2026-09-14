@@ -149,9 +149,21 @@ export class SessionSync {
     );
   }
 
-  answerPlan(sessionId: string, planId: string, approved: boolean, feedback?: string): Promise<void> {
+  answerPlan(
+    sessionId: string,
+    planId: string,
+    approved: boolean,
+    feedback?: string,
+    mode?: PermissionMode,
+  ): Promise<void> {
     return this.#run(
-      this.rpc.call('plan.answer', { sessionId, planId, approved, ...(feedback ? { feedback } : {}) }),
+      this.rpc.call('plan.answer', {
+        sessionId,
+        planId,
+        approved,
+        ...(feedback ? { feedback } : {}),
+        ...(mode ? { mode } : {}),
+      }),
     );
   }
 

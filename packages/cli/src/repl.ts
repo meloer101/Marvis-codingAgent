@@ -29,6 +29,13 @@ export async function runRepl(config: AgentSessionConfig, sink: TextSink): Promi
   session = await AgentSession.create({
     ...config,
     askHandler,
+    confirm: (req) =>
+      prompter.approve({
+        title: req.title,
+        body: req.body,
+        autoAvailable: session!.autoModeAvailable,
+        yesMode: session!.planApprovedMode,
+      }),
     onEvent: (e) => sink.event(e),
     onNotice: (n) => sink.notice(n),
   });

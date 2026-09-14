@@ -251,8 +251,8 @@ class Connection {
         return undefined;
       }
       case 'plan.answer': {
-        const { sessionId, planId, approved, feedback } = params as MethodParams<'plan.answer'>;
-        this.#host(sessionId).answerPlan(planId, approved, feedback);
+        const { sessionId, planId, approved, feedback, mode } = params as MethodParams<'plan.answer'>;
+        this.#host(sessionId).answerPlan(planId, approved, feedback, mode);
         return undefined;
       }
       default: {

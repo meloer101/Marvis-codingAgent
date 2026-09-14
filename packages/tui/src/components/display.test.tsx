@@ -4,10 +4,24 @@ import { cleanup, render } from 'ink-testing-library';
 
 import type { ToolResult } from '@harness-code/core';
 
-import { MeterBar, ToolCard } from './display.js';
+import { MeterBar, ModeBar, ToolCard } from './display.js';
 import { DARK } from '../theme.js';
 
 afterEach(cleanup);
+
+describe('ModeBar', () => {
+  it('labels ask / acceptEdits / plan / auto / yolo the way the status line reads', () => {
+    const frame = (mode: 'ask' | 'acceptEdits' | 'plan' | 'auto' | 'yolo') =>
+      render(
+        <ModeBar mode={mode} modelRef="deepseek/v4" cwd="/tmp/proj" theme={DARK} />,
+      ).lastFrame() ?? '';
+    expect(frame('ask')).toContain('⏸ ask mode on');
+    expect(frame('acceptEdits')).toContain('⏵⏵ accept edits on');
+    expect(frame('plan')).toContain('⏸ plan mode on');
+    expect(frame('auto')).toContain('⏵⏵ auto mode on');
+    expect(frame('yolo')).toContain('⏵⏵ yolo on');
+  });
+});
 
 describe('MeterBar', () => {
   it('shows token counts and cost', () => {

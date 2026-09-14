@@ -46,11 +46,25 @@ export function ModeBar({
         ? theme.warning
         : mode === 'yolo'
           ? theme.error
-          : theme.dim;
+          : mode === 'auto'
+            ? theme.auto
+            : theme.dim;
+  const label =
+    mode === 'ask'
+      ? '⏸ ask mode on'
+      : mode === 'acceptEdits'
+        ? '⏵⏵ accept edits on'
+        : mode === 'plan'
+          ? '⏸ plan mode on'
+          : mode === 'auto'
+            ? '⏵⏵ auto mode on'
+            : mode === 'yolo'
+              ? '⏵⏵ yolo on'
+              : `⏸ ${mode} on`;
   const base = cwd.split('/').filter(Boolean).at(-1) ?? cwd;
   return (
     <Text>
-      <Text color={color}>● {mode}</Text>
+      <Text color={color}>{label}</Text>
       <Text color={theme.dim}>
         {'  '}
         {modelRef}

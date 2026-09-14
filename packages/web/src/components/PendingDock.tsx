@@ -6,24 +6,36 @@ import { Markdown } from '@/components/Markdown';
 import { toolPreview } from '@/components/tools/registry';
 import { Button } from '@/components/ui/button';
 import type { SessionViewState } from '@/lib/sessionModel';
+import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
 
 /**
  * Human-in-the-loop prompts, docked above the composer (opencode-style, no
  * modal). Edits are reviewed as a diff, writes as the file content, bash as
- * the highlighted command (`toolPreview`). Keys match the TUI: y / a / n for
- * a permission ask, y / n for a plan, Esc denies or rejects. Feedback rides
- * along with a deny or a rejection so the model learns why.
+ * the highlighted command (`toolPreview`). Keys match the TUI: y / a / n / s
+ * for a permission ask, y / m / e for a plan, Esc denies or keeps planning.
+ * Feedback rides along with a deny or a rejection so the model learns why.
  *
  * The dock takes focus when a prompt appears (the composer otherwise holds
  * it, and every key would land in the textarea instead).
  */
 export function PendingDock({ view }: { view: SessionViewState }) {
   const sync = useSync();
+  const modes = useAppStore((s) => s.info?.modes);
+  const autoAvailable = (modes ?? []).includes('auto');
   const { pendingAsk, askId, pendingPlan, planId } = view;
   const [feedback, setFeedback] = useState('');
   const ref = useRef<HTMLDivElement>(null);
   const requestId = askId ?? planId;
+
+  const offerAuto =
+    !!pendingAsk &&
+    autoAvailable &&
+    (view.mode === 'ask' || view.mode === 'acceptEdits') &&
+    pendingAsk.toolName.toLowerCase() === 'bash' &&
+    !pendingAsk.forcedByRule;
+
+  const planYesMode = autoAvailable ? 'auto' : 'acceptEdits';
 
   useEffect(() => {
     setFeedback('');
@@ -45,10 +57,13 @@ export function PendingDock({ view }: { view: SessionViewState }) {
     if (pendingAsk && askId) {
       if (key === 'y') hit(() => void sync.answerAsk(view.id, askId, 'once'));
       else if (key === 'a') hit(() => void sync.answerAsk(view.id, askId, 'always'));
+      else if (key === 's' && offerAuto) hit(() => void sync.answerAsk(view.id, askId, 'auto'));
       else if (key === 'n' || e.key === 'Escape') hit(() => void sync.answerAsk(view.id, askId, 'deny', feedback));
     } else if (pendingPlan && planId) {
-      if (key === 'y') hit(() => void sync.answerPlan(view.id, planId, true));
-      else if (key === 'n' || e.key === 'Escape') hit(() => void sync.answerPlan(view.id, planId, false, feedback));
+      if (key === 'y') hit(() => void sync.answerPlan(view.id, planId, true, undefined, planYesMode));
+      else if (key === 'm') hit(() => void sync.answerPlan(view.id, planId, true, undefined, 'ask'));
+      else if (key === 'e') hit(() => void sync.answerPlan(view.id, planId, false, 'revise'));
+      else if (e.key === 'Escape') hit(() => void sync.answerPlan(view.id, planId, false, feedback));
     }
   };
 
@@ -82,13 +97,18 @@ export function PendingDock({ view }: { view: SessionViewState }) {
         {preview && <div className="mt-2">{preview}</div>}
         {pendingAsk.reason && <p className="mt-2 text-xs text-muted-foreground">{pendingAsk.reason}</p>}
         {feedbackBox('Optional: tell the model why, if you deny')}
-        <div className="mt-3 flex gap-2">
+        <div className="mt-3 flex flex-wrap gap-2">
           <Button size="sm" onClick={() => void sync.answerAsk(view.id, askId, 'once')}>
             Allow once<Key>y</Key>
           </Button>
           <Button size="sm" variant="outline" onClick={() => void sync.answerAsk(view.id, askId, 'always')}>
             Always allow<Key>a</Key>
           </Button>
+          {offerAuto && (
+            <Button size="sm" variant="outline" onClick={() => void sync.answerAsk(view.id, askId, 'auto')}>
+              Yes, auto mode<Key>s</Key>
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={() => void sync.answerAsk(view.id, askId, 'deny', feedback)}>
             Deny<Key>n</Key>
           </Button>
@@ -98,6 +118,7 @@ export function PendingDock({ view }: { view: SessionViewState }) {
   }
 
   if (pendingPlan && planId) {
+    const yesLabel = autoAvailable ? 'Yes, auto mode' : 'Yes, auto-accept edits';
     return (
       <div
         ref={ref}
@@ -113,12 +134,20 @@ export function PendingDock({ view }: { view: SessionViewState }) {
           <Markdown text={pendingPlan.body} className="text-xs" />
         </div>
         {feedbackBox('Optional: what should change, if you reject')}
-        <div className="mt-3 flex gap-2">
-          <Button size="sm" onClick={() => void sync.answerPlan(view.id, planId, true)}>
-            Approve<Key>y</Key>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => void sync.answerPlan(view.id, planId, true, undefined, planYesMode)}>
+            {yesLabel}
+            <Key>y</Key>
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => void sync.answerPlan(view.id, planId, false, feedback)}>
-            Reject<Key>n</Key>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void sync.answerPlan(view.id, planId, true, undefined, 'ask')}
+          >
+            Yes, approve manually<Key>m</Key>
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => void sync.answerPlan(view.id, planId, false, 'revise')}>
+            Revise<Key>e</Key>
           </Button>
         </div>
       </div>

@@ -21,8 +21,8 @@ import { join, resolve } from 'node:path';
 
 import { resolveBudgets } from '../config/budgets.js';
 import type { ResolvedBudgets } from '../config/budgets.js';
-import { AGENT_DIR, findProjectRoot } from '../config/settings.js';
-import type { Settings } from '../config/settings.js';
+import { AGENT_DIR, findProjectRoot, writeUserSettings } from '../config/settings.js';
+import type { AutoModeConfig, Settings } from '../config/settings.js';
 import { createCompactor } from '../context/compactor.js';
 import { loadProjectMemory } from '../context/memory.js';
 import type { ProjectMemory } from '../context/memory.js';
@@ -32,8 +32,11 @@ import {
   AutoModeClassifier,
   AutoModeState,
   applySubagentReview,
+  collectAutoModeSetupContext,
   createPermissionEngine,
   createPermissionHooks,
+  defaultPlanYesMode,
+  draftAutoModeEnvironment as runAutoModeSetupDraft,
   isAutoModeAvailable,
   isSandboxExecAvailable,
   nonInteractiveAskHandler,
@@ -155,7 +158,7 @@ export interface AgentSessionConfig {
   mode?: PermissionMode;
   /** Reasoning-effort level for reasoning-capable models. Defaults to `medium`. */
   reasoningEffort?: ReasoningEffort;
-  /** Mode to switch to after a plan is approved. Defaults to `settings` then `acceptEdits`. */
+  /** Mode to switch to after a plan is approved. Defaults to `settings` then auto/acceptEdits. */
   planApprovedMode?: PermissionMode;
   allow?: string[];
   ask?: string[];
@@ -190,7 +193,10 @@ export interface AgentSessionConfig {
   /** Permission `ask` handler. Defaults to `nonInteractiveAskHandler` (deny). */
   askHandler?: AskHandler;
   /** Plan approval. Absent = `exit_plan_mode` writes the plan and ends the run. */
-  confirm?: (req: { title: string; body: string }) => Promise<{ approved: boolean; feedback?: string }>;
+  confirm?: (req: {
+    title: string;
+    body: string;
+  }) => Promise<{ approved: boolean; feedback?: string; mode?: PermissionMode }>;
   /** Hot path: per-token deltas and tool events, forwarded verbatim. */
   onEvent?: (e: AgentEvent) => void;
   /** Cold path: structured status lines. */
@@ -208,6 +214,7 @@ interface SessionInit {
   memoryBuffer: MemoryWriteBuffer;
   engine: PermissionEngine;
   planApprovedMode: PermissionMode;
+  planApprovedModeIsExplicit: boolean;
   recorder: SessionRecorder | undefined;
   trace: TraceRecorder | undefined;
   session: SessionState;
@@ -236,6 +243,7 @@ export class AgentSession {
   readonly #registry: ProviderRegistry;
   readonly #engine: PermissionEngine;
   readonly #planApprovedMode: PermissionMode;
+  readonly #planApprovedModeIsExplicit: boolean;
   readonly #memory: ProjectMemory;
   readonly #agents: AgentDefinition[];
   readonly #hub: McpHub;
@@ -282,6 +290,7 @@ export class AgentSession {
     this.#registry = init.registry;
     this.#engine = init.engine;
     this.#planApprovedMode = init.planApprovedMode;
+    this.#planApprovedModeIsExplicit = init.planApprovedModeIsExplicit;
     this.#memory = init.memory;
     this.#agents = init.agents;
     this.#hub = init.hub;
@@ -328,14 +337,10 @@ export class AgentSession {
               : ''),
         });
       },
-      exitPlanMode: (): PermissionMode => {
-        this.#engine.setMode(this.#planApprovedMode);
-        notice({
-          kind: 'mode-changed',
-          level: 'info',
-          text: `mode: plan → ${this.#planApprovedMode}`,
-        });
-        return this.#planApprovedMode;
+      exitPlanMode: (mode?: PermissionMode): PermissionMode => {
+        const next = mode ?? this.#planApprovedMode;
+        this.setMode(next);
+        return this.#engine.getMode();
       },
       ...(config.confirm ? { confirm: config.confirm } : {}),
     };
@@ -485,7 +490,8 @@ export class AgentSession {
       });
       mode = 'ask';
     }
-    const planApprovedMode = config.planApprovedMode ?? permissions.planApprovedMode ?? 'acceptEdits';
+    const explicitPlanApproved = config.planApprovedMode ?? permissions.planApprovedMode;
+    const planApprovedMode = explicitPlanApproved ?? defaultPlanYesMode(autoAvailable.available);
     const engine = createPermissionEngine({
       workspaceRoot: cwd,
       mode,
@@ -604,6 +610,7 @@ export class AgentSession {
       memoryBuffer,
       engine,
       planApprovedMode,
+      planApprovedModeIsExplicit: explicitPlanApproved !== undefined,
       recorder,
       trace,
       session,
@@ -674,6 +681,63 @@ export class AgentSession {
 
   get recentDenials(): readonly AutoModeDenial[] {
     return this.#autoState?.recentDenials ?? [];
+  }
+
+  get planApprovedMode(): PermissionMode {
+    return this.#planApprovedMode;
+  }
+
+  get planApprovedModeIsExplicit(): boolean {
+    return this.#planApprovedModeIsExplicit;
+  }
+
+  get autoModeCumulativeDenials(): number {
+    return this.#autoState?.cumulativeDenials ?? 0;
+  }
+
+  get autoModeEnvironmentConfigured(): boolean {
+    const env = this.#config.settings.autoMode?.environment;
+    return env !== undefined && env.length > 0;
+  }
+
+  get hideAutoModeSetup(): boolean {
+    return this.#config.settings.tui?.hideAutoModeSetup === true;
+  }
+
+  get autoModeConfig(): AutoModeConfig {
+    return this.#config.settings.autoMode ?? {};
+  }
+
+  async patchUserAutoMode(patch: AutoModeConfig): Promise<string> {
+    const next = { ...this.#config.settings.autoMode, ...patch };
+    const path = await writeUserSettings(
+      { autoMode: next },
+      this.#config.homeDir ? { homeDir: this.#config.homeDir } : {},
+    );
+    this.#config.settings.autoMode = next;
+    this.#autoClassifier?.setAutoMode(next);
+    return path;
+  }
+
+  async dismissAutoModeSetupHint(): Promise<void> {
+    await writeUserSettings(
+      { tui: { ...this.#config.settings.tui, hideAutoModeSetup: true } },
+      this.#config.homeDir ? { homeDir: this.#config.homeDir } : {},
+    );
+    this.#config.settings.tui = { ...this.#config.settings.tui, hideAutoModeSetup: true };
+  }
+
+  async draftAutoModeEnvironment(signal?: AbortSignal): Promise<string[]> {
+    const context = await collectAutoModeSetupContext({
+      cwd: this.#cwd,
+      ...(this.#memory.text ? { projectMemory: this.#memory.text } : {}),
+      allow: this.#config.settings.permissions?.allow ?? [],
+    });
+    let model = this.#model;
+    if (this.#autoAvailable.available && this.#autoAvailable.modelRef !== this.#model.ref) {
+      model = this.#registry.resolve(this.#autoAvailable.modelRef);
+    }
+    return runAutoModeSetupDraft(model, context, signal);
   }
 
   /** Authorize one retry of a previously denied auto-mode call on the next turn. */

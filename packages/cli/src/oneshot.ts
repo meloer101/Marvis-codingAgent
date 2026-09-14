@@ -42,6 +42,17 @@ export async function runOneshot(opts: OneshotOptions): Promise<void> {
       session = await AgentSession.create({
         ...opts.config,
         ...(askHandler ? { askHandler } : {}),
+        ...(prompter
+          ? {
+              confirm: (req: { title: string; body: string }) =>
+                prompter.approve({
+                  title: req.title,
+                  body: req.body,
+                  autoAvailable: session!.autoModeAvailable,
+                  yesMode: session!.planApprovedMode,
+                }),
+            }
+          : {}),
         onEvent: (e) => {
           if (e.type === 'turn_end') {
             turns++;

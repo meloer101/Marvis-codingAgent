@@ -55,14 +55,14 @@ export interface SessionSnapshot {
   usage?: Usage;
   context?: ContextSnapshot;
   running: boolean;
-  pendingAsk?: { askId: string; toolName: string; input: unknown; reason: string };
+  pendingAsk?: { askId: string; toolName: string; input: unknown; reason: string; forcedByRule?: boolean };
   pendingPlan?: { planId: string; title: string; body: string };
   lastSeq: number;
 }
 
 export type SubscribeResult = { lastSeq: number } | { reset: true; snapshot: SessionSnapshot };
 
-export type AskDecision = 'once' | 'always' | 'deny';
+export type AskDecision = 'once' | 'always' | 'deny' | 'auto';
 
 // ---------------------------------------------------------------------------
 // Method table
@@ -126,12 +126,12 @@ export const methods = {
     z.object({
       sessionId: z.string(),
       askId: z.string(),
-      decision: z.enum(['once', 'always', 'deny']),
+      decision: z.enum(['once', 'always', 'deny', 'auto']),
       feedback: z.string().optional(),
     }),
   ),
   'plan.answer': method<
-    { sessionId: string; planId: string; approved: boolean; feedback?: string },
+    { sessionId: string; planId: string; approved: boolean; feedback?: string; mode?: PermissionMode },
     void
   >(
     z.object({
@@ -139,6 +139,7 @@ export const methods = {
       planId: z.string(),
       approved: z.boolean(),
       feedback: z.string().optional(),
+      mode: permissionModeSchema.optional(),
     }),
   ),
 } satisfies Record<string, MethodSpec>;

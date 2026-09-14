@@ -5,7 +5,7 @@
  * loop and routes key presses back through `answerAsk` / `answerPlan`.
  */
 
-import type { AskHandler, Notice, PermissionDecision } from '@harness-code/core';
+import type { AskHandler, Notice, PermissionDecision, PermissionMode } from '@harness-code/core';
 
 import type { PendingAsk, PendingPlan } from './reducer.js';
 
@@ -15,7 +15,8 @@ export class UiStore {
   private notices: Notice[] = [];
   private askLabel = '';
   private resolveAsk: ((d: PermissionDecision) => void) | null = null;
-  private resolvePlan: ((r: { approved: boolean; feedback?: string }) => void) | null = null;
+  private resolvePlan: ((r: { approved: boolean; feedback?: string; mode?: PermissionMode }) => void) | null =
+    null;
 
   constructor(private readonly addAllow: (label: string) => void) {}
 
@@ -23,7 +24,12 @@ export class UiStore {
     new Promise<PermissionDecision>((resolve) => {
       this.askLabel = req.toolName;
       this.resolveAsk = resolve;
-      this.pendingAsk = { toolName: req.toolName, input: req.input, reason: req.reason };
+      this.pendingAsk = {
+        toolName: req.toolName,
+        input: req.input,
+        reason: req.reason,
+        ...(req.forcedByRule ? { forcedByRule: true } : {}),
+      };
       req.signal?.addEventListener(
         'abort',
         () => {
@@ -37,7 +43,7 @@ export class UiStore {
     });
 
   readonly confirm = (req: { title: string; body: string }) =>
-    new Promise<{ approved: boolean; feedback?: string }>((resolve) => {
+    new Promise<{ approved: boolean; feedback?: string; mode?: PermissionMode }>((resolve) => {
       this.resolvePlan = resolve;
       this.pendingPlan = { title: req.title, body: req.body };
     });
@@ -65,10 +71,14 @@ export class UiStore {
     );
   }
 
-  answerPlan(approved: boolean, feedback?: string): void {
+  answerPlan(approved: boolean, feedback?: string, mode?: PermissionMode): void {
     const resolve = this.resolvePlan;
     this.resolvePlan = null;
     this.pendingPlan = null;
-    resolve?.({ approved, feedback });
+    resolve?.({
+      approved,
+      ...(feedback ? { feedback } : {}),
+      ...(mode ? { mode } : {}),
+    });
   }
 }

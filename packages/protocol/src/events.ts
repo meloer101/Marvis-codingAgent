@@ -17,7 +17,7 @@ export type WireEvent =
   | { type: 'run_end'; runId: string; stopReason: AgentStopReason; usage: Usage; sessionUsage: Usage }
   | { type: 'run_error'; runId: string; message: string }
   // human-in-the-loop
-  | { type: 'ask'; askId: string; toolName: string; input: unknown; reason: string }
+  | { type: 'ask'; askId: string; toolName: string; input: unknown; reason: string; forcedByRule?: boolean }
   | { type: 'plan'; planId: string; title: string; body: string }
   | { type: 'resolved'; requestId: string; by: 'user' | 'abort' }
   // state changes not otherwise visible

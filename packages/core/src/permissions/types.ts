@@ -20,6 +20,8 @@ export type AskHandler = (req: {
   toolName: string;
   input: unknown;
   reason: string;
+  /** True when an explicit ask rule forced this prompt — hide “switch to auto”. */
+  forcedByRule?: boolean;
   /** Aborts when the turn is cancelled (Ctrl+C); the handler should settle as a deny. */
   signal?: AbortSignal;
 }) => Promise<PermissionDecision>;

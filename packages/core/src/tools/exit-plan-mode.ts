@@ -47,16 +47,16 @@ export const exitPlanModeTool: ToolSpec<z.infer<typeof schema>> = {
       return { content: `Plan written to ${path}.`, endsRun: true };
     }
 
-    const { approved, feedback } = await ctx.control.confirm({
+    const { approved, feedback, mode } = await ctx.control.confirm({
       title: input.title ?? 'Implementation plan',
       body: input.plan,
     });
 
     if (approved) {
-      const mode = ctx.control.exitPlanMode();
+      const next = ctx.control.exitPlanMode(mode);
       return {
         content:
-          `Plan approved and saved to ${path}. Permission mode is now "${mode}". ` +
+          `Plan approved and saved to ${path}. Permission mode is now "${next}". ` +
           `Begin implementing the plan.`,
       };
     }

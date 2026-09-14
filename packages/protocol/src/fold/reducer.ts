@@ -42,6 +42,7 @@ export interface PendingAsk {
   toolName: string;
   input: unknown;
   reason: string;
+  forcedByRule?: boolean;
 }
 
 export interface PendingPlan {

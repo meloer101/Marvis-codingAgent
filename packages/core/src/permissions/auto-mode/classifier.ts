@@ -37,11 +37,16 @@ export interface AutoModeClassifierOptions {
 
 export class AutoModeClassifier {
   private readonly model: ResolvedModel;
-  private readonly rules: ReturnType<typeof resolveAutoModeRules>;
+  private autoMode: AutoModeConfig | undefined;
 
   constructor(opts: AutoModeClassifierOptions) {
     this.model = opts.model;
-    this.rules = resolveAutoModeRules({ autoMode: opts.autoMode });
+    this.autoMode = opts.autoMode;
+  }
+
+  /** Pick up `/permissions` edits without reconstructing the classifier. */
+  setAutoMode(autoMode: AutoModeConfig | undefined): void {
+    this.autoMode = autoMode;
   }
 
   get ref(): string {
@@ -75,8 +80,9 @@ export class AutoModeClassifier {
       ...(ctx.delegation ? { delegation: ctx.delegation } : {}),
     });
 
-    const sys1 = buildClassifierSystemPrompt(this.rules, 'phase1');
-    const sys2 = buildClassifierSystemPrompt(this.rules, 'phase2');
+    const rules = resolveAutoModeRules({ autoMode: this.autoMode });
+    const sys1 = buildClassifierSystemPrompt(rules, 'phase1');
+    const sys2 = buildClassifierSystemPrompt(rules, 'phase2');
 
     let usage = emptyUsage();
     try {
