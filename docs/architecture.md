@@ -181,7 +181,7 @@ choice; the reasoning is in [ROADMAP.md](./ROADMAP.md).
 `packages/core/src/permissions/` is a rule engine over `Tool(specifier)` patterns
 (`Bash(git status:*)`, `Read(./src/**)`, `mcp__github__create_issue`) with
 `allow` / `ask` / `deny` lists (deny always wins), layered user → project, across
-five modes: `ask`, `plan`, `acceptEdits`, `readOnly`, `yolo`.
+six modes: `ask`, `plan`, `acceptEdits`, `readOnly`, `yolo`, `auto`.
 
 - **Bash via AST.** Commands are parsed with `shell-quote` into an AST, not
   regex-matched; compound commands (`&&`, `|`, `;`, subshells) are judged segment
@@ -190,12 +190,21 @@ five modes: `ask`, `plan`, `acceptEdits`, `readOnly`, `yolo`.
   any `Bash(node:*)` allowance).
 - **Path cage.** Paths are `realpath`-resolved and must stay inside the workspace
   (blocks symlink and `../` escape); a denylist blocks `.env*`, `.git/config`,
-  private keys, credentials.
+  private keys, credentials. Protected paths (`.git`, editor/config dirs, rc
+  files) are asked in `ask`/`acceptEdits`, classified in `auto`, denied in
+  `plan`/`readOnly`, and allowed in `yolo`.
 - **OS sandbox.** On macOS a `sandbox-exec` profile confines child processes to
   workspace writes — the layer that catches what textual review misses (e.g. a
   legitimate tool doing `echo x > /outside`).
 - **Non-interactive safety.** With no one to answer, an `ask` verdict
   deterministically *denies* rather than hanging — the precondition for scripting.
+- **Auto mode.** The engine stays synchronous and may return `{ decision: 'classify' }`.
+  A second model (the classifier, `autoMode.model` or the session model) then
+  allows, denies with a rule label, or — after 3 consecutive / 20 cumulative
+  denials — falls back to a human prompt. Project-level `autoMode` and
+  `permissions.mode: "auto"` are stripped on load so a repo cannot self-authorize.
+  Shift+Tab cycles `ask → acceptEdits → plan → [yolo] → [auto]`; `/permissions`
+  and `hc auto-mode` edit the user-level rule lists.
 
 MCP tools ride this same engine (they can't self-report side effects, so they
 default to the `bash` tier: serial, non-read-only, asked).

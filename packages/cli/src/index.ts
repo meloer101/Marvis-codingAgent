@@ -54,6 +54,12 @@ import { createSink } from './output.js';
 import type { TextSink } from './output.js';
 import { runRepl } from './repl.js';
 import { renderStats, renderTimeline } from './telemetry-view.js';
+import {
+  formatDefaultRules,
+  runAutoModeConfig,
+  runAutoModeCritique,
+  runAutoModeReset,
+} from './auto-mode.js';
 
 /**
  * Minimal `.env` loader: `KEY=value` per line, `#` comments, optional quotes.
@@ -458,6 +464,44 @@ mcp
     if (!server || server.transport === 'stdio') fail(`no remote MCP server named "${name}"`);
     await new FileOAuthStore(server.url).clear();
     console.log(`✓ cleared cached credentials for ${name}`);
+  });
+
+const autoMode = program.command('auto-mode').description('Inspect and edit auto-mode classifier rules');
+
+autoMode
+  .command('defaults')
+  .description('Print the built-in classifier rules')
+  .option('--label <prefix>', 'only print rules whose label starts with this prefix')
+  .action((opts: { label?: string }) => {
+    const text = formatDefaultRules(opts.label);
+    if (text === '') fail(`no built-in rules match label prefix "${opts.label}"`);
+    console.log(text);
+  });
+
+autoMode
+  .command('config')
+  .description('Print the effective auto-mode rules with $defaults expanded')
+  .action(async () => {
+    process.stdout.write(await runAutoModeConfig());
+  });
+
+autoMode
+  .command('critique')
+  .description('Ask the classifier model to review custom auto-mode rules')
+  .action(async () => {
+    try {
+      process.stdout.write(await runAutoModeCritique());
+    } catch (err) {
+      fail(errorMessageOf(err));
+    }
+  });
+
+autoMode
+  .command('reset')
+  .description('Remove the autoMode block from ~/.agent/settings.json')
+  .option('--yes', 'do not prompt for confirmation')
+  .action(async (opts: { yes?: boolean }) => {
+    process.stdout.write(await runAutoModeReset({ yes: opts.yes === true }));
   });
 
 program

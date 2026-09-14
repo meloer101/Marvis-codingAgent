@@ -50,6 +50,7 @@ export {
   defaultRulesFor,
   classifierDenyMessage,
   appendCustomRule,
+  ruleLabel,
   DEFAULT_ENVIRONMENT,
   DEFAULT_ALLOW,
   DEFAULT_SOFT_DENY,

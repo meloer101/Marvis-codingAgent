@@ -219,7 +219,7 @@ describe('AgentSession auto mode', () => {
     expect(session.retryDenied(id!)).toBe(true);
 
     await session.runTurn('try again');
-    const ends = events.filter((e) => e.type === 'tool_call_end' && e.name === 'bash');
+    const ends = events.filter((e): e is ToolCallEndEvent => e.type === 'tool_call_end' && e.name === 'bash');
     expect(ends).toHaveLength(2);
     expect(ends[0]?.result.content).toMatch(/Denied by auto mode classifier/);
     expect(ends[1]?.result.content).not.toMatch(/Denied by auto mode classifier/);

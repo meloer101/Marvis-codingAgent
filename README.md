@@ -75,7 +75,7 @@ Marvis 把和你协作中学到的东西持久化下来，跨会话、跨项目�
 
 **模型兼容** —— `provider/model` 命名、每家可覆盖 base-URL、原生 tool-calling，并对无 `tools` 参数的端点提供 prompt-encoded 回退；对不报告用量的端点也能估算 token 与成本。
 
-**权限与安全** —— 五种模式（`ask`、`plan`、`acceptEdits`、`readOnly`、`yolo`）、形如 `Bash(git status:*)` / `Read(./src/**)` 的 `Tool(说明符)` 规则（deny 优先）、解析符号链接的路径笼，以及对 `.env*`、密钥、`.git/config` 的内置保护。
+**权限与安全** —— 六种模式（`ask`、`plan`、`acceptEdits`、`readOnly`、`yolo`、`auto`）、形如 `Bash(git status:*)` / `Read(./src/**)` 的 `Tool(说明符)` 规则（deny 优先）、解析符号链接的路径笼，以及对 `.env*`、密钥、`.git/config` 的内置保护。`auto` 用第二个模型代替人审查危险操作：安全的直接放行，危险的拦下并让 agent 换做法。
 
 **MCP、Skills 与子代理** —— 接入任意 MCP 服务器（`.mcp.json`，stdio/HTTP/SSE、OAuth），或把 Marvis 自身工具暴露为 MCP 服务；即插即用的 [Agent Skills](https://agentskills.io/specification) 按需加载；子代理在隔离上下文中调研，只把一段结论带回主对话。
 
@@ -99,13 +99,21 @@ Marvis 把和你协作中学到的东西持久化下来，跨会话、跨项目�
 
 ## 配置
 
-设置分层：内置默认 → `~/.agent/settings.json` → `<项目>/.agent/settings.json`，项目可钉死模型或指向内部代理而不影响全局设置（见 [`.agent/settings.example.json`](.agent/settings.example.json)）。`AGENTS.md` / `CLAUDE.md` 会作为常驻项目指令载入。凭据来自环境变量（`DEEPSEEK_API_KEY`……，自定义端点用 `HC_<PROVIDER>_API_KEY`）；base URL 用 `HC_<PROVIDER>_BASE_URL` 覆盖。
+设置分层：内置默认 → `~/.agent/settings.json` → `<项目>/.agent/settings.json`，项目可钉死模型或指向内部代理而不影响全局设置（见 [`.agent/settings.example.json`](.agent/settings.example.json)）。`autoMode`（分类器模型与规则）和 `permissions.mode: "auto"` **只认用户级文件**，项目层这两项加载时会被丢掉。`AGENTS.md` / `CLAUDE.md` 会作为常驻项目指令载入。凭据来自环境变量（`DEEPSEEK_API_KEY`……，自定义端点用 `HC_<PROVIDER>_API_KEY`）；base URL 用 `HC_<PROVIDER>_BASE_URL` 覆盖。
+
+```bash
+marvis auto-mode defaults            # 内置规则
+marvis auto-mode config              # 生效规则（$defaults 已展开）
+marvis auto-mode critique            # 用分类器模型点评自定义规则
+marvis auto-mode reset --yes         # 删除 ~/.agent/settings.json 里的 autoMode
+```
 
 ## 安全
 
 Marvis 面向真实代码库设计，其安全边界如下：
 
-- **默认 `ask` 模式**将每次 `bash`、`write`、`edit`、`webfetch` 置于你的批准之下，只读工具免询问；`yolo` 模式会取消这些提示。
+- **默认 `ask` 模式**将每次 `bash`、`write`、`edit`、`webfetch` 置于你的批准之下，只读工具免询问；`auto` 模式把审查交给分类器；`yolo` 模式会取消这些提示。
+- **`auto` 配置只认用户级 `~/.agent/settings.json`**：仓库里的 `.agent/settings.json` 不能把自己设成 auto，也不能改分类器规则。用 `marvis auto-mode config` 查看展开后的规则，`marvis auto-mode defaults` 查看内置清单。
 - **密钥受保护**：`.env*`、`*.pem`、`id_rsa`、`credentials*`、`secrets.json`、`.git/config` 受文件工具保护；API key 与子进程隔离，且仅在一处读取、出错前脱敏。
 - **OS 写沙箱在 macOS 生效**（`sandbox-exec`）：shell 命令的写操作被物理限制在工作区内。Linux/Windows 上依靠命令审查名单加 `ask` 审批，因此在这些平台上，对不信任的代码请保持 `ask` 模式。
 - **`bash` 可联网、可读取你有权读取的文件**，闸门是审批；`webfetch` 额外将请求限制在公网地址，且不自行跟随跨主机跳转。
@@ -142,7 +150,7 @@ Marvis 面向真实代码库设计，其安全边界如下：
 
 [`agent/loop.ts`](packages/core/src/agent/loop.ts) 是一个 ReAct 形态的状态机，策略通过 `AgentHooks`（`onBeforeTurn` / `onBeforeToolCall` / `onAfterToolCall`）注入。只读且并发安全的调用并行执行，写操作串行，同一轮内相同的只读调用只执行一次。循环在 `end_turn`、`max_turns`、`max_cost` 或中断信号时停止。
 
-[`permissions/`](packages/core/src/permissions) 是作用于 `Tool(说明符)` 模式的规则引擎，`allow`/`ask`/`deny` 三列（deny 优先），横跨五种模式。Bash 用 `shell-quote` 解析成 AST，复合命令逐段判定；路径笼解析符号链接并阻断越界；非交互运行中 `ask` 判定确定性地拒绝。
+[`permissions/`](packages/core/src/permissions) 是作用于 `Tool(说明符)` 模式的规则引擎，`allow`/`ask`/`deny` 三列（deny 优先），横跨六种模式。`auto` 模式下引擎对危险操作给出 `classify`，由第二个模型（分类器）决定放行或拒绝。Bash 用 `shell-quote` 解析成 AST，复合命令逐段判定；路径笼解析符号链接并阻断越界；非交互运行中 `ask` 判定确定性地拒绝。
 
 </details>
 
