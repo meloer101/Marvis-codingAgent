@@ -15,6 +15,7 @@ const MODE_LABELS: Record<PermissionMode, string> = {
   acceptEdits: 'Accept edits',
   readOnly: 'Read only',
   yolo: 'YOLO',
+  auto: 'Auto',
 };
 
 export function SessionHeader({ view }: { view: SessionViewState }) {

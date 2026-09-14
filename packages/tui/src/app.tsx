@@ -43,7 +43,7 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
 ];
 /** Shift+Tab-style permission-mode cycle for `/mode` with no argument. */
 const MODE_CYCLE: readonly PermissionMode[] = ['ask', 'acceptEdits', 'plan'];
-const ALL_MODES: readonly PermissionMode[] = ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo'];
+const ALL_MODES: readonly PermissionMode[] = ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo', 'auto'];
 
 export interface AppProps {
   initialSession: AgentSession;

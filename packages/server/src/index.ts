@@ -33,7 +33,7 @@ import { SessionRegistry } from './registry.js';
 import type { SessionConfigFactory } from './registry.js';
 import { attachWsServer } from './ws.js';
 
-const PERMISSION_MODES: PermissionMode[] = ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo'];
+const PERMISSION_MODES: PermissionMode[] = ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo', 'auto'];
 
 export interface StartServerOptions {
   /** Workspace root this server hosts sessions for. */

@@ -217,7 +217,7 @@ program
   .option('--resume <id>', 'continue a previous session by id')
   .option(
     '--mode <mode>',
-    'permission mode: ask|plan|acceptEdits|readOnly|yolo (overrides settings.json)',
+    'permission mode: ask|plan|acceptEdits|readOnly|yolo|auto (overrides settings.json)',
   )
   .option('--effort <level>', 'reasoning effort for reasoning models: minimal|low|medium|high')
   .option('--allow <rule>', 'add an allow rule, e.g. "Bash(git status:*)" (repeatable)', collect, [])

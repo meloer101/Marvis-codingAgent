@@ -1,8 +1,16 @@
 import { inspectBash } from './bash-ast.js';
+import { isDroppedAutoAllow } from './auto-allow.js';
 import { KNOWN_TOOLS, PLANS_DIR_PREFIX, READ_ONLY_TOOLS } from './defaults.js';
 import { ruleMatchesBash, ruleMatchesMcp, ruleMatchesPath, ruleMatchesWebFetch } from './match.js';
 import { parseRule } from './parse.js';
-import { PathEscapeError, isSensitivePath, relativeToWorkspace, resolveInWorkspace } from './paths.js';
+import {
+  PathEscapeError,
+  isProtectedPath,
+  isSensitivePath,
+  relativeToWorkspace,
+  resolveInWorkspace,
+} from './paths.js';
+import { isReadOnlyBashCommand } from './read-only-bash.js';
 import type {
   EvaluateRequest,
   PermissionMode,
@@ -16,6 +24,9 @@ export interface PermissionEngineOptions {
   allow: string[];
   ask: string[];
   deny: string[];
+  classifyAllShell?: boolean;
+  /** When true, non-read-only bash in plan mode is classified instead of denied. */
+  useAutoModeDuringPlan?: boolean;
 }
 
 export class PermissionEngine {
@@ -24,6 +35,8 @@ export class PermissionEngine {
   private readonly allow: PermissionRule[];
   private readonly askRules: PermissionRule[];
   private readonly deny: PermissionRule[];
+  private readonly classifyAllShell: boolean;
+  private readonly useAutoModeDuringPlan: boolean;
 
   constructor(opts: PermissionEngineOptions) {
     this.workspaceRoot = opts.workspaceRoot;
@@ -31,6 +44,8 @@ export class PermissionEngine {
     this.allow = opts.allow.map(parseRule);
     this.askRules = opts.ask.map(parseRule);
     this.deny = opts.deny.map(parseRule);
+    this.classifyAllShell = opts.classifyAllShell === true;
+    this.useAutoModeDuringPlan = opts.useAutoModeDuringPlan === true;
   }
 
   getMode(): PermissionMode {
@@ -114,6 +129,7 @@ export class PermissionEngine {
    * mode default (allowed in `plan`/`readOnly`/`yolo`, asked in `ask`) — the
    * same stance Claude Code takes. Network egress is instead scoped by rules:
    * a bare `WebFetch` rule, or a per-host `WebFetch(domain:example.com)`.
+   * Auto mode still classifies it.
    */
   private evaluateWebFetch(input: unknown): PermissionVerdict {
     const rec = asRecord(input);
@@ -121,10 +137,10 @@ export class PermissionEngine {
 
     const denied = this.deny.find((r) => ruleMatchesWebFetch(r, url));
     if (denied) return { decision: 'deny', reason: `Blocked by deny rule ${denied.raw}` };
-    const allowed = this.allow.find((r) => ruleMatchesWebFetch(r, url));
+    const allowed = this.effectiveAllow().find((r) => ruleMatchesWebFetch(r, url));
     if (allowed) return { decision: 'allow' };
     const asked = this.askRules.find((r) => ruleMatchesWebFetch(r, url));
-    if (asked) return { decision: 'ask', reason: `Requires approval (${asked.raw})` };
+    if (asked) return { decision: 'ask', reason: `Requires approval (${asked.raw})`, forcedByRule: true };
 
     return this.modeDefault('webfetch', true);
   }
@@ -132,10 +148,10 @@ export class PermissionEngine {
   private evaluateMcp(tool: string): PermissionVerdict {
     const denied = this.deny.find((r) => ruleMatchesMcp(r, tool));
     if (denied) return { decision: 'deny', reason: `Blocked by deny rule ${denied.raw}` };
-    const allowed = this.allow.find((r) => ruleMatchesMcp(r, tool));
+    const allowed = this.effectiveAllow().find((r) => ruleMatchesMcp(r, tool));
     if (allowed) return { decision: 'allow' };
     const asked = this.askRules.find((r) => ruleMatchesMcp(r, tool));
-    if (asked) return { decision: 'ask', reason: `Requires approval (${asked.raw})` };
+    if (asked) return { decision: 'ask', reason: `Requires approval (${asked.raw})`, forcedByRule: true };
     return this.modeDefault(tool, false);
   }
 
@@ -148,10 +164,10 @@ export class PermissionEngine {
   private evaluateWholeTool(tool: string, readOnly: boolean): PermissionVerdict {
     const denied = this.deny.find((r) => r.tool === tool);
     if (denied) return { decision: 'deny', reason: `Blocked by deny rule ${denied.raw}` };
-    const allowed = this.allow.find((r) => r.tool === tool);
+    const allowed = this.effectiveAllow().find((r) => r.tool === tool);
     if (allowed) return { decision: 'allow' };
     const asked = this.askRules.find((r) => r.tool === tool);
-    if (asked) return { decision: 'ask', reason: `Requires approval (${asked.raw})` };
+    if (asked) return { decision: 'ask', reason: `Requires approval (${asked.raw})`, forcedByRule: true };
     return this.modeDefault(tool, readOnly);
   }
 
@@ -194,15 +210,21 @@ export class PermissionEngine {
       }
     }
 
-    if (segs.length > 0 && segs.every((seg) => this.allow.some((r) => ruleMatchesBash(r, seg)))) {
+    const allow = this.effectiveAllow();
+    if (segs.length > 0 && segs.every((seg) => allow.some((r) => ruleMatchesBash(r, seg)))) {
       return { decision: 'allow' };
     }
 
     for (const seg of segs) {
       const asked = this.askRules.find((r) => ruleMatchesBash(r, seg));
       if (asked) {
-        return { decision: 'ask', reason: `Requires approval (${asked.raw})` };
+        return { decision: 'ask', reason: `Requires approval (${asked.raw})`, forcedByRule: true };
       }
+    }
+
+    const readOnlyBash = isReadOnlyBashCommand(segs, { hasWriteRedirect: inspected.hasWriteRedirect });
+    if (readOnlyBash && (this.mode === 'auto' || (this.mode === 'plan' && this.useAutoModeDuringPlan))) {
+      return { decision: 'allow' };
     }
 
     return this.modeDefault('bash', false);
@@ -223,6 +245,9 @@ export class PermissionEngine {
       }
     }
 
+    const protectedWrite =
+      rel !== undefined && (tool === 'write' || tool === 'edit') && isProtectedPath(rel);
+
     if (rel !== undefined) {
       const denied = this.deny.find((r) => ruleMatchesPath(r, tool, rel));
       if (denied) {
@@ -230,7 +255,7 @@ export class PermissionEngine {
       }
 
       if (isSensitivePath(rel)) {
-        const specificAllow = this.allow.find(
+        const specificAllow = this.effectiveAllow().find(
           (r) => r.pattern !== undefined && ruleMatchesPath(r, tool, rel),
         );
         if (!specificAllow) {
@@ -239,29 +264,43 @@ export class PermissionEngine {
         return { decision: 'allow' };
       }
 
-      const allowed = this.allow.find((r) => ruleMatchesPath(r, tool, rel));
-      if (allowed) return { decision: 'allow' };
+      if (!protectedWrite) {
+        const allowed = this.effectiveAllow().find((r) => ruleMatchesPath(r, tool, rel));
+        if (allowed) return { decision: 'allow' };
+      }
 
       const asked = this.askRules.find((r) => ruleMatchesPath(r, tool, rel));
       if (asked) {
-        return { decision: 'ask', reason: `Requires approval (${asked.raw})` };
+        return { decision: 'ask', reason: `Requires approval (${asked.raw})`, forcedByRule: true };
       }
     } else {
       const denied = this.deny.find((r) => r.tool === tool && r.pattern === undefined);
       if (denied) return { decision: 'deny', reason: `Blocked by deny rule ${denied.raw}` };
-      const allowed = this.allow.find((r) => r.tool === tool && r.pattern === undefined);
-      if (allowed) return { decision: 'allow' };
+      const allowed = this.effectiveAllow().find((r) => r.tool === tool && r.pattern === undefined);
+      if (allowed && !protectedWrite) return { decision: 'allow' };
       const asked = this.askRules.find((r) => r.tool === tool && r.pattern === undefined);
-      if (asked) return { decision: 'ask', reason: `Requires approval (${asked.raw})` };
+      if (asked) return { decision: 'ask', reason: `Requires approval (${asked.raw})`, forcedByRule: true };
     }
 
-    return this.modeDefault(tool, req.readOnly || READ_ONLY_TOOLS.has(tool), rel);
+    return this.modeDefault(tool, req.readOnly || READ_ONLY_TOOLS.has(tool), rel, protectedWrite);
   }
 
-  private modeDefault(tool: string, readOnly: boolean, rel?: string): PermissionVerdict {
+  private effectiveAllow(): PermissionRule[] {
+    if (this.mode !== 'auto') return this.allow;
+    return this.allow.filter((r) => !isDroppedAutoAllow(r, this.classifyAllShell));
+  }
+
+  private modeDefault(
+    tool: string,
+    readOnly: boolean,
+    rel?: string,
+    protectedWrite = false,
+  ): PermissionVerdict {
     switch (this.mode) {
       case 'yolo':
         return { decision: 'allow' };
+      case 'auto':
+        return autoModeDefault(tool, readOnly, protectedWrite);
       case 'readOnly':
         if (readOnly || tool === 'todo') return { decision: 'allow' };
         return {
@@ -282,11 +321,17 @@ export class PermissionEngine {
         ) {
           return { decision: 'allow' };
         }
+        if (tool === 'bash' && this.useAutoModeDuringPlan) {
+          return { decision: 'classify' };
+        }
         return {
           decision: 'deny',
           reason: `"${tool}" is not allowed in ${this.mode} mode`,
         };
       case 'acceptEdits':
+        if (protectedWrite) {
+          return { decision: 'ask', reason: `${tool} writes a protected path` };
+        }
         if (tool === 'write' || tool === 'edit' || readOnly || tool === 'todo') {
           return { decision: 'allow' };
         }
@@ -299,6 +344,16 @@ export class PermissionEngine {
         return { decision: 'ask', reason: `${tool} requires approval in ask mode` };
     }
   }
+}
+
+function autoModeDefault(tool: string, readOnly: boolean, protectedWrite: boolean): PermissionVerdict {
+  if (tool === 'webfetch' || tool === 'task' || tool.startsWith('mcp__')) {
+    return { decision: 'classify' };
+  }
+  if (protectedWrite) return { decision: 'classify' };
+  if (readOnly || tool === 'todo') return { decision: 'allow' };
+  if (tool === 'write' || tool === 'edit') return { decision: 'allow' };
+  return { decision: 'classify' };
 }
 
 export function createPermissionEngine(opts: PermissionEngineOptions): PermissionEngine {

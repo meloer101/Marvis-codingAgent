@@ -1,6 +1,6 @@
 import type { PermissionDecision } from '../agent/hooks.js';
 
-export type PermissionMode = 'ask' | 'plan' | 'acceptEdits' | 'readOnly' | 'yolo';
+export type PermissionMode = 'ask' | 'plan' | 'acceptEdits' | 'readOnly' | 'yolo' | 'auto';
 
 export interface PermissionRule {
   /** Canonical lowercase tool name. */
@@ -13,7 +13,8 @@ export interface PermissionRule {
 export type PermissionVerdict =
   | { decision: 'allow' }
   | { decision: 'deny'; reason: string }
-  | { decision: 'ask'; reason: string };
+  | { decision: 'ask'; reason: string; forcedByRule?: boolean }
+  | { decision: 'classify' };
 
 export type AskHandler = (req: {
   toolName: string;
@@ -30,6 +31,8 @@ export interface PermissionConfig {
   deny?: string[];
   /** Mode to switch to after a plan is approved. Defaults to `acceptEdits`. */
   planApprovedMode?: PermissionMode;
+  /** When `"disable"`, auto mode is unavailable regardless of other settings. */
+  disableAutoMode?: 'disable';
 }
 
 export interface EvaluateRequest {

@@ -24,6 +24,14 @@ export function createPermissionHooks(engine: PermissionEngine, ask: AskHandler)
           ...(ctx.signal ? { signal: ctx.signal } : {}),
         });
       }
+      if (verdict.decision === 'classify') {
+        return ask({
+          toolName: call.name,
+          input: call.input,
+          reason: 'auto mode classifier is not attached',
+          ...(ctx.signal ? { signal: ctx.signal } : {}),
+        });
+      }
       return verdict;
     },
   };

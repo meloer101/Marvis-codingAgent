@@ -50,7 +50,7 @@ export function tasksDir(): string {
   return join(evalsRoot(), 'tasks');
 }
 
-const REQUIRED_MODES: PermissionMode[] = ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo'];
+const REQUIRED_MODES: PermissionMode[] = ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo', 'auto'];
 
 function validate(raw: unknown, id: string): TaskSpec {
   if (typeof raw !== 'object' || raw === null) throw new Error(`${id}/task.json is not an object`);

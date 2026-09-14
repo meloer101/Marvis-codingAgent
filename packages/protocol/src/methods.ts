@@ -79,6 +79,7 @@ const permissionModeSchema: z.ZodType<PermissionMode> = z.enum([
   'acceptEdits',
   'readOnly',
   'yolo',
+  'auto',
 ]);
 
 interface MethodSpec<P = unknown, R = unknown> {

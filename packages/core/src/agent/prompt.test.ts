@@ -46,7 +46,7 @@ describe('buildAgentSystemPrompt', () => {
 
   it('leaves the cacheable prefix (identity + conventions) byte-identical across modes', () => {
     const base = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux' });
-    for (const mode of ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo'] as const) {
+    for (const mode of ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo', 'auto'] as const) {
       const withMode = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux', mode });
       expect(withMode[0]).toEqual(base[0]);
       expect(withMode[1]).toEqual(base[1]);
@@ -146,7 +146,7 @@ describe('buildAgentSystemPrompt', () => {
   });
 
   it('always emits segments as a subsequence of SYSTEM_SEGMENT_ORDER', () => {
-    for (const mode of ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo'] as const) {
+    for (const mode of ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo', 'auto'] as const) {
       for (const projectMemory of [undefined, 'notes']) {
         const ids = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux', mode, projectMemory }).map(
           (s) => s.id,

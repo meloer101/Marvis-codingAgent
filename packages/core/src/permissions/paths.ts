@@ -78,3 +78,71 @@ export function isSensitivePath(relPosix: string): boolean {
   if (/^secrets?\.json$/i.test(base)) return true;
   return false;
 }
+
+const PROTECTED_DIR_NAMES = new Set([
+  '.git',
+  '.vscode',
+  '.idea',
+  '.husky',
+  '.cargo',
+  '.devcontainer',
+  '.yarn',
+  '.mvn',
+]);
+
+const PROTECTED_FILES = new Set([
+  '.gitignore',
+  '.gitattributes',
+  '.gitmodules',
+  '.mailmap',
+  '.git-blame-ignore-revs',
+  '.mcp.json',
+  '.npmrc',
+  '.yarnrc',
+  '.yarnrc.yml',
+  '.pnpmfile.cjs',
+  '.pnpmrc',
+  '.nvmrc',
+  '.node-version',
+  '.python-version',
+  '.ruby-version',
+  '.tool-versions',
+  '.editorconfig',
+  '.prettierrc',
+  '.prettierignore',
+  '.eslintrc',
+  '.eslintignore',
+  '.stylelintrc',
+  '.babelrc',
+  'Dockerfile',
+  'docker-compose.yml',
+  'docker-compose.yaml',
+  'compose.yml',
+  'compose.yaml',
+  'Makefile',
+  'Justfile',
+  'justfile',
+  'tsconfig.json',
+  'jsconfig.json',
+]);
+
+/**
+ * Paths the permission engine will not auto-approve for write/edit.
+ * `.agent/plans/` is the one exception (plan files).
+ */
+export function isProtectedPath(relPosix: string): boolean {
+  const n = relPosix.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (n === '.agent/plans' || n.startsWith('.agent/plans/')) return false;
+  if (n === '.agent' || n.startsWith('.agent/')) return true;
+  if (n === '.config/git' || n.startsWith('.config/git/')) return true;
+  const parts = n.split('/');
+  if (parts.some((p) => PROTECTED_DIR_NAMES.has(p))) return true;
+  const base = parts[parts.length - 1] ?? '';
+  if (PROTECTED_FILES.has(base)) return true;
+  return (
+    base.startsWith('.prettierrc.') ||
+    base.startsWith('.eslintrc.') ||
+    base.startsWith('.stylelintrc.') ||
+    base.startsWith('.babelrc.')
+  );
+}

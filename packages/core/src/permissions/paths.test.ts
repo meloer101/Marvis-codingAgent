@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { isSensitivePath, resolveInWorkspace } from './paths.js';
+import { isProtectedPath, isSensitivePath, resolveInWorkspace } from './paths.js';
 
 describe('resolveInWorkspace', () => {
   let root: string;
@@ -58,5 +58,29 @@ describe('isSensitivePath', () => {
     expect(isSensitivePath('certs/foo.pem')).toBe(true);
     expect(isSensitivePath('credentials.json')).toBe(true);
     expect(isSensitivePath('src/a.ts')).toBe(false);
+  });
+});
+
+describe('isProtectedPath', () => {
+  it('flags IDE, git, hook, and agent directories (except .agent/plans/)', () => {
+    expect(isProtectedPath('.git/HEAD')).toBe(true);
+    expect(isProtectedPath('.config/git/config')).toBe(true);
+    expect(isProtectedPath('.vscode/settings.json')).toBe(true);
+    expect(isProtectedPath('.idea/workspace.xml')).toBe(true);
+    expect(isProtectedPath('.husky/pre-commit')).toBe(true);
+    expect(isProtectedPath('.cargo/config.toml')).toBe(true);
+    expect(isProtectedPath('.devcontainer/devcontainer.json')).toBe(true);
+    expect(isProtectedPath('.yarn/releases/yarn.cjs')).toBe(true);
+    expect(isProtectedPath('.mvn/wrapper/maven-wrapper.properties')).toBe(true);
+    expect(isProtectedPath('.agent/settings.json')).toBe(true);
+    expect(isProtectedPath('.agent/plans/20260914-plan.md')).toBe(false);
+    expect(isProtectedPath('src/a.ts')).toBe(false);
+  });
+
+  it('flags listed rc/config files and this project\'s MCP config', () => {
+    expect(isProtectedPath('.gitignore')).toBe(true);
+    expect(isProtectedPath('.mcp.json')).toBe(true);
+    expect(isProtectedPath('.npmrc')).toBe(true);
+    expect(isProtectedPath('src/app.ts')).toBe(false);
   });
 });

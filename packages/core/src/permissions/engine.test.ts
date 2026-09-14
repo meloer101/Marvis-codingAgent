@@ -4,9 +4,11 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { mergeSettings } from '../config/settings.js';
+import { mergeSettings, sanitizeProjectLayer } from '../config/settings.js';
+import { ProviderRegistry } from '../provider/router.js';
 import { createPermissionEngine } from './engine.js';
 import { createPermissionHooks, nonInteractiveAskHandler } from './hooks.js';
+import { isAutoModeAvailable } from './available.js';
 import type { PermissionEngine } from './engine.js';
 
 describe('PermissionEngine', () => {
@@ -348,6 +350,130 @@ describe('PermissionEngine', () => {
       expect((await call(e, 'https://ok.com/x')).decision).toBe('allow');
     });
   });
+
+  describe('auto mode', () => {
+    it('allows read-only tools and ordinary workspace writes, classifies the rest', async () => {
+      const e = engine({ mode: 'auto' });
+      expect(
+        (await e.evaluate({ toolName: 'read', input: { path: 'src/a.ts' }, readOnly: true })).decision,
+      ).toBe('allow');
+      expect(
+        (await e.evaluate({ toolName: 'write', input: { path: 'src/a.ts', content: 'x' }, readOnly: false }))
+          .decision,
+      ).toBe('allow');
+      expect(
+        (await e.evaluate({ toolName: 'bash', input: { command: 'ls' }, readOnly: false })).decision,
+      ).toBe('allow');
+      expect(
+        (await e.evaluate({ toolName: 'bash', input: { command: 'git status' }, readOnly: false })).decision,
+      ).toBe('allow');
+      expect(
+        (await e.evaluate({ toolName: 'bash', input: { command: 'pnpm test' }, readOnly: false })).decision,
+      ).toBe('classify');
+      expect(
+        (await e.evaluate({ toolName: 'webfetch', input: { url: 'https://example.com' }, readOnly: true }))
+          .decision,
+      ).toBe('classify');
+      expect(
+        (await e.evaluate({ toolName: 'task', input: { prompt: 'x' }, readOnly: false })).decision,
+      ).toBe('classify');
+      expect(
+        (await e.evaluate({ toolName: 'mcp__gh__create_issue', input: {}, readOnly: false })).decision,
+      ).toBe('classify');
+    });
+
+    it('drops broad Bash/Task allow rules but honours a specific Bash(npm test:*) rule', async () => {
+      const e = engine({
+        mode: 'auto',
+        allow: ['Bash', 'Bash(*)', 'Bash(python*)', 'Bash(npm run:*)', 'Bash(make:*)', 'Task', 'Bash(npm test:*)'],
+      });
+      expect(
+        (await e.evaluate({ toolName: 'bash', input: { command: 'python script.py' }, readOnly: false }))
+          .decision,
+      ).toBe('classify');
+      expect(
+        (await e.evaluate({ toolName: 'bash', input: { command: 'npm run build' }, readOnly: false }))
+          .decision,
+      ).toBe('classify');
+      expect(
+        (await e.evaluate({ toolName: 'task', input: { prompt: 'x' }, readOnly: false })).decision,
+      ).toBe('classify');
+      expect(
+        (await e.evaluate({ toolName: 'bash', input: { command: 'npm test' }, readOnly: false })).decision,
+      ).toBe('allow');
+    });
+
+    it('classifyAllShell drops every Bash allow rule', async () => {
+      const e = engine({
+        mode: 'auto',
+        allow: ['Bash(npm test:*)'],
+        classifyAllShell: true,
+      });
+      expect(
+        (await e.evaluate({ toolName: 'bash', input: { command: 'npm test' }, readOnly: false })).decision,
+      ).toBe('classify');
+    });
+
+    it('does not let an allow rule cover a protected-path write', async () => {
+      const e = engine({ mode: 'auto', allow: ['Write'] });
+      const v = await e.evaluate({
+        toolName: 'write',
+        input: { path: '.gitignore', content: 'x' },
+        readOnly: false,
+      });
+      expect(v.decision).toBe('classify');
+    });
+
+    it('ask rules still force a prompt in auto, with forcedByRule', async () => {
+      const e = engine({ mode: 'auto', ask: ['Bash(pnpm test:*)'] });
+      const v = await e.evaluate({
+        toolName: 'bash',
+        input: { command: 'pnpm test' },
+        readOnly: false,
+      });
+      expect(v.decision).toBe('ask');
+      if (v.decision === 'ask') expect(v.forcedByRule).toBe(true);
+    });
+
+    it('still hard-denies rm -rf / in auto', async () => {
+      const e = engine({ mode: 'auto' });
+      const v = await e.evaluate({
+        toolName: 'bash',
+        input: { command: 'rm -rf /' },
+        readOnly: false,
+      });
+      expect(v.decision).toBe('deny');
+    });
+
+    it('plan mode with useAutoModeDuringPlan classifies non-read-only bash but still denies writes', async () => {
+      const e = engine({ mode: 'plan', useAutoModeDuringPlan: true });
+      expect(
+        (await e.evaluate({ toolName: 'bash', input: { command: 'pnpm test' }, readOnly: false })).decision,
+      ).toBe('classify');
+      expect(
+        (await e.evaluate({ toolName: 'write', input: { path: 'src/a.ts', content: 'x' }, readOnly: false }))
+          .decision,
+      ).toBe('deny');
+      expect(
+        (await e.evaluate({ toolName: 'bash', input: { command: 'ls' }, readOnly: false })).decision,
+      ).toBe('allow');
+    });
+  });
+
+  describe('protected path writes outside auto', () => {
+    it('asks in ask and acceptEdits, denies in plan/readOnly, allows in yolo', async () => {
+      const call = {
+        toolName: 'write',
+        input: { path: '.gitignore', content: 'x' },
+        readOnly: false,
+      };
+      expect((await engine({ mode: 'ask' }).evaluate(call)).decision).toBe('ask');
+      expect((await engine({ mode: 'acceptEdits' }).evaluate(call)).decision).toBe('ask');
+      expect((await engine({ mode: 'plan' }).evaluate(call)).decision).toBe('deny');
+      expect((await engine({ mode: 'readOnly' }).evaluate(call)).decision).toBe('deny');
+      expect((await engine({ mode: 'yolo' }).evaluate(call)).decision).toBe('allow');
+    });
+  });
 });
 
 describe('mergeSettings permissions', () => {
@@ -359,6 +485,63 @@ describe('mergeSettings permissions', () => {
     expect(merged.permissions?.mode).toBe('yolo');
     expect(merged.permissions?.allow).toEqual(['Read', 'Glob']);
     expect(merged.permissions?.deny).toEqual(['Bash(rm *:*)', 'Write(./secrets/**)']);
+  });
+
+  it('concatenates autoMode lists and ORs disableAutoMode across layers', () => {
+    const merged = mergeSettings(
+      {
+        useAutoModeDuringPlan: true,
+        autoMode: { allow: ['$defaults'], environment: ['a'] },
+      },
+      {
+        permissions: { disableAutoMode: 'disable' },
+        autoMode: { allow: ['Local Operations: extra'], classifyAllShell: true },
+      },
+    );
+    expect(merged.permissions?.disableAutoMode).toBe('disable');
+    expect(merged.autoMode?.allow).toEqual(['$defaults', 'Local Operations: extra']);
+    expect(merged.autoMode?.environment).toEqual(['a']);
+    expect(merged.autoMode?.classifyAllShell).toBe(true);
+  });
+});
+
+describe('sanitizeProjectLayer', () => {
+  it('drops project-level autoMode and permissions.mode auto so a repo cannot self-authorize', () => {
+    const stripped = sanitizeProjectLayer({
+      model: 'ollama/qwen',
+      permissions: { mode: 'auto', allow: ['Bash'], disableAutoMode: 'disable' },
+      autoMode: { classifyAllShell: true, allow: ['$defaults'] },
+    });
+    expect(stripped.autoMode).toBeUndefined();
+    expect(stripped.permissions?.mode).toBeUndefined();
+    expect(stripped.permissions?.allow).toEqual(['Bash']);
+    expect(stripped.permissions?.disableAutoMode).toBe('disable');
+    expect(stripped.model).toBe('ollama/qwen');
+  });
+});
+
+describe('isAutoModeAvailable', () => {
+  it('is unavailable when disableAutoMode is set', () => {
+    const registry = new ProviderRegistry({ env: {} });
+    const result = isAutoModeAvailable(
+      { model: 'ollama/qwen', permissions: { disableAutoMode: 'disable' } },
+      registry,
+    );
+    expect(result.available).toBe(false);
+    if (!result.available) expect(result.reason).toMatch(/disableAutoMode/);
+  });
+
+  it('is unavailable when the classifier model cannot be resolved', () => {
+    const registry = new ProviderRegistry({ env: {} });
+    const result = isAutoModeAvailable({ autoMode: { model: 'nope/x' } }, registry);
+    expect(result.available).toBe(false);
+    if (!result.available) expect(result.reason).toMatch(/could not be resolved|unknown provider/i);
+  });
+
+  it('is available when a local model resolves and auto is not disabled', () => {
+    const registry = new ProviderRegistry({ env: {} });
+    const result = isAutoModeAvailable({ model: 'ollama/qwen' }, registry);
+    expect(result.available).toBe(true);
   });
 });
 

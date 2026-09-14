@@ -27,6 +27,8 @@ const INLINE_EVAL_FLAGS: Record<string, string[]> = {
 export interface BashInspection {
   segments: string[][];
   hardDenyReason?: string;
+  /** `>` / `>>` in the command — even `echo hi > file` is a write. */
+  hasWriteRedirect?: boolean;
 }
 
 type Token = ParseEntry;
@@ -67,6 +69,7 @@ export function inspectBash(command: string): BashInspection {
     segments.map(hardDenySegment).find((r) => r !== undefined);
 
   const extra: string[][] = [];
+  let hasWriteRedirect = tokensHaveWriteRedirect(tokens);
   for (const argv of segments) {
     const inner = nestedShellCommand(argv);
     if (inner) {
@@ -75,13 +78,21 @@ export function inspectBash(command: string): BashInspection {
         return { segments, hardDenyReason: nested.hardDenyReason };
       }
       extra.push(...nested.segments);
+      if (nested.hasWriteRedirect) hasWriteRedirect = true;
     }
   }
 
   return {
     segments: extra.length > 0 ? [...segments, ...extra] : segments,
     ...(reason ? { hardDenyReason: reason } : {}),
+    ...(hasWriteRedirect ? { hasWriteRedirect: true } : {}),
   };
+}
+
+function tokensHaveWriteRedirect(tokens: Token[]): boolean {
+  return tokens.some(
+    (t) => typeof t === 'object' && t !== null && 'op' in t && (t.op === '>' || t.op === '>>'),
+  );
 }
 
 function splitSegments(tokens: Token[]): string[][] {

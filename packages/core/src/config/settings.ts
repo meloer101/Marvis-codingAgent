@@ -19,6 +19,17 @@ import type { PermissionConfig } from '../permissions/types.js';
 import type { RouterSettings } from '../provider/router.js';
 import type { ReasoningEffort } from '../provider/types.js';
 
+export interface AutoModeConfig {
+  /** Classifier model (`provider/model`). Falls back to the session model. */
+  model?: string;
+  environment?: string[];
+  allow?: string[];
+  soft_deny?: string[];
+  hard_deny?: string[];
+  classifyAllShell?: boolean;
+  injectionProbe?: boolean;
+}
+
 export interface Settings extends RouterSettings {
   /** `provider/model` used when none is given on the command line. */
   model?: string;
@@ -50,6 +61,12 @@ export interface Settings extends RouterSettings {
   /** TUI presentation hints. `theme` is a v1 stub: dark is the default, auto/light land later. */
   tui?: { theme?: 'dark' | 'light' | 'auto' };
   permissions?: PermissionConfig;
+  /**
+   * When auto mode is available, non-read-only bash in plan mode goes to the
+   * classifier instead of being denied. Default true.
+   */
+  useAutoModeDuringPlan?: boolean;
+  autoMode?: AutoModeConfig;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -62,6 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
     ask: [],
     deny: [],
   },
+  useAutoModeDuringPlan: true,
 };
 
 export const AGENT_DIR = '.agent';
@@ -74,22 +92,40 @@ export interface LoadedSettings {
 }
 
 export async function loadSettings(cwd = process.cwd()): Promise<LoadedSettings> {
-  const candidates = [
-    join(homedir(), AGENT_DIR, SETTINGS_FILE),
-    join(await findProjectRoot(cwd), AGENT_DIR, SETTINGS_FILE),
-  ];
+  const userPath = join(homedir(), AGENT_DIR, SETTINGS_FILE);
+  const projectPath = join(await findProjectRoot(cwd), AGENT_DIR, SETTINGS_FILE);
+  const candidates = [userPath, projectPath];
 
   let settings: Settings = { ...DEFAULT_SETTINGS };
   const sources: string[] = [];
 
   for (const path of candidates) {
-    const layer = await readSettingsFile(path);
+    let layer = await readSettingsFile(path);
     if (!layer) continue;
+    // A repo must not ship auto-mode config that authorizes itself. Project
+    // `.agent/settings.json` may still *disable* auto mode.
+    if (path === projectPath && path !== userPath) {
+      layer = sanitizeProjectLayer(layer);
+    }
     settings = mergeSettings(settings, layer);
     sources.push(path);
   }
 
   return { settings, sources };
+}
+
+/**
+ * Strip the auto-mode knobs a project file is not allowed to set. `disableAutoMode`
+ * is kept so a repo can turn the feature off for everyone who clones it.
+ */
+export function sanitizeProjectLayer(layer: Settings): Settings {
+  const next: Settings = { ...layer };
+  delete next.autoMode;
+  if (next.permissions?.mode === 'auto') {
+    const { mode: _dropped, ...rest } = next.permissions;
+    next.permissions = rest;
+  }
+  return next;
 }
 
 async function readSettingsFile(path: string): Promise<Settings | undefined> {
@@ -125,12 +161,32 @@ export function mergeSettings(base: Settings, layer: Settings): Settings {
     merged.capabilities = { ...base.capabilities, ...layer.capabilities };
   }
   if (base.permissions || layer.permissions) {
+    const disable =
+      base.permissions?.disableAutoMode === 'disable' ||
+      layer.permissions?.disableAutoMode === 'disable'
+        ? ('disable' as const)
+        : (layer.permissions?.disableAutoMode ?? base.permissions?.disableAutoMode);
     merged.permissions = {
       mode: layer.permissions?.mode ?? base.permissions?.mode,
       planApprovedMode: layer.permissions?.planApprovedMode ?? base.permissions?.planApprovedMode,
       allow: [...(base.permissions?.allow ?? []), ...(layer.permissions?.allow ?? [])],
       ask: [...(base.permissions?.ask ?? []), ...(layer.permissions?.ask ?? [])],
       deny: [...(base.permissions?.deny ?? []), ...(layer.permissions?.deny ?? [])],
+      ...(disable ? { disableAutoMode: disable } : {}),
+    };
+  }
+  if (layer.useAutoModeDuringPlan !== undefined) {
+    merged.useAutoModeDuringPlan = layer.useAutoModeDuringPlan;
+  }
+  if (base.autoMode || layer.autoMode) {
+    merged.autoMode = {
+      model: layer.autoMode?.model ?? base.autoMode?.model,
+      classifyAllShell: layer.autoMode?.classifyAllShell ?? base.autoMode?.classifyAllShell,
+      injectionProbe: layer.autoMode?.injectionProbe ?? base.autoMode?.injectionProbe,
+      environment: [...(base.autoMode?.environment ?? []), ...(layer.autoMode?.environment ?? [])],
+      allow: [...(base.autoMode?.allow ?? []), ...(layer.autoMode?.allow ?? [])],
+      soft_deny: [...(base.autoMode?.soft_deny ?? []), ...(layer.autoMode?.soft_deny ?? [])],
+      hard_deny: [...(base.autoMode?.hard_deny ?? []), ...(layer.autoMode?.hard_deny ?? [])],
     };
   }
   return merged;
