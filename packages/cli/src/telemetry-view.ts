@@ -75,6 +75,12 @@ export function renderTimeline(id: string, events: TraceEvent[]): string {
         );
         break;
       }
+      case 'classifier': {
+        const bits = [usageBits(ev)];
+        if (ev.costUSD !== undefined) bits.push(fmtUSD(ev.costUSD));
+        lines.push(`  ${at(ev.ts)}classifier ${ev.model}  ${DIM}${bits.join(' · ')}${RESET}`);
+        break;
+      }
       case 'compaction': {
         lines.push(
           `  ${at(ev.ts)}${DIM}compact ${fmtTokens(ev.tokensBefore)} → ${fmtTokens(ev.tokensAfter)} ` +

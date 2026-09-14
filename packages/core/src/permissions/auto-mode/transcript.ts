@@ -14,6 +14,10 @@ export interface BuildClassifierTranscriptOptions {
   /** `git status --porcelain` summary, attached for destructive-git / rm -rf. */
   dirtyTree?: string;
   tokenBudget?: number;
+  /** Parent session turns, used when classifying a sub-agent. */
+  parentMessages?: readonly Message[];
+  /** The `task` dispatch that launched a sub-agent, tagged as agent-initiated. */
+  delegation?: { name: string; input: unknown };
 }
 
 /**
@@ -27,7 +31,20 @@ export function buildClassifierTranscript(
   pendingCall: ToolUseBlock,
   opts: BuildClassifierTranscriptOptions = {},
 ): Message[] {
-  const turns = compactHistory(messages);
+  const turns = [
+    ...compactHistory(opts.parentMessages ?? []),
+    ...(opts.delegation
+      ? [
+          `<delegation agent_initiated="true">\n${formatCall({
+            type: 'tool_use',
+            id: 'delegation',
+            name: opts.delegation.name,
+            input: opts.delegation.input,
+          })}\n</delegation>`,
+        ]
+      : []),
+    ...compactHistory(messages),
+  ];
   const budget = opts.tokenBudget ?? DEFAULT_TRANSCRIPT_TOKEN_BUDGET;
   const trimmed = trimTurns(turns, budget);
 

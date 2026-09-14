@@ -98,6 +98,15 @@ export function summarizeTrace(id: string, events: TraceEvent[]): TraceSummary {
         else s.costPartial = true;
         break;
       }
+      case 'classifier': {
+        // Tokens and cost count; classifier calls are not agent turns.
+        s.inputTokens += ev.inputTokens;
+        s.outputTokens += ev.outputTokens;
+        s.cachedInputTokens += ev.cachedInputTokens;
+        if (ev.costUSD !== undefined) s.costUSD += ev.costUSD;
+        else s.costPartial = true;
+        break;
+      }
       case 'run_end':
         s.wallMs += ev.wallMs;
         s.stopReason = ev.stopReason;

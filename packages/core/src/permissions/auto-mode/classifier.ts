@@ -1,6 +1,7 @@
 import { addUsage, emptyUsage } from '../../provider/types.js';
 import type { Message, ToolUseBlock, Usage } from '../../provider/types.js';
 import type { ResolvedModel } from '../../provider/router.js';
+import type { Pricing } from '../../provider/capabilities.js';
 import type { PermissionMode } from '../types.js';
 import { needsDirtyTreeSnapshot, readDirtyTree } from './git-dirty.js';
 import { buildClassifierSystemPrompt } from './prompt.js';
@@ -16,6 +17,8 @@ export interface ClassifierContext {
   mode: PermissionMode;
   projectMemory?: string;
   signal?: AbortSignal;
+  parentMessages?: readonly Message[];
+  delegation?: { name: string; input: unknown };
 }
 
 export interface ClassifyResult {
@@ -41,6 +44,14 @@ export class AutoModeClassifier {
     this.rules = resolveAutoModeRules({ autoMode: opts.autoMode });
   }
 
+  get ref(): string {
+    return this.model.ref;
+  }
+
+  get pricing(): Pricing | undefined {
+    return this.model.capabilities.pricing;
+  }
+
   async classify(
     call: ToolUseBlock,
     messages: readonly Message[],
@@ -60,6 +71,8 @@ export class AutoModeClassifier {
       ...(ctx.projectMemory ? { projectMemory: ctx.projectMemory } : {}),
       planMode: ctx.mode === 'plan',
       ...(dirtyTree !== undefined ? { dirtyTree } : {}),
+      ...(ctx.parentMessages ? { parentMessages: ctx.parentMessages } : {}),
+      ...(ctx.delegation ? { delegation: ctx.delegation } : {}),
     });
 
     const sys1 = buildClassifierSystemPrompt(this.rules, 'phase1');

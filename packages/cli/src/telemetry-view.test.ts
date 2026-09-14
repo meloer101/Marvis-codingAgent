@@ -11,6 +11,7 @@ describe('renderTimeline', () => {
       { type: 'run_start', ts: 1_000, sessionId: 's', model: 'deepseek/deepseek-v4-flash', cwd: '/w', mode: 'ask' },
       { type: 'model_call', ts: 1_200, turn: 1, model: 'deepseek/deepseek-v4-flash', inputTokens: 4200, outputTokens: 120, cachedInputTokens: 3100, costUSD: 0.00051, ttftMs: 640, latencyMs: 2100, stopReason: 'tool_use' },
       { type: 'tool_call', ts: 1_400, turn: 1, id: 'c1', name: 'read', inputSummary: '{"path":"a.ts"}', durationMs: 18, isError: false, outputBytes: 1300 },
+      { type: 'classifier', ts: 1_500, model: 'deepseek/deepseek-v4-flash', inputTokens: 80, outputTokens: 8, cachedInputTokens: 0, costUSD: 0.00002 },
       { type: 'run_end', ts: 5_100, stopReason: 'end_turn', turns: 2, inputTokens: 8600, outputTokens: 200, cachedInputTokens: 6200, costUSD: 0.0011, wallMs: 4100 },
     ];
 
@@ -20,6 +21,7 @@ describe('renderTimeline', () => {
     expect(out).toContain('model');
     expect(out).toContain('$0.00051');
     expect(out).toContain('read {"path":"a.ts"}');
+    expect(out).toContain('classifier');
     expect(out).toContain('+200ms');
     expect(out).toContain('end     end_turn · 2 turn(s)');
   });

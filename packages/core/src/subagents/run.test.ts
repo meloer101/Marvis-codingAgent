@@ -53,6 +53,7 @@ describe('runSubagent', () => {
     expect(result.report).toBe('The answer is in a.ts:10.');
     expect(result.turns).toBe(2);
     expect(result.stopReason).toBe('end_turn');
+    expect(result.messages.length).toBeGreaterThan(1);
     expect(calls).toEqual(['a.ts']);
   });
 

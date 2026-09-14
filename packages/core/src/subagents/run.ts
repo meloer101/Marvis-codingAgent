@@ -77,5 +77,6 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<SubagentRes
     usage: result.usage,
     stopReason: result.stopReason,
     turns: result.turns,
+    messages: result.messages,
   };
 }

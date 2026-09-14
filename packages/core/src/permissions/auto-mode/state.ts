@@ -20,6 +20,7 @@ export class AutoModeState {
   cumulativeDenials = 0;
   readonly recentDenials: AutoModeDenial[] = [];
   #tail: Promise<unknown> = Promise.resolve();
+  #retryKeys = new Set<string>();
 
   async serialize<T>(fn: () => Promise<T> | T): Promise<T> {
     const run = this.#tail.then(fn, fn);
@@ -59,5 +60,27 @@ export class AutoModeState {
   resumeFromApproval(): void {
     this.paused = false;
     this.consecutiveDenials = 0;
+  }
+
+  markRetry(id: string): AutoModeDenial | undefined {
+    const d = this.recentDenials.find((x) => x.id === id);
+    if (!d) return undefined;
+    this.#retryKeys.add(retryKey(d.toolName, d.input));
+    return d;
+  }
+
+  consumeRetry(toolName: string, input: unknown): boolean {
+    const k = retryKey(toolName, input);
+    if (!this.#retryKeys.has(k)) return false;
+    this.#retryKeys.delete(k);
+    return true;
+  }
+}
+
+function retryKey(toolName: string, input: unknown): string {
+  try {
+    return `${toolName}:${JSON.stringify(input)}`;
+  } catch {
+    return `${toolName}:?`;
   }
 }

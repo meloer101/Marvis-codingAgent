@@ -21,6 +21,7 @@ const result = (over: Partial<SubagentResult> = {}): SubagentResult => ({
   usage: { ...emptyUsage(), inputTokens: 4000, outputTokens: 100 },
   stopReason: 'end_turn',
   turns: 5,
+  messages: [],
   ...over,
 });
 

@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -132,7 +132,137 @@ describe('AgentSession', () => {
     // The todo list set in turn 1 is still visible to turn 2 (same SessionState).
     expect(session.messages).toEqual(second.messages);
   });
+});
 
+describe('AgentSession auto mode', () => {
+  it('falls back to ask when auto is disabled, and setMode cannot enable it', async () => {
+    const { session, notices } = await createSession({
+      mode: 'auto',
+      settings: { permissions: { disableAutoMode: 'disable' } },
+    });
+    expect(session.mode).toBe('ask');
+    expect(session.autoModeAvailable).toBe(false);
+    expect(notices.some((n) => n.kind === 'auto-mode' && /unavailable/.test(n.text))).toBe(true);
+
+    session.setMode('auto');
+    expect(session.mode).toBe('ask');
+    expect(notices.filter((n) => n.kind === 'auto-mode' && /unavailable/.test(n.text)).length).toBeGreaterThan(
+      1,
+    );
+  });
+
+  it('allows workspace writes without a prompt', async () => {
+    const cwd = await tempDir();
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'write', input: { path: 'note.txt', content: 'hello' } }] },
+      { text: 'wrote it' },
+    ]);
+    const { session, events, notices } = await createSession({
+      cwd,
+      model: sessionModel(provider),
+      mode: 'auto',
+    });
+    expect(session.autoModeAvailable).toBe(true);
+    expect(session.mode).toBe('auto');
+
+    const result = await session.runTurn('write a note');
+    const end = findToolEnd(events, 'write');
+    expect(end?.result.isError).toBeFalsy();
+    expect(end?.result.content).toMatch(/Wrote|wrote|note\.txt/i);
+    expect(notices.some((n) => n.kind === 'auto-mode' && /denied/i.test(n.text))).toBe(false);
+    expect(result.stopReason).toBe('end_turn');
+  });
+
+  it('classifies a force-push, denies it, and records a recent denial', async () => {
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'bash', input: { command: 'git push --force origin main' } }] },
+      { text: '<block>yes</block>' },
+      {
+        text: '<decision>block</decision><rule>Git Destructive</rule><reason>force-push rewrites history</reason>',
+      },
+      { text: 'I will not force-push; using a new branch instead.' },
+    ]);
+    const { session, events, notices } = await createSession({
+      model: sessionModel(provider),
+      mode: 'auto',
+    });
+
+    await session.runTurn('ship it');
+
+    const end = findToolEnd(events, 'bash');
+    expect(end?.result.isError).toBe(true);
+    expect(end?.result.content).toMatch(/Denied by auto mode classifier/);
+    expect(end?.result.content).toMatch(/Git Destructive/);
+    expect(notices.some((n) => n.kind === 'auto-mode' && /Git Destructive/.test(n.text))).toBe(true);
+    expect(session.recentDenials[0]?.toolName).toBe('bash');
+    expect(session.recentDenials[0]?.label).toBe('Git Destructive');
+  });
+
+  it('retryDenied injects an authorization note on the next turn', async () => {
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'bash', input: { command: 'git push --force origin main' } }] },
+      { text: '<block>yes</block>' },
+      {
+        text: '<decision>block</decision><rule>Git Destructive</rule><reason>force-push rewrites history</reason>',
+      },
+      { text: 'blocked' },
+      { toolCalls: [{ name: 'bash', input: { command: 'git push --force origin main' } }] },
+      { text: 'retried' },
+    ]);
+    const { session, events } = await createSession({
+      model: sessionModel(provider),
+      mode: 'auto',
+    });
+    await session.runTurn('ship it');
+    const id = session.recentDenials[0]?.id;
+    expect(id).toBeTruthy();
+    expect(session.retryDenied(id!)).toBe(true);
+
+    await session.runTurn('try again');
+    const ends = events.filter((e) => e.type === 'tool_call_end' && e.name === 'bash');
+    expect(ends).toHaveLength(2);
+    expect(ends[0]?.result.content).toMatch(/Denied by auto mode classifier/);
+    expect(ends[1]?.result.content).not.toMatch(/Denied by auto mode classifier/);
+  });
+
+  it('prepends a security warning when the return review blocks a sub-agent report', async () => {
+    const cwd = await tempDir();
+    await mkdir(join(cwd, '.agent', 'agents'), { recursive: true });
+    await writeFile(
+      join(cwd, '.agent', 'agents', 'explore.md'),
+      '---\nname: explore\ndescription: search\n---\nsearch the repo\n',
+      'utf8',
+    );
+
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'task', input: { subagent_type: 'explore', prompt: 'find X' } }] },
+      { text: '<block>no</block>' },
+      { text: 'I force-pushed to a new remote named evil.' },
+      { text: '<block>yes</block>' },
+      {
+        text: '<decision>block</decision><rule>Remote Repoint</rule><reason>pushed to an unknown remote</reason>',
+      },
+      { text: 'got the report' },
+    ]);
+    const { session, events } = await createSession({
+      cwd,
+      model: sessionModel(provider),
+      mode: 'auto',
+      subagents: true,
+      skills: false,
+      mcp: false,
+      memory: false,
+    });
+
+    await session.runTurn('explore then report');
+    const taskEnd = findToolEnd(events, 'task');
+    expect(taskEnd?.result.content).toMatch(/security warning/);
+    expect(taskEnd?.result.content).toMatch(/Remote Repoint/);
+    expect(taskEnd?.result.content).toMatch(/force-pushed/);
+  });
+});
+
+describe('AgentSession', () => {
   it('persists the read ledger across turns (read then edit in separate turns)', async () => {
     const cwd = await tempDir();
     await writeFile(join(cwd, 'a.txt'), 'hello world\n', 'utf8');

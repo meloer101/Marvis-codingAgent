@@ -40,6 +40,27 @@ describe('summarizeTrace', () => {
     expect(s.model).toBe('p/m');
   });
 
+  it('folds classifier tokens and cost without counting them as turns', () => {
+    const events: TraceEvent[] = [
+      modelCall({ ts: 600, costUSD: 0.001 }),
+      {
+        type: 'classifier',
+        ts: 650,
+        model: 'p/m',
+        inputTokens: 80,
+        outputTokens: 8,
+        cachedInputTokens: 0,
+        costUSD: 0.0002,
+      },
+      { type: 'run_end', ts: 800, stopReason: 'end_turn', turns: 1, inputTokens: 100, outputTokens: 20, cachedInputTokens: 40, wallMs: 300 },
+    ];
+    const s = summarizeTrace('s', events);
+    expect(s.turns).toBe(1);
+    expect(s.inputTokens).toBe(180);
+    expect(s.outputTokens).toBe(28);
+    expect(s.costUSD).toBeCloseTo(0.0012, 8);
+  });
+
   it('flags partial cost and folds sub-agent usage in', () => {
     const events: TraceEvent[] = [
       modelCall(), // no costUSD

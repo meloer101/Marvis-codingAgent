@@ -543,6 +543,13 @@ describe('isAutoModeAvailable', () => {
     const result = isAutoModeAvailable({ model: 'ollama/qwen' }, registry);
     expect(result.available).toBe(true);
   });
+
+  it('treats an already-resolved session model as available without a registry lookup', () => {
+    const registry = new ProviderRegistry({ env: {} });
+    const result = isAutoModeAvailable({}, registry, 'scripted/test-model');
+    expect(result.available).toBe(true);
+    if (result.available) expect(result.modelRef).toBe('scripted/test-model');
+  });
 });
 
 describe('createPermissionHooks', () => {

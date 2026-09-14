@@ -29,13 +29,21 @@ import type { ProjectMemory } from '../context/memory.js';
 import { estimateRequestTokens } from '../context/tokenizer.js';
 import { fmtBreakdown, fmtTokens } from '../util/format.js';
 import {
+  AutoModeClassifier,
+  AutoModeState,
+  applySubagentReview,
   createPermissionEngine,
   createPermissionHooks,
+  isAutoModeAvailable,
   isSandboxExecAvailable,
   nonInteractiveAskHandler,
 } from '../permissions/index.js';
 import type {
   AskHandler,
+  AutoModeAvailability,
+  AutoModeDenial,
+  AutoModeHookOptions,
+  ClassifyResult,
   PermissionEngine,
   PermissionMode,
 } from '../permissions/index.js';
@@ -79,7 +87,7 @@ import { addUsage } from '../provider/types.js';
 import type { Message, Usage } from '../provider/types.js';
 import { ProviderRegistry } from '../provider/router.js';
 import type { ResolvedModel } from '../provider/router.js';
-import { DEFAULT_REASONING_EFFORTS } from '../provider/capabilities.js';
+import { DEFAULT_REASONING_EFFORTS, estimateCostUSD } from '../provider/capabilities.js';
 import type { ReasoningEffort } from '../provider/types.js';
 import type { ContextBreakdown } from '../context/budget.js';
 
@@ -208,6 +216,10 @@ interface SessionInit {
   compactHook: AgentHooks | undefined;
   registry: ProviderRegistry;
   budgetOverrides: Partial<AgentLoopOptions>;
+  autoState?: AutoModeState;
+  autoClassifier?: AutoModeClassifier;
+  autoAvailable: AutoModeAvailability;
+  autoHook?: AutoModeHookOptions;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +249,10 @@ export class AgentSession {
   readonly #hooks: AgentHooks;
   readonly #compactHook: AgentHooks | undefined;
   readonly #budgetOverrides: Partial<AgentLoopOptions>;
+  readonly #autoState: AutoModeState | undefined;
+  readonly #autoClassifier: AutoModeClassifier | undefined;
+  readonly #autoAvailable: AutoModeAvailability;
+  #pendingRetryNotes: string[] = [];
   readonly #control: AgentControl;
 
   #session: SessionState;
@@ -281,6 +297,13 @@ export class AgentSession {
     this.#hooks = init.hooks;
     this.#compactHook = init.compactHook;
     this.#budgetOverrides = init.budgetOverrides;
+    this.#autoState = init.autoState;
+    this.#autoClassifier = init.autoClassifier;
+    this.#autoAvailable = init.autoAvailable;
+
+    if (init.autoHook) {
+      init.autoHook.onUsage = (u) => this.#foldClassifierUsage(u);
+    }
 
     const notice = (n: Notice): void => this.#config.onNotice?.(n);
     const engine = this.#engine;
@@ -452,7 +475,16 @@ export class AgentSession {
         : new SessionState();
 
     const permissions = settings.permissions ?? {};
-    const mode = config.mode ?? permissions.mode ?? 'ask';
+    const autoAvailable = isAutoModeAvailable(settings, registry, config.model.ref);
+    let mode = config.mode ?? permissions.mode ?? 'ask';
+    if (mode === 'auto' && !autoAvailable.available) {
+      notify({
+        kind: 'auto-mode',
+        level: 'warn',
+        text: `auto mode unavailable: ${autoAvailable.reason}`,
+      });
+      mode = 'ask';
+    }
     const planApprovedMode = config.planApprovedMode ?? permissions.planApprovedMode ?? 'acceptEdits';
     const engine = createPermissionEngine({
       workspaceRoot: cwd,
@@ -460,8 +492,36 @@ export class AgentSession {
       allow: [...(permissions.allow ?? []), ...(config.allow ?? [])],
       ask: [...(permissions.ask ?? []), ...(config.ask ?? [])],
       deny: [...(permissions.deny ?? []), ...(config.deny ?? [])],
+      classifyAllShell: settings.autoMode?.classifyAllShell === true,
+      useAutoModeDuringPlan: autoAvailable.available && settings.useAutoModeDuringPlan !== false,
     });
     notify({ kind: 'permission-mode', level: 'info', text: `permission mode: ${mode}` });
+
+    const autoState = autoAvailable.available ? new AutoModeState() : undefined;
+    const autoClassifier = autoAvailable.available
+      ? new AutoModeClassifier({
+          model:
+            autoAvailable.modelRef === config.model.ref
+              ? config.model
+              : registry.resolve(autoAvailable.modelRef),
+          autoMode: settings.autoMode,
+        })
+      : undefined;
+    const autoHookHolder: { current?: AutoModeHookOptions } = {};
+    if (autoClassifier && autoState) {
+      autoHookHolder.current = {
+        classifier: autoClassifier,
+        state: autoState,
+        ...(memory.text ? { projectMemory: memory.text } : {}),
+        injectionProbe: settings.autoMode?.injectionProbe === true,
+        onNotice: (n) =>
+          notify({
+            kind: 'auto-mode',
+            level: n.kind === 'denied' || n.kind === 'paused' ? 'warn' : 'info',
+            text: n.text,
+          }),
+      };
+    }
 
     if (!isSandboxExecAvailable()) {
       notify({
@@ -511,7 +571,7 @@ export class AgentSession {
         })
       : undefined;
     const hooks = mergeHooks(
-      createPermissionHooks(engine, askHandler),
+      createPermissionHooks(engine, askHandler, autoHookHolder.current),
       guardrailHook,
       compactHook,
     );
@@ -552,6 +612,10 @@ export class AgentSession {
       compactHook,
       registry,
       budgetOverrides,
+      autoAvailable,
+      ...(autoState ? { autoState } : {}),
+      ...(autoClassifier ? { autoClassifier } : {}),
+      ...(autoHookHolder.current ? { autoHook: autoHookHolder.current } : {}),
     });
 
     const modeLabel = `${config.model.ref} · mode ${mode}`;
@@ -600,6 +664,28 @@ export class AgentSession {
     return this.#engine;
   }
 
+  get autoModeAvailable(): boolean {
+    return this.#autoAvailable.available;
+  }
+
+  get autoModeUnavailableReason(): string | undefined {
+    return this.#autoAvailable.available ? undefined : this.#autoAvailable.reason;
+  }
+
+  get recentDenials(): readonly AutoModeDenial[] {
+    return this.#autoState?.recentDenials ?? [];
+  }
+
+  /** Authorize one retry of a previously denied auto-mode call on the next turn. */
+  retryDenied(id: string): boolean {
+    const d = this.#autoState?.markRetry(id);
+    if (!d) return false;
+    this.#pendingRetryNotes.push(
+      `The user authorized a retry of the denied ${d.toolName} call. You may issue that exact call again.`,
+    );
+    return true;
+  }
+
   get mcpStatus(): McpServerStatus[] {
     return this.#hub.status();
   }
@@ -625,6 +711,14 @@ export class AgentSession {
   }
 
   setMode(mode: PermissionMode): void {
+    if (mode === 'auto' && !this.#autoAvailable.available) {
+      this.#config.onNotice?.({
+        kind: 'auto-mode',
+        level: 'warn',
+        text: `auto mode unavailable: ${this.#autoAvailable.reason}`,
+      });
+      mode = 'ask';
+    }
     const prev = this.#engine.getMode();
     if (prev === mode) return;
     this.#engine.setMode(mode);
@@ -653,6 +747,10 @@ export class AgentSession {
     if (this.#closed) throw new Error('AgentSession is closed');
 
     let effectiveText = input;
+    if (this.#pendingRetryNotes.length > 0) {
+      const notes = this.#pendingRetryNotes.splice(0).join('\n');
+      effectiveText = `${notes}\n\n${effectiveText}`;
+    }
     if (!this.#hub.empty) {
       const { context, notes } = await resolveResources(this.#hub, input);
       for (const n of notes) {
@@ -866,6 +964,49 @@ export class AgentSession {
     this.#config.onEvent?.(event);
   };
 
+  #autoNotice(n: { kind: 'denied' | 'paused' | 'resumed'; text: string }): void {
+    this.#config.onNotice?.({
+      kind: 'auto-mode',
+      level: n.kind === 'denied' || n.kind === 'paused' ? 'warn' : 'info',
+      text: n.text,
+    });
+  }
+
+  #foldClassifierUsage(usage: Usage): void {
+    const costUSD =
+      this.#autoClassifier?.pricing !== undefined
+        ? estimateCostUSD(usage, this.#autoClassifier.pricing)
+        : usage.costUSD;
+    const folded: Usage = costUSD !== undefined ? { ...usage, costUSD } : usage;
+    this.#sessionUsage = this.#sessionUsage ? addUsage(this.#sessionUsage, folded) : folded;
+    void this.#trace?.append({
+      type: 'classifier',
+      ts: Date.now(),
+      model: this.#autoClassifier?.ref ?? 'unknown',
+      inputTokens: folded.inputTokens,
+      outputTokens: folded.outputTokens,
+      cachedInputTokens: folded.cachedInputTokens,
+      ...(costUSD !== undefined ? { costUSD } : {}),
+    });
+  }
+
+  #childAutoHook(
+    def: AgentDefinition,
+    subPrompt: string,
+  ): AutoModeHookOptions | undefined {
+    if (!this.#autoClassifier || !this.#autoState) return undefined;
+    return {
+      classifier: this.#autoClassifier,
+      state: this.#autoState,
+      ...(this.#memory.text ? { projectMemory: this.#memory.text } : {}),
+      injectionProbe: this.#config.settings.autoMode?.injectionProbe === true,
+      parentMessages: () => this.#messages,
+      delegation: { name: 'task', input: { subagent_type: def.name, prompt: subPrompt } },
+      onNotice: (n) => this.#autoNotice(n),
+      onUsage: (u) => this.#foldClassifierUsage(u),
+    };
+  }
+
   async #runSubagent(
     def: AgentDefinition,
     subPrompt: string,
@@ -879,10 +1020,14 @@ export class AgentSession {
       allow: [...(permissions.allow ?? []), ...(this.#config.allow ?? [])],
       ask: [...(permissions.ask ?? []), ...(this.#config.ask ?? [])],
       deny: [...(permissions.deny ?? []), ...(this.#config.deny ?? [])],
+      classifyAllShell: this.#config.settings.autoMode?.classifyAllShell === true,
+      useAutoModeDuringPlan:
+        this.#autoAvailable.available && this.#config.settings.useAutoModeDuringPlan !== false,
     });
     const childTools = subagentToolSpecs(builtinTools(), def);
     const notice = (text: string): void =>
       this.#config.onNotice?.({ kind: 'subagent', level: 'info', text });
+    const childAuto = this.#childAutoHook(def, subPrompt);
 
     notice(`  ⤷ ${def.name}: dispatched`);
     const result = await runSubagent({
@@ -893,9 +1038,10 @@ export class AgentSession {
         platform: this.#platform,
         role: def.body,
         ...(this.#memory.text ? { projectMemory: this.#memory.text } : {}),
+        ...(this.#engine.getMode() === 'auto' ? { mode: 'auto' } : {}),
       }),
       hooks: mergeHooks(
-        createPermissionHooks(childEngine, nonInteractiveAskHandler),
+        createPermissionHooks(childEngine, nonInteractiveAskHandler, childAuto),
         this.#config.settings.toolGuardrails !== false
           ? createToolGuardrailHooks({ isReadOnly: readOnlyLookup(childTools) })
           : undefined,
@@ -939,7 +1085,35 @@ export class AgentSession {
       ...(result.usage.costUSD !== undefined ? { costUSD: result.usage.costUSD } : {}),
       stopReason: result.stopReason,
     });
-    return result;
+
+    if (!this.#autoClassifier || this.#engine.getMode() !== 'auto') {
+      return result;
+    }
+
+    let review: ClassifyResult | undefined;
+    try {
+      review = await this.#autoClassifier.classify(
+        {
+          type: 'tool_use',
+          id: 'subagent-return',
+          name: 'task',
+          input: { subagent_type: def.name, prompt: subPrompt, report: result.report },
+        },
+        result.messages,
+        {
+          cwd: this.#cwd,
+          mode: this.#engine.getMode(),
+          ...(this.#memory.text ? { projectMemory: this.#memory.text } : {}),
+          ...(runCtx.signal ? { signal: runCtx.signal } : {}),
+          parentMessages: this.#messages,
+          delegation: { name: 'task', input: { subagent_type: def.name, prompt: subPrompt } },
+        },
+      );
+      this.#foldClassifierUsage(review.usage);
+    } catch {
+      review = undefined;
+    }
+    return { ...result, report: applySubagentReview(result.report, review, def.name) };
   }
 }
 

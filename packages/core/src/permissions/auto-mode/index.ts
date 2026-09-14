@@ -13,3 +13,4 @@ export type { ClassifyResult, ClassifierContext, AutoModeClassifierOptions } fro
 export { AutoModeState, CONSECUTIVE_DENY_LIMIT, CUMULATIVE_DENY_LIMIT } from './state.js';
 export type { AutoModeDenial } from './state.js';
 export { needsDirtyTreeSnapshot, readDirtyTree } from './git-dirty.js';
+export { applySubagentReview, SUBAGENT_UNREVIEWED } from './review.js';

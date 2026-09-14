@@ -36,6 +36,7 @@ export type { AutoModeHookOptions, AutoModeNotice } from './hooks.js';
 export {
   AutoModeClassifier,
   AutoModeState,
+  applySubagentReview,
   resolveAutoModeRules,
   listUsesDefaults,
   defaultRulesFor,

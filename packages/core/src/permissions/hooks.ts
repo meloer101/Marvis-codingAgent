@@ -3,7 +3,9 @@ import { READ_ONLY_TOOLS } from './defaults.js';
 import type { PermissionEngine } from './engine.js';
 import type { AskHandler } from './types.js';
 import { AutoModeClassifier, classifierDenyMessage } from './auto-mode/classifier.js';
+import { injectionWarning } from './auto-mode/injection.js';
 import type { AutoModeState } from './auto-mode/state.js';
+import type { Usage } from '../provider/types.js';
 
 export const nonInteractiveAskHandler: AskHandler = async ({ reason }) => ({
   decision: 'deny',
@@ -21,7 +23,11 @@ export interface AutoModeHookOptions {
   classifier: AutoModeClassifier;
   state: AutoModeState;
   projectMemory?: string;
+  injectionProbe?: boolean;
+  parentMessages?: () => readonly import('../provider/types.js').Message[];
+  delegation?: { name: string; input: unknown };
   onNotice?: (notice: AutoModeNotice) => void;
+  onUsage?: (usage: Usage) => void;
 }
 
 export function createPermissionHooks(
@@ -58,6 +64,10 @@ export function createPermissionHooks(
         });
       }
 
+      if (autoMode.state.consumeRetry(call.name, call.input)) {
+        return { decision: 'allow' };
+      }
+
       const paused = await autoMode.state.serialize(() => autoMode.state.paused);
       if (paused) {
         const decision = await ask({
@@ -82,7 +92,10 @@ export function createPermissionHooks(
         mode: modeBefore,
         ...(autoMode.projectMemory ? { projectMemory: autoMode.projectMemory } : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
+        ...(autoMode.parentMessages ? { parentMessages: autoMode.parentMessages() } : {}),
+        ...(autoMode.delegation ? { delegation: autoMode.delegation } : {}),
       });
+      if (result.usage) autoMode.onUsage?.(result.usage);
 
       if (engine.getMode() !== modeBefore) {
         const again = await evaluate();
@@ -96,6 +109,12 @@ export function createPermissionHooks(
       }
 
       return autoMode.state.serialize(() => applyClassify(call, result, autoMode));
+    },
+    async onAfterToolCall(call, result) {
+      if (!autoMode?.injectionProbe) return;
+      if (engine.getMode() !== 'auto') return;
+      const warning = injectionWarning(call.name, result.content);
+      return warning ? { appendToResult: warning } : undefined;
     },
   };
 }

@@ -32,4 +32,6 @@ export interface SubagentResult {
   usage: import('../provider/types.js').Usage;
   stopReason: string;
   turns: number;
+  /** Full child transcript, for auto-mode return review. */
+  messages: import('../provider/types.js').Message[];
 }

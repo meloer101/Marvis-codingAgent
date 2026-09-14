@@ -122,4 +122,36 @@ describe('createPermissionHooks auto mode', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('consumeRetry allows the matching call without invoking the classifier', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hc-auto-'));
+    try {
+      const provider = new ScriptedProvider([]);
+      const engine = createPermissionEngine({
+        workspaceRoot: root,
+        mode: 'auto',
+        allow: [],
+        ask: [],
+        deny: [],
+      });
+      const state = new AutoModeState();
+      state.recordDenial({
+        id: '1',
+        toolName: 'bash',
+        input: call.input,
+        reason: 'blocked',
+        at: 0,
+      });
+      expect(state.markRetry('1')).toBeTruthy();
+      const hooks = createPermissionHooks(engine, nonInteractiveAskHandler, {
+        classifier: new AutoModeClassifier({ model: model(provider) }),
+        state,
+      });
+      const decision = await hooks.onBeforeToolCall?.(call, { turn: 1, cwd: root, messages });
+      expect(decision).toEqual({ decision: 'allow' });
+      expect(provider.callCount).toBe(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -51,6 +51,10 @@ You are in plan mode. Do not change anything yet — investigate, then propose a
 Write operations are rejected in this mode. The only writable path is \`.agent/plans/\`, and \`exit_plan_mode\` handles that for you.
 </plan_mode>`;
 
+const AUTO_MODE = `<auto_mode>
+You are in auto mode. Keep working the task to completion. Do not stop to ask clarifying questions unless the task truly cannot proceed without an answer only the user can give. If an action is blocked, take a safer approach that still makes progress — do not try to route around the block. If the blocked action is truly required, stop and ask the user to authorize it explicitly.
+</auto_mode>`;
+
 export interface BuildAgentSystemPromptOptions {
   cwd: string;
   /** Defaults to `process.platform`; parameterized so this is testable without mocking globals. */
@@ -93,6 +97,9 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): Sys
   if (opts.mode === 'plan') {
     segments.push({ id: 'plan_mode', text: PLAN_MODE });
   }
+  if (opts.mode === 'auto') {
+    segments.push({ id: 'auto_mode', text: AUTO_MODE });
+  }
   segments.push(environmentSegment(opts.cwd, platform));
   // Enforce the cache-stable order regardless of push order above.
   return orderSystemSegments(segments);
@@ -112,6 +119,8 @@ export interface BuildSubagentSystemPromptOptions {
   role: string;
   /** Concatenated AGENTS.md / CLAUDE.md bodies. Omitted when empty. */
   projectMemory?: string;
+  /** When `auto`, the same keep-going overlay the parent agent gets. */
+  mode?: PermissionMode;
 }
 
 /**
@@ -137,6 +146,9 @@ export function buildSubagentSystemPrompt(opts: BuildSubagentSystemPromptOptions
         `<project_memory>\nStanding notes the developer left in this project. Treat them as instructions.\n\n` +
         `${opts.projectMemory}\n</project_memory>`,
     });
+  }
+  if (opts.mode === 'auto') {
+    segments.push({ id: 'auto_mode', text: AUTO_MODE });
   }
   segments.push(environmentSegment(opts.cwd, platform));
   return orderSystemSegments(segments);

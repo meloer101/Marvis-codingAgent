@@ -110,6 +110,13 @@ export type TraceEvent =
       costUSD?: number;
       stopReason: string;
     } & UsageFields)
+  | ({
+      /** Auto-mode classifier call. Tokens/cost count; this is not an agent turn. */
+      type: 'classifier';
+      ts: number;
+      model: string;
+      costUSD?: number;
+    } & UsageFields)
   | {
       type: 'error';
       ts: number;

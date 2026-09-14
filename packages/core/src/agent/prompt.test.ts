@@ -33,6 +33,15 @@ describe('buildAgentSystemPrompt', () => {
     expect(conventions?.cacheBreakpoint).toBe(true);
   });
 
+  it('adds the auto_mode overlay only in auto mode', () => {
+    const plain = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux' });
+    expect(plain.map((s) => s.id)).not.toContain('auto_mode');
+
+    const auto = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux', mode: 'auto' });
+    expect(auto.map((s) => s.id)).toEqual(['identity', 'conventions', 'auto_mode', 'environment']);
+    expect(auto.find((s) => s.id === 'auto_mode')?.text).toMatch(/safer approach/);
+  });
+
   it('adds the plan_mode overlay only in plan mode, after the cacheable prefix', () => {
     const plain = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux' });
     expect(plain.map((s) => s.id)).not.toContain('plan_mode');
@@ -176,7 +185,18 @@ describe('buildSubagentSystemPrompt', () => {
     expect(ids).not.toContain('available_skills');
     expect(ids).not.toContain('available_memory');
     expect(ids).not.toContain('plan_mode');
+    expect(ids).not.toContain('auto_mode');
     expect(ids).toContain('project_memory');
+  });
+
+  it('adds the auto_mode overlay when the parent dispatched in auto mode', () => {
+    const ids = buildSubagentSystemPrompt({
+      cwd: '/w',
+      platform: 'linux',
+      role: 'r',
+      mode: 'auto',
+    }).map((s) => s.id);
+    expect(ids).toEqual(['identity', 'conventions', 'agent_role', 'auto_mode', 'environment']);
   });
 
   it('keeps identity + conventions byte-identical to the main prompt (cache still hits)', () => {

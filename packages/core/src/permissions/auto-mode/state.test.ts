@@ -41,4 +41,13 @@ describe('AutoModeState', () => {
     expect(s.paused).toBe(true);
     expect(s.cumulativeDenials).toBe(0);
   });
+
+  it('markRetry/consumeRetry authorizes one matching call', () => {
+    const s = new AutoModeState();
+    s.recordDenial({ id: '1', toolName: 'bash', input: { command: 'git push --force' }, reason: 'nope', at: 0 });
+    expect(s.markRetry('1')?.id).toBe('1');
+    expect(s.consumeRetry('bash', { command: 'git push --force' })).toBe(true);
+    expect(s.consumeRetry('bash', { command: 'git push --force' })).toBe(false);
+    expect(s.markRetry('missing')).toBeUndefined();
+  });
 });

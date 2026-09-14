@@ -30,6 +30,7 @@ export const SYSTEM_SEGMENT_ORDER = [
   'available_memory',
   'project_memory',
   'plan_mode',
+  'auto_mode',
   'environment',
 ] as const;
 
