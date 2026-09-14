@@ -191,8 +191,8 @@ describe('PermissionEngine', () => {
       return { decision: 'allow' };
     });
     const call = { type: 'tool_use' as const, id: '1', name: 'bash', input: { command: 'ls' } };
-    await hooks.onBeforeToolCall!(call, { turn: 1, cwd: root });
-    await hooks.onBeforeToolCall!(call, { turn: 2, cwd: root });
+    await hooks.onBeforeToolCall!(call, { turn: 1, cwd: root, messages: [] });
+    await hooks.onBeforeToolCall!(call, { turn: 2, cwd: root, messages: [] });
     expect(asks).toBe(1);
   });
 
@@ -559,7 +559,7 @@ describe('createPermissionHooks', () => {
       const hooks = createPermissionHooks(engine, nonInteractiveAskHandler);
       const decision = await hooks.onBeforeToolCall?.(
         { type: 'tool_use', id: '1', name: 'bash', input: { command: 'echo hi' } },
-        { turn: 1, cwd: root },
+        { turn: 1, cwd: root, messages: [] },
       );
       expect(decision).toMatchObject({ decision: 'deny' });
       if (decision && decision.decision === 'deny') {

@@ -106,6 +106,7 @@ export type NoticeKind =
   | 'provider-retry'
   | 'resource'
   | 'subagent'
+  | 'auto-mode'
   | 'error';
 
 export interface Notice {
@@ -722,7 +723,7 @@ export class AgentSession {
     const result = await onCompact(
       this.#messages,
       { usedTokens: before, windowTokens: before, ratio: 1 },
-      { turn: 0, cwd: this.#cwd },
+      { turn: 0, cwd: this.#cwd, messages: this.#messages },
     );
     if (!result || result.messages.length === 0) return null;
     const after = estimateRequestTokens({ messages: result.messages });

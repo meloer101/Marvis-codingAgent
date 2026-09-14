@@ -4,7 +4,7 @@ import type { ToolUseBlock } from '../provider/types.js';
 import { createToolGuardrailHooks } from './guardrails.js';
 import type { TurnContext } from './hooks.js';
 
-const ctx: TurnContext = { turn: 1, cwd: '/tmp' };
+const ctx: TurnContext = { turn: 1, cwd: '/tmp', messages: [] };
 
 function call(name: string, input: unknown, id = 'c1'): ToolUseBlock {
   return { type: 'tool_use', id, name, input };

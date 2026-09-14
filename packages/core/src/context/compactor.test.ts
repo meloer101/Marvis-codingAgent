@@ -41,7 +41,7 @@ function history(turns: number): Message[] {
   return msgs;
 }
 
-const ctx = { turn: 1, cwd: '/tmp' };
+const ctx = { turn: 1, cwd: '/tmp', messages: [] };
 
 describe('splitForCompaction', () => {
   it('cuts on turn boundaries, keeping the last N turns', () => {

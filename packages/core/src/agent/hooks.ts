@@ -14,6 +14,8 @@ import type { ToolResult } from '../tools/types.js';
 export interface TurnContext {
   turn: number;
   cwd: string;
+  /** Conversation so far, including the assistant tool_use being gated. */
+  messages: readonly Message[];
   /** Aborts when the current turn is cancelled (Ctrl+C). Threaded through to the ask handler. */
   signal?: AbortSignal;
 }

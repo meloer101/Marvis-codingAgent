@@ -345,6 +345,7 @@ export class AgentLoop {
       const turnCtx: TurnContext = {
         turn,
         cwd: this.opts.cwd,
+        messages,
         ...(this.opts.signal ? { signal: this.opts.signal } : {}),
       };
       await this.hooks.onBeforeTurn?.(turnCtx);
