@@ -10,5 +10,22 @@
   "allow": [
     "Bash(npm:*)",
     "Bash(node:*)"
+  ],
+  "graders": [
+    {
+      "name": "diff-size",
+      "maxChangedLines": 45,
+      "maxNewFiles": 0
+    },
+    {
+      "name": "scratch-sprawl",
+      "allow": []
+    },
+    {
+      "name": "first-touch",
+      "deliverable": [
+        "test/parseRange.test.mjs"
+      ]
+    }
   ]
 }

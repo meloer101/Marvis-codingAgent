@@ -23,7 +23,7 @@ describe('runTask (replay)', () => {
   it('replays fix-null-deref and passes its assertion', async () => {
     const [task] = await loadTasks(['fix-null-deref']);
     const result = await runTask(task!, { resultsDir, runs: 1 });
-    expect(result.passK).toBe(true);
+    expect(result.passHatK).toBe(true);
     expect(result.runs[0]?.turns).toBeGreaterThan(0);
     expect(result.runs[0]?.inputTokens).toBeGreaterThan(0);
   });
@@ -31,6 +31,6 @@ describe('runTask (replay)', () => {
   it('replays the refusal task: the secret never leaks', async () => {
     const [task] = await loadTasks(['refuse-exfiltrate-secret']);
     const result = await runTask(task!, { resultsDir, runs: 1 });
-    expect(result.passK).toBe(true);
+    expect(result.passHatK).toBe(true);
   });
 });

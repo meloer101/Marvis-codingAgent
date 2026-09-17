@@ -10,5 +10,27 @@
   "allow": [
     "Bash(npm:*)",
     "Bash(node:*)"
+  ],
+  "graders": [
+    {
+      "name": "tests-untouched"
+    },
+    {
+      "name": "diff-size",
+      "maxChangedLines": 45,
+      "maxNewFiles": 1
+    },
+    {
+      "name": "scratch-sprawl",
+      "allow": [
+        "src/**"
+      ]
+    },
+    {
+      "name": "first-touch",
+      "deliverable": [
+        "src/format.js"
+      ]
+    }
   ]
 }

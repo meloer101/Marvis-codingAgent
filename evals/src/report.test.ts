@@ -1,17 +1,38 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildReport, diffBaseline, renderTable, toBaseline } from './report.js';
-import type { TaskResult } from './runner.js';
+import { buildReport, diffBaseline, renderComparison, renderTable, toBaseline } from './report.js';
+import type { SingleRun, TaskResult } from './runner.js';
+
+function run(passed: boolean): SingleRun {
+  return {
+    passed,
+    traceId: 't-1',
+    turns: 5,
+    inputTokens: 9_000,
+    outputTokens: 1_000,
+    costUSD: 0.003,
+    costPartial: false,
+    toolCalls: 4,
+    deniedToolCalls: 0,
+    toolErrors: 0,
+    wallMs: 1_000,
+    stopReason: 'end_turn',
+    graders: {},
+  };
+}
 
 function taskResult(over: Partial<TaskResult> = {}): TaskResult {
   return {
     id: 't',
+    suite: 'regression',
     tags: ['bug-fix'],
     expectRefusal: false,
     n: 3,
     pass1: true,
-    passK: true,
+    passAtK: true,
+    passHatK: true,
     passRate: 1,
+    graderPassRates: {},
     avgTurns: 5,
     avgTokens: 10_000,
     avgCostUSD: 0.003,
@@ -26,13 +47,14 @@ describe('buildReport', () => {
     const r = buildReport(
       [
         taskResult({ id: 'a' }),
-        taskResult({ id: 'b', passK: false, passRate: 0, pass1: false }),
-        taskResult({ id: 'refuse', expectRefusal: true, passRate: 1, passK: true }),
+        taskResult({ id: 'b', passAtK: false, passHatK: false, passRate: 0, pass1: false }),
+        taskResult({ id: 'refuse', expectRefusal: true }),
       ],
       'p/m',
     );
     expect(r.totals.tasks).toBe(3);
-    expect(r.totals.passK).toBe(2);
+    expect(r.totals.passAtK).toBe(2);
+    expect(r.totals.passHatK).toBe(2);
     expect(r.totals.pass1).toBe(2);
     expect(r.totals.refusalTasks).toBe(1);
     expect(r.totals.refusalCorrect).toBe(1);
@@ -47,11 +69,28 @@ describe('diffBaseline', () => {
     expect(diffBaseline(report, baseline)).toEqual([]);
   });
 
-  it('flags a pass@k drop', () => {
-    const worse = buildReport([taskResult({ id: 'a', passK: false, passRate: 0 })], 'p/m');
-    const regs = diffBaseline(worse, baseline);
+  it('flags losing pass^k even when pass@k still holds (one flaky run of three)', () => {
+    const flaky = buildReport(
+      [taskResult({ id: 'a', passHatK: false, passAtK: true, passRate: 2 / 3, runs: [run(true), run(false), run(true)] })],
+      'p/m',
+    );
+    const regs = diffBaseline(flaky, baseline);
     expect(regs).toHaveLength(1);
     expect(regs[0]).toMatchObject({ task: 'a', kind: 'pass' });
+    expect(regs[0]?.detail).toContain('pass^k');
+  });
+
+  it('reads a pre-pass^k baseline (passRate only)', () => {
+    const legacy = { generatedAt: '', model: 'p/m', tasks: { a: { passRate: 1, passK: true, avgTurns: 5, avgTokens: 10_000, avgCostUSD: 0.003 } } };
+    const flaky = buildReport([taskResult({ id: 'a', passHatK: false, passRate: 0.5 })], 'p/m');
+    expect(diffBaseline(flaky, legacy as unknown as Parameters<typeof diffBaseline>[1])).toHaveLength(1);
+  });
+
+  it('flags a grader pass-rate drop', () => {
+    const withGrader = buildReport([taskResult({ id: 'a', graderPassRates: { 'diff-size': 1 } })], 'p/m');
+    const base = toBaseline(withGrader);
+    const worse = buildReport([taskResult({ id: 'a', graderPassRates: { 'diff-size': 1 / 3 } })], 'p/m');
+    expect(diffBaseline(worse, base)).toEqual([expect.objectContaining({ task: 'a', kind: 'grader' })]);
   });
 
   it('flags a >15% token increase but tolerates a small one', () => {
@@ -69,9 +108,26 @@ describe('diffBaseline', () => {
 describe('renderTable', () => {
   it('produces a markdown table with a row per task', () => {
     const out = renderTable(buildReport([taskResult({ id: 'a' }), taskResult({ id: 'b' })], 'p/m'));
-    expect(out).toContain('| task | tags | pass@k |');
+    expect(out).toContain('| task | suite | pass rate | pass@k | pass^k | graders |');
     expect(out).toContain('| a |');
     expect(out).toContain('| b |');
     expect(out).toContain('refusal correctness:');
+  });
+});
+
+describe('renderComparison', () => {
+  it('reports a paired Δ with an interval and win/loss counts', () => {
+    const ids = ['a', 'b', 'c', 'd'];
+    const on = buildReport(ids.map((id, i) => taskResult({ id, passRate: [1, 1, 0.67, 1][i] as number })), 'p/m');
+    const off = buildReport(ids.map((id, i) => taskResult({ id, passRate: [0.67, 1, 0.33, 0.67][i] as number })), 'p/m');
+    const out = renderComparison('dim', on, off);
+    expect(out).toContain('paired over 4 tasks');
+    expect(out).toContain('3 better / 0 worse / 1 tied');
+    expect(out).toContain('| Δ pass |');
+  });
+
+  it('does not call identical arms an effect', () => {
+    const r = buildReport([taskResult({ id: 'a' }), taskResult({ id: 'b' })], 'p/m');
+    expect(renderComparison('dim', r, r)).toContain('no difference on any task');
   });
 });

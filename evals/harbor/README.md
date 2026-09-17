@@ -48,6 +48,29 @@ Env knobs: `HC_BENCH_MODEL` (default `deepseek/deepseek-v4-pro`),
 `HC_BENCH_KEY_ENV` (default `DEEPSEEK_API_KEY`), `HC_BENCH_CONCURRENCY`
 (default 4), `HC_BENCH_JOBS_DIR` (default `evals/harbor/.jobs`).
 
+### Held-out set
+
+`heldout.txt` lists unseen Terminal-Bench tasks that nothing is tuned against.
+Run it once, right before a behaviour change lands:
+
+```bash
+HC_BENCH_LIST=evals/harbor/heldout.txt evals/harbor/run-subset.sh
+```
+
+### Reading the results
+
+```bash
+python3 evals/harbor/summarize.py            # or pass a jobs dir
+```
+
+This splits trials into `pass` / `agent-fail` / `agent-timeout` / `infra`. Infra
+failures (the environment didn't start, the provider was unreachable or out of
+balance, no verdict) are left out of the agent's pass rate, because container
+resources alone can move Terminal-Bench scores by several points. The script also
+prints the environment config and the trial directories to read. Each trial's
+`agent/hc-traces/` holds the `hc` trace. Tally what you find in
+[docs/EVAL_FAILURES.md](../../docs/EVAL_FAILURES.md).
+
 ### Single task (debugging the adapter)
 
 ```bash

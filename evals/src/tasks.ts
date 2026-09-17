@@ -1,10 +1,15 @@
 /**
  * Task discovery. A task is a directory under `evals/tasks/<id>/` holding:
  *
- *   task.json      metadata (id, prompt, model, mode, tags, runs, expectRefusal)
+ *   task.json      metadata (id, prompt, model, mode, suite, tags, runs, expectRefusal, graders)
  *   fixture/       files copied verbatim into a fresh workspace before the run
  *   assert.mjs     run with cwd = the post-run workspace; exit 0 = pass
- *   cassette.jsonl recorded model exchanges (committed; replayed in CI)
+ *   cassette.jsonl recorded model exchanges (committed; replayed in CI) — regression suite only
+ *
+ * Suites (after Anthropic's "Demystifying evals for AI agents"):
+ *   regression  should stay ~100%; replayed from cassettes and gated on the baseline
+ *   capability  starts hard; run live (`--live`) with several trials, never gated
+ *   heldout     like capability, but only run before a change lands — never tuned against
  */
 
 import { readFile, readdir } from 'node:fs/promises';
@@ -13,12 +18,18 @@ import { fileURLToPath } from 'node:url';
 
 import type { PermissionMode } from '@harness-code/core';
 
+import type { GraderSpec } from './graders/index.js';
+
+export type Suite = 'regression' | 'capability' | 'heldout';
+export const SUITES: readonly Suite[] = ['regression', 'capability', 'heldout'];
+
 export interface TaskSpec {
   id: string;
   prompt: string;
   /** `provider/model`. */
   model: string;
   mode: PermissionMode;
+  suite: Suite;
   tags: string[];
   /** How many times the runner executes this task. */
   runs: number;
@@ -29,6 +40,8 @@ export interface TaskSpec {
   deny?: string[];
   /** Cap on agent turns for this task (harness default 30). */
   maxTurns?: number;
+  /** Behaviour checks run after `assert.mjs` (see `graders/`). */
+  graders: GraderSpec[];
 }
 
 export interface Task {
@@ -61,21 +74,35 @@ function validate(raw: unknown, id: string): TaskSpec {
   if (!REQUIRED_MODES.includes(r.mode as PermissionMode)) {
     throw new Error(`${id}/task.json: "mode" must be one of ${REQUIRED_MODES.join(', ')}`);
   }
+  const suite = r.suite === undefined ? 'regression' : r.suite;
+  if (!SUITES.includes(suite as Suite)) throw new Error(`${id}/task.json: "suite" must be one of ${SUITES.join(', ')}`);
+  const graders = Array.isArray(r.graders) ? r.graders : [];
+  for (const g of graders) {
+    if (typeof g !== 'object' || g === null || typeof (g as { name?: unknown }).name !== 'string') {
+      throw new Error(`${id}/task.json: every "graders" entry needs a "name"`);
+    }
+  }
   return {
     id,
     prompt: r.prompt,
     model: r.model,
     mode: r.mode as PermissionMode,
+    suite: suite as Suite,
     tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
     runs: typeof r.runs === 'number' && r.runs > 0 ? Math.floor(r.runs) : 3,
     ...(r.expectRefusal === true ? { expectRefusal: true } : {}),
     ...(Array.isArray(r.allow) ? { allow: r.allow.map(String) } : {}),
     ...(Array.isArray(r.deny) ? { deny: r.deny.map(String) } : {}),
     ...(typeof r.maxTurns === 'number' ? { maxTurns: Math.floor(r.maxTurns) } : {}),
+    graders: graders as GraderSpec[],
   };
 }
 
-export async function loadTasks(only?: string[]): Promise<Task[]> {
+/**
+ * Load tasks, optionally narrowed to explicit ids and/or suites. Explicit ids
+ * win over the suite filter — `--task x` runs `x` whatever suite it is in.
+ */
+export async function loadTasks(only?: string[], suites?: readonly Suite[]): Promise<Task[]> {
   const root = tasksDir();
   let names: string[];
   try {
@@ -93,6 +120,7 @@ export async function loadTasks(only?: string[]): Promise<Task[]> {
     if (wanted && !wanted.has(id)) continue;
     const dir = join(root, id);
     const spec = validate(JSON.parse(await readFile(join(dir, 'task.json'), 'utf8')), id);
+    if (!wanted && suites && !suites.includes(spec.suite)) continue;
     tasks.push({
       spec,
       dir,

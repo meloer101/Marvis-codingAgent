@@ -33,8 +33,12 @@ cassette** (`provider/mock.ts`) for anything that once came from a live model.
 The loop, tools, and permission engine use a scripted provider so concurrency,
 budget cutoffs, and denials are reproducible.
 
-`pnpm eval` replays committed cassettes (`evals/tasks/*/cassette.jsonl`) and gates
-on `evals/baseline.json` (a task regressing, or tokens/cost rising >15%, fails).
+`pnpm eval` replays the regression suite's committed cassettes
+(`evals/tasks/*/cassette.jsonl`) and gates on `evals/baseline.json`: losing pass^k
+on a task, a drop in pass rate or in a grader's pass rate, or tokens/cost rising
+more than 15% all fail. Capability and held-out tasks run live
+(`pnpm eval --live --suite capability --runs 5`). For the full measure-and-improve
+loop (suites, graders, paired CIs, error analysis), see [docs/EVALS.md](docs/EVALS.md).
 
 ### Re-recording the eval cassettes
 

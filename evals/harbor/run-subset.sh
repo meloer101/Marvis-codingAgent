@@ -2,6 +2,9 @@
 # Run `hc` on the Terminal-Bench 2.0 subset via Harbor (local Docker).
 #
 #   evals/harbor/run-subset.sh [extra harbor run args...]
+#   HC_BENCH_LIST=evals/harbor/heldout.txt evals/harbor/run-subset.sh   # held-out set
+#
+# Afterwards: python3 evals/harbor/summarize.py   (infra errors vs agent failures)
 #
 # Prereqs:
 #   * Docker running
@@ -17,6 +20,7 @@ MODEL="${HC_BENCH_MODEL:-deepseek/deepseek-v4-pro}"
 KEY_ENV="${HC_BENCH_KEY_ENV:-DEEPSEEK_API_KEY}"
 CONCURRENCY="${HC_BENCH_CONCURRENCY:-4}"
 JOBS_DIR="${HC_BENCH_JOBS_DIR:-$repo/evals/harbor/.jobs}"
+LIST="${HC_BENCH_LIST:-$here/subset.txt}"
 
 if [[ ! -f "$repo/dist-bundle/hc.mjs" ]]; then
   echo "dist-bundle/hc.mjs missing — run 'pnpm bundle' first" >&2
@@ -36,9 +40,9 @@ while IFS= read -r t; do
   case "$t" in ''|\#*) continue ;; esac
   case "$t" in */*) task_args+=(-i "$t") ;; *) task_args+=(-i "terminal-bench/$t") ;; esac
   n_tasks=$((n_tasks + 1))
-done < "$here/subset.txt"
+done < "$LIST"
 
-echo "hc @ terminal-bench-2  |  model=$MODEL  tasks=$n_tasks  concurrency=$CONCURRENCY"
+echo "hc @ terminal-bench-2  |  list=$(basename "$LIST")  model=$MODEL  tasks=$n_tasks  concurrency=$CONCURRENCY"
 
 exec env PYTHONPATH="$here" harbor run \
   -d terminal-bench/terminal-bench-2 \

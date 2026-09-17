@@ -1,0 +1,29 @@
+# Terminal-Bench 2.0 held-out set for `hc`.
+#
+# Never used while developing a change — no prompt, tool, or loop tweak is tuned
+# against these. Run once, right before a behaviour change lands, to check the
+# gain seen on subset.txt generalizes (Anthropic, "Writing effective tools for
+# agents": held-out sets expose overfitting to the dev tasks).
+#
+# Drawn from the 71 tasks absent from subset.txt, spread across categories and
+# avoiding the heaviest toolchains (QEMU, Windows, large model training). Once a
+# task here has been read closely to debug a failure, it is no longer held out:
+# move it to subset.txt and replace it with an unseen one.
+#
+#   HC_BENCH_LIST=evals/harbor/heldout.txt evals/harbor/run-subset.sh
+
+bn-fit-modify
+build-cython-ext
+configure-git-webserver
+constraints-scheduling
+custom-memory-heap-crash
+multi-source-data-merger
+nginx-request-logging
+openssl-selfsigned-cert
+polyglot-c-py
+query-optimize
+regex-log
+sanitize-git-repo
+sqlite-db-truncate
+vulnerable-secret
+write-compressor

@@ -1,9 +1,15 @@
 /**
- * `pnpm eval` — replay the committed cassettes against the fixture tasks, assert,
- * print the table, and gate on the baseline. Flags:
+ * `pnpm eval` — replay the committed cassettes against the regression-suite
+ * tasks, assert, grade, print the table, and gate on the baseline. Flags:
  *
- *   --task <id>          run one task (repeatable)
- *   --runs <n>           override each task's run count
+ *   --task <id>          run one task (repeatable; ignores --suite)
+ *   --suite <name>       regression (default) | capability | heldout | all
+ *   --runs <n>           override each task's run count (trials)
+ *   --live               hit the real endpoint, record nothing, never gate — the
+ *                        capability/heldout mode: e.g. `--live --suite capability --runs 5`
+ *   --analyze <results>  write a transcript digest of failing runs for error
+ *                        analysis (`latest`, a run id, or a path); add --all-runs
+ *                        to include passing runs
  *   --record             hit the real endpoint, re-record cassettes, then write a
  *                        baseline re-derived from a replay pass (self-consistent
  *                        with the replay gate — see the note in main())
@@ -19,25 +25,31 @@
  *   --no-gate            don't exit non-zero on regression
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { loadSettings } from '@harness-code/core';
 
+import { analyzeResults, resolveResultsDir } from './analyze.js';
 import { buildReport, diffBaseline, renderComparison, renderTable, toBaseline } from './report.js';
 import type { Baseline } from './report.js';
 import { runTask } from './runner.js';
 import type { RunConfig, TaskResult } from './runner.js';
-import { evalsRoot, loadTasks } from './tasks.js';
+import { SUITES, evalsRoot, loadTasks } from './tasks.js';
+import type { Suite } from './tasks.js';
 
 type AblationDim = 'compaction' | 'subagents' | 'prompt-tools';
 const ABLATION_DIMS: readonly AblationDim[] = ['compaction', 'subagents', 'prompt-tools'];
 
 interface Flags {
   tasks: string[];
+  suites: Suite[];
   runs?: number;
   record: boolean;
+  live: boolean;
+  analyze?: string;
+  allRuns: boolean;
   model?: string;
   ablation?: AblationDim;
   updateBaseline: boolean;
@@ -46,13 +58,23 @@ interface Flags {
 }
 
 function parseFlags(argv: string[]): Flags {
-  const f: Flags = { tasks: [], record: false, updateBaseline: false, keep: false, gate: true };
+  const f: Flags = { tasks: [], suites: ['regression'], record: false, live: false, allRuns: false, updateBaseline: false, keep: false, gate: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
       case '--task': f.tasks.push(req(argv, ++i, a)); break;
+      case '--suite': {
+        const v = req(argv, ++i, a);
+        if (v === 'all') f.suites = [...SUITES];
+        else if ((SUITES as readonly string[]).includes(v)) f.suites = [v as Suite];
+        else fail(`--suite must be one of ${SUITES.join(', ')}, all (got "${v}")`);
+        break;
+      }
       case '--runs': f.runs = int(req(argv, ++i, a)); break;
       case '--record': f.record = true; break;
+      case '--live': f.live = true; break;
+      case '--analyze': f.analyze = req(argv, ++i, a); break;
+      case '--all-runs': f.allRuns = true; break;
       case '--model': f.model = req(argv, ++i, a); break;
       case '--ablation': {
         const v = req(argv, ++i, a);
@@ -113,22 +135,42 @@ function loadDotEnv(): void {
 
 async function main(): Promise<void> {
   const flags = parseFlags(process.argv.slice(2));
-  if (flags.record || flags.ablation) loadDotEnv();
-  const tasks = await loadTasks(flags.tasks);
-  if (tasks.length === 0) fail('no tasks matched');
+
+  if (flags.analyze) {
+    const dir = await resolveResultsDir(flags.analyze);
+    const { markdown, runs } = await analyzeResults(dir, { allRuns: flags.allRuns });
+    const out = join(dir, 'analysis.md');
+    await writeFile(out, markdown);
+    process.stdout.write(`${runs} run(s) → ${out}\n`);
+    return;
+  }
+  if (flags.live && (flags.record || flags.updateBaseline)) {
+    fail('--live measures without recording; it cannot be combined with --record or --update-baseline');
+  }
+
+  const realEndpoint = flags.record || flags.live || flags.ablation !== undefined;
+  if (realEndpoint) loadDotEnv();
+  const tasks = await loadTasks(flags.tasks, flags.suites);
+  if (tasks.length === 0) fail(`no tasks matched (suite: ${flags.suites.join(', ')})`);
+  if (!realEndpoint) {
+    const unrecorded = tasks.filter((t) => !existsSync(t.cassettePath)).map((t) => `${t.spec.id} (${t.spec.suite})`);
+    if (unrecorded.length > 0) {
+      fail(`no cassette to replay for ${unrecorded.join(', ')} — run with --live to measure, or --record to add it to the regression suite`);
+    }
+  }
 
   const runId = new Date().toISOString().replace(/[:.]/g, '-');
   const resultsDir = join(evalsRoot(), '.results', runId);
   await mkdir(resultsDir, { recursive: true });
 
-  const settings =
-    flags.record || flags.ablation ? (await loadSettings()).settings : undefined;
+  const settings = realEndpoint ? (await loadSettings()).settings : undefined;
   const model = flags.model ?? tasks[0]!.spec.model;
 
   const base: RunConfig = {
     resultsDir,
     ...(flags.runs !== undefined ? { runs: flags.runs } : {}),
     ...(flags.record ? { record: true } : {}),
+    ...(flags.live ? { live: true } : {}),
     ...(settings ? { settings } : {}),
     ...(flags.keep ? { keep: true } : {}),
   };
@@ -143,12 +185,19 @@ async function main(): Promise<void> {
     process.stderr.write(`· ${t.spec.id} …\n`);
     const r = await runTask(t, base);
     results.push(r);
-    process.stderr.write(`  ${r.passK ? 'pass' : 'FAIL'} @k, ${r.runs.filter((x) => x.passed).length}/${r.n}\n`);
+    const graderFails = Object.entries(r.graderPassRates).filter(([, rate]) => rate < 1).map(([name]) => name);
+    process.stderr.write(
+      `  ${r.runs.filter((x) => x.passed).length}/${r.n} passed${graderFails.length ? ` · grader misses: ${graderFails.join(', ')}` : ''}\n`,
+    );
   }
 
   const report = buildReport(results, model);
   await writeFile(join(resultsDir, 'report.json'), JSON.stringify(report, null, 2));
   process.stdout.write(`\n${renderTable(report)}\n`);
+  process.stderr.write(`\nresults: ${resultsDir}  (transcript digest: pnpm eval --analyze ${runId})\n`);
+
+  // Live runs measure; they never gate or touch the baseline.
+  if (flags.live) return;
 
   if (flags.record || flags.updateBaseline) {
     // The CI gate runs `pnpm eval` in REPLAY mode, whose token counts are
@@ -169,7 +218,16 @@ async function main(): Promise<void> {
       for (const t of tasks) replayResults.push(await runTask(t, replayCfg));
       baselineReport = buildReport(replayResults, model);
     }
-    await writeFile(BASELINE_PATH, `${JSON.stringify(toBaseline(baselineReport), null, 2)}\n`);
+    // The baseline is the regression suite's contract. A `--task x` update merges
+    // into the existing file instead of dropping every other task.
+    const regression = buildReport(
+      baselineReport.results.filter((r) => r.suite === 'regression'),
+      model,
+    );
+    const prev = await readBaseline();
+    const next = toBaseline(regression);
+    if (flags.tasks.length > 0) next.tasks = { ...(prev?.tasks ?? {}), ...next.tasks };
+    await writeFile(BASELINE_PATH, `${JSON.stringify(next, null, 2)}\n`);
     process.stderr.write(`\nbaseline written to ${BASELINE_PATH} (replay-derived)\n`);
     return;
   }

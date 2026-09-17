@@ -52,6 +52,7 @@ import type {
   Provider,
   ResolvedModel,
   Settings,
+  TraceEvent,
   TraceSummary,
 } from '@harness-code/core';
 
@@ -95,6 +96,8 @@ export interface HarnessOptions {
 export interface HarnessRun {
   result: AgentRunResult;
   trace: TraceSummary;
+  /** This run's events only — a trace id reused across passes appends to one file. */
+  events: TraceEvent[];
 }
 
 const DEFAULT_MAX_TURNS = 30;
@@ -234,8 +237,10 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
     wallMs: Date.now() - startedAt,
   });
 
-  const events = await readTrace(opts.traceDir, opts.traceId);
-  return { result, trace: summarizeTrace(opts.traceId, events) };
+  const all = await readTrace(opts.traceDir, opts.traceId);
+  const lastStart = all.map((e) => e.type).lastIndexOf('run_start');
+  const events = lastStart > 0 ? all.slice(lastStart) : all;
+  return { result, trace: summarizeTrace(opts.traceId, events), events };
 }
 
 /**

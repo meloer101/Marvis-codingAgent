@@ -7,8 +7,10 @@ import { cp, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { runGraders } from './graders/index.js';
+import type { GraderResult } from './graders/index.js';
 import { runAgentTask, runAssertion } from './harness.js';
-import type { Task } from './tasks.js';
+import type { Suite, Task } from './tasks.js';
 
 export interface RunConfig {
   /** Where per-run trace jsonl files land (kept for `hc trace` debugging). */
@@ -34,26 +36,41 @@ export interface RunConfig {
 }
 
 export interface SingleRun {
+  /** Outcome: `assert.mjs` held in the post-run workspace. */
   passed: boolean;
+  /** Trace id — `hc trace <id> --cwd <resultsDir>` / `pnpm eval --analyze`. */
+  traceId: string;
   turns: number;
   inputTokens: number;
   outputTokens: number;
   costUSD: number;
   costPartial: boolean;
+  toolCalls: number;
   deniedToolCalls: number;
+  /** Tool calls that returned an error (denials included). */
+  toolErrors: number;
+  wallMs: number;
   stopReason: string;
+  /** Behaviour grader verdicts, by grader name. */
+  graders: Record<string, GraderResult>;
   /** assert.mjs / error output, only kept for failures. */
   detail?: string;
 }
 
 export interface TaskResult {
   id: string;
+  suite: Suite;
   tags: string[];
   expectRefusal: boolean;
   n: number;
   pass1: boolean;
-  passK: boolean;
+  /** pass@k, k = n: at least one run passed. */
+  passAtK: boolean;
+  /** pass^k, k = n: every run passed — the consistency bar a regression gate wants. */
+  passHatK: boolean;
   passRate: number;
+  /** Per-grader share of runs whose grader passed. */
+  graderPassRates: Record<string, number>;
   avgTurns: number;
   avgTokens: number;
   avgCostUSD: number;
@@ -78,13 +95,14 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
     try {
       await cp(task.fixtureDir, workDir, { recursive: true });
 
-      const { result, trace } = await runAgentTask({
+      const traceId = `${arm}${task.spec.id}-${i + 1}`;
+      const { result, trace, events } = await runAgentTask({
         workDir,
         prompt: task.spec.prompt,
         modelRef: task.spec.model,
         mode: task.spec.mode,
         traceDir,
-        traceId: `${arm}${task.spec.id}-${i + 1}`,
+        traceId,
         cassettePath: task.cassettePath,
         ...(cfg.record ? { record: true } : {}),
         ...(cfg.live ? { live: true } : {}),
@@ -105,16 +123,22 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
       // (`deniedToolCalls`, reported but not gated on) both satisfy it.
       const assertion = runAssertion(task.assertPath, workDir);
       const passed = assertion.passed;
+      const graders = await runGraders(task.spec.graders, { fixtureDir: task.fixtureDir, workDir, events });
 
       runs.push({
         passed,
+        traceId,
         turns: trace.turns,
         inputTokens: trace.inputTokens,
         outputTokens: trace.outputTokens,
         costUSD: trace.costUSD,
         costPartial: trace.costPartial,
+        toolCalls: trace.toolCalls,
         deniedToolCalls: trace.deniedToolCalls,
+        toolErrors: events.filter((e) => e.type === 'tool_call' && e.isError).length,
+        wallMs: trace.wallMs,
         stopReason: result.stopReason,
+        graders,
         ...(passed ? {} : { detail: assertion.output.slice(0, 2000) || `stopReason ${result.stopReason}` }),
       });
     } finally {
@@ -123,14 +147,21 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
   }
 
   const passes = runs.filter((r) => r.passed).length;
+  const graderPassRates: Record<string, number> = {};
+  for (const g of task.spec.graders) {
+    graderPassRates[g.name] = runs.filter((r) => r.graders[g.name]?.passed === true).length / n;
+  }
   return {
     id: task.spec.id,
+    suite: task.spec.suite,
     tags: task.spec.tags,
     expectRefusal: task.spec.expectRefusal === true,
     n,
     pass1: runs[0]?.passed === true,
-    passK: passes > 0,
+    passAtK: passes > 0,
+    passHatK: passes === n,
     passRate: passes / n,
+    graderPassRates,
     avgTurns: mean(runs.map((r) => r.turns)),
     avgTokens: mean(runs.map((r) => r.inputTokens + r.outputTokens)),
     avgCostUSD: mean(runs.map((r) => r.costUSD)),

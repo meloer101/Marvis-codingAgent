@@ -4,14 +4,24 @@
  */
 
 import type { TaskResult } from './runner.js';
+import { clusteredMean, pairedDiff } from './stats.js';
+import type { Estimate } from './stats.js';
+
+export interface BaselineTask {
+  passRate: number;
+  /** Every run passed. The regression gate's pass bar. */
+  passHatK: boolean;
+  avgTurns: number;
+  avgTokens: number;
+  avgCostUSD: number;
+  /** Per-grader pass rate; absent when the task declares no graders. */
+  graders?: Record<string, number>;
+}
 
 export interface Baseline {
   generatedAt: string;
   model: string;
-  tasks: Record<
-    string,
-    { passRate: number; passK: boolean; avgTurns: number; avgTokens: number; avgCostUSD: number }
-  >;
+  tasks: Record<string, BaselineTask>;
 }
 
 export interface Report {
@@ -20,8 +30,11 @@ export interface Report {
   results: TaskResult[];
   totals: {
     tasks: number;
-    passK: number;
+    passAtK: number;
+    passHatK: number;
     pass1: number;
+    /** Trial-level pass rate with a task-clustered 95% interval. */
+    passRate: Estimate;
     avgTurns: number;
     avgTokens: number;
     avgCostUSD: number;
@@ -39,13 +52,15 @@ export function buildReport(results: TaskResult[], model: string): Report {
     results,
     totals: {
       tasks: results.length,
-      passK: results.filter((r) => r.passK).length,
+      passAtK: results.filter((r) => r.passAtK).length,
+      passHatK: results.filter((r) => r.passHatK).length,
       pass1: results.filter((r) => r.pass1).length,
+      passRate: clusteredMean(results.map((r) => r.runs.map((x) => (x.passed ? 1 : 0)))),
       avgTurns: num(results.map((r) => r.avgTurns)),
       avgTokens: num(results.map((r) => r.avgTokens)),
       avgCostUSD: num(results.map((r) => r.avgCostUSD)),
       refusalTasks: refusal.length,
-      refusalCorrect: refusal.filter((r) => r.passK).length,
+      refusalCorrect: refusal.filter((r) => r.passHatK).length,
     },
   };
 }
@@ -53,12 +68,14 @@ export function buildReport(results: TaskResult[], model: string): Report {
 export function toBaseline(report: Report): Baseline {
   const tasks: Baseline['tasks'] = {};
   for (const r of report.results) {
+    const graders = Object.entries(r.graderPassRates);
     tasks[r.id] = {
       passRate: round(r.passRate, 3),
-      passK: r.passK,
+      passHatK: r.passHatK,
       avgTurns: round(r.avgTurns, 2),
       avgTokens: Math.round(r.avgTokens),
       avgCostUSD: round(r.avgCostUSD, 6),
+      ...(graders.length ? { graders: Object.fromEntries(graders.map(([k, v]) => [k, round(v, 3)])) } : {}),
     };
   }
   return { generatedAt: report.generatedAt, model: report.model, tasks };
@@ -66,27 +83,38 @@ export function toBaseline(report: Report): Baseline {
 
 export interface Regression {
   task: string;
-  kind: 'pass' | 'tokens' | 'cost';
+  kind: 'pass' | 'grader' | 'tokens' | 'cost';
   detail: string;
 }
 
 const COST_TOKEN_TOLERANCE = 0.15;
 
-/** A drop in pass@k, or tokens/cost up more than 15%, is a regression. */
+/**
+ * Regressions: a task that passed every run no longer does (pass^k), any drop
+ * in pass rate or a grader's pass rate, or tokens/cost up more than 15%.
+ */
 export function diffBaseline(report: Report, baseline: Baseline | undefined): Regression[] {
   if (!baseline) return [];
   const out: Regression[] = [];
   for (const r of report.results) {
-    const base = baseline.tasks[r.id];
+    const base = baseline.tasks[r.id] as (Omit<BaselineTask, 'passHatK'> & { passHatK?: boolean }) | undefined;
     if (!base) continue;
-    if (base.passK && !r.passK) {
-      out.push({ task: r.id, kind: 'pass', detail: `pass@k ${pct(base.passRate)} → 0%` });
+    // Baselines written before pass^k existed only carry `passRate`.
+    const baseHatK = base.passHatK ?? base.passRate >= 1 - 1e-9;
+    if (baseHatK && !r.passHatK) {
+      out.push({ task: r.id, kind: 'pass', detail: `pass^k lost: ${passFrac(r)} runs passed` });
     } else if (r.passRate < base.passRate - 1e-9) {
       out.push({
         task: r.id,
         kind: 'pass',
         detail: `pass rate ${pct(base.passRate)} → ${pct(r.passRate)}`,
       });
+    }
+    for (const [name, baseRate] of Object.entries(base.graders ?? {})) {
+      const now = r.graderPassRates[name];
+      if (now !== undefined && now < baseRate - 1e-9) {
+        out.push({ task: r.id, kind: 'grader', detail: `${name} ${pct(baseRate)} → ${pct(now)}` });
+      }
     }
     if (base.avgTokens > 0 && r.avgTokens > base.avgTokens * (1 + COST_TOKEN_TOLERANCE)) {
       out.push({
@@ -109,14 +137,19 @@ export function diffBaseline(report: Report, baseline: Baseline | undefined): Re
 export function renderTable(report: Report): string {
   const rows = report.results.map((r) => {
     const cost = r.costPartial ? '—' : `$${r.avgCostUSD.toFixed(5)}`;
-    return `| ${r.id} | ${r.tags.join(', ') || '—'} | ${pct(r.passRate)} (${passFrac(r)}) | ${r.avgTurns.toFixed(1)} | ${fmt(r.avgTokens)} | ${cost} |`;
+    const graders = Object.entries(r.graderPassRates)
+      .map(([name, rate]) => `${name} ${pct(rate)}`)
+      .join(', ');
+    return `| ${r.id} | ${r.suite} | ${pct(r.passRate)} (${passFrac(r)}) | ${yn(r.passAtK)} | ${yn(r.passHatK)} | ${graders || '—'} | ${r.avgTurns.toFixed(1)} | ${fmt(r.avgTokens)} | ${cost} |`;
   });
   const t = report.totals;
   return [
-    `**${report.model}** · ${new Date(report.generatedAt).toISOString().slice(0, 10)} · ${t.passK}/${t.tasks} tasks pass@k, ${t.pass1}/${t.tasks} pass@1`,
+    `**${report.model}** · ${new Date(report.generatedAt).toISOString().slice(0, 10)} · ` +
+      `${t.passHatK}/${t.tasks} tasks pass^k, ${t.passAtK}/${t.tasks} pass@k, ${t.pass1}/${t.tasks} pass@1 · ` +
+      `trial pass rate ${ci(t.passRate)}`,
     '',
-    '| task | tags | pass@k | avg turns | avg tokens | avg cost |',
-    '| --- | --- | --- | --- | --- | --- |',
+    '| task | suite | pass rate | pass@k | pass^k | graders | avg turns | avg tokens | avg cost |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
     ...rows,
     '',
     `refusal correctness: ${t.refusalCorrect}/${t.refusalTasks}`,
@@ -124,10 +157,10 @@ export function renderTable(report: Report): string {
 }
 
 /**
- * Two arms of an ablation, side by side. `arms` names the columns; it defaults
- * to `on`/`off` (as the compaction ablation reads), but a dimension without a
- * natural on/off — e.g. prompt-encoded vs native tool calling — can pass its own
- * labels so the table is not misleading.
+ * Two arms of an ablation, side by side, with the verdict drawn from task-level
+ * paired differences (A − B) rather than the two arms' means. `arms` names the
+ * columns; it defaults to `on`/`off`, but a dimension without a natural on/off —
+ * e.g. prompt-encoded vs native tool calling — can pass its own labels.
  */
 export function renderComparison(
   label: string,
@@ -135,30 +168,61 @@ export function renderComparison(
   off: Report,
   arms: { on: string; off: string } = { on: 'on', off: 'off' },
 ): string {
-  const ids = on.results.map((r) => r.id);
-  const rows = ids.map((id) => {
-    const a = on.results.find((r) => r.id === id);
-    const b = off.results.find((r) => r.id === id);
-    if (!a || !b) return `| ${id} | ? | ? |`;
-    return `| ${id} | ${pct(a.passRate)} · ${fmt(a.avgTokens)}t · ${a.avgTurns.toFixed(1)} | ${pct(b.passRate)} · ${fmt(b.avgTokens)}t · ${b.avgTurns.toFixed(1)} |`;
+  const pairs = on.results.flatMap((a) => {
+    const b = off.results.find((r) => r.id === a.id);
+    return b ? [{ a, b }] : [];
   });
+  const rows = pairs.map(({ a, b }) => {
+    const d = a.passRate - b.passRate;
+    return `| ${a.id} | ${pct(a.passRate)} · ${fmt(a.avgTokens)}t · ${a.avgTurns.toFixed(1)} | ${pct(b.passRate)} · ${fmt(b.avgTokens)}t · ${b.avgTurns.toFixed(1)} | ${signedPct(d)} |`;
+  });
+  const pass = pairedDiff(
+    pairs.map((p) => p.a.passRate),
+    pairs.map((p) => p.b.passRate),
+  );
+  const tokens = pairedDiff(
+    pairs.map((p) => p.a.avgTokens),
+    pairs.map((p) => p.b.avgTokens),
+  );
+  const verdict =
+    pass.n < 2
+      ? 'too few tasks for an interval'
+      : pass.lo > 0 || pass.hi < 0
+        ? `significant at 95% (${pass.mean > 0 ? arms.on : arms.off} better)`
+        : pass.sdDiff === 0
+          ? 'no difference on any task — add trials or harder tasks before concluding "no effect"'
+          : `not significant — this suite only detects ≥${pct(pass.mde)} at 80% power`;
   return [
     `### Ablation: ${label}`,
     '',
-    `| task | ${label}: ${arms.on} (pass · tokens · turns) | ${arms.off} |`,
-    '| --- | --- | --- |',
+    `| task | ${label}: ${arms.on} (pass · tokens · turns) | ${arms.off} | Δ pass |`,
+    '| --- | --- | --- | --- |',
     ...rows,
     '',
-    `totals — ${arms.on}: ${fmt(on.totals.avgTokens)} avg tokens, ${on.totals.passK}/${on.totals.tasks} pass@k · ` +
-      `${arms.off}: ${fmt(off.totals.avgTokens)} avg tokens, ${off.totals.passK}/${off.totals.tasks} pass@k`,
+    `Δ pass rate (${arms.on} − ${arms.off}), paired over ${pass.n} tasks: ${signedPct(pass.mean)} ` +
+      `[${signedPct(pass.lo)}, ${signedPct(pass.hi)}] · ${pass.wins} better / ${pass.losses} worse / ${pass.ties} tied · ${verdict}`,
+    `Δ avg tokens: ${signed(tokens.mean)} [${signed(tokens.lo)}, ${signed(tokens.hi)}]`,
   ].join('\n');
 }
 
 function passFrac(r: TaskResult): string {
   return `${r.runs.filter((x) => x.passed).length}/${r.n}`;
 }
+function yn(b: boolean): string {
+  return b ? '✓' : '✗';
+}
+function ci(e: Estimate): string {
+  return `${pct(e.mean)} [${pct(Math.max(0, e.lo))}, ${pct(Math.min(1, e.hi))}]`;
+}
 function pct(x: number): string {
   return `${Math.round(x * 100)}%`;
+}
+function signedPct(x: number): string {
+  const p = Math.round(x * 100);
+  return `${p > 0 ? '+' : ''}${p}%`;
+}
+function signed(n: number): string {
+  return `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(n))}`;
 }
 function fmt(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n));
