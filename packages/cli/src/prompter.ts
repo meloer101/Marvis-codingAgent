@@ -19,7 +19,7 @@ import { createInterface } from 'node:readline';
 import type { Interface } from 'node:readline';
 
 import type { AskHandler, PermissionEngine, PermissionMode } from '@harness-code/core';
-import { offerAutoSwitch } from '@harness-code/core';
+import { offerAutoSwitch, planApprovalLabel } from '@harness-code/core';
 
 export type ConfirmChoice = 'once' | 'always' | 'deny' | 'auto';
 
@@ -132,10 +132,7 @@ class ReadlinePrompter implements Prompter {
     return this.enqueue(async () => {
       if (req.signal?.aborted) return { approved: false, feedback: '用户中断' };
 
-      const yes =
-        req.yesMode === 'auto' || (req.autoAvailable && req.yesMode !== 'acceptEdits' && req.yesMode !== 'ask')
-          ? '[y] yes, and use auto mode'
-          : '[y] yes, auto-accept edits';
+      const yes = `[y] ${planApprovalLabel(req.yesMode ?? (req.autoAvailable ? 'auto' : 'acceptEdits'))}`;
       const block = [
         `\n\x1b[1m? ${req.title}\x1b[0m`,
         ...req.body.split('\n').map((l) => `  ${l}`),

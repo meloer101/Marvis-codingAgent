@@ -109,6 +109,19 @@ export function createPermissionHooks(
         });
       }
 
+      // No verdict (classifier down, garbled output): hand the call to the
+      // human rather than hard-denying it. Outside `serialize` so waiting on
+      // the prompt never stalls other calls' counter updates. Non-interactive
+      // runs still deny via their ask handler.
+      if (result.undetermined) {
+        return ask({
+          toolName: call.name,
+          input: call.input,
+          reason: `auto mode could not classify this call (${result.reason}); approve manually`,
+          ...(ctx.signal ? { signal: ctx.signal } : {}),
+        });
+      }
+
       return autoMode.state.serialize(() => applyClassify(call, result, autoMode));
     },
     async onAfterToolCall(call, result) {

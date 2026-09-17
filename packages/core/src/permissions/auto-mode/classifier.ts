@@ -28,6 +28,8 @@ export interface ClassifyResult {
   usage: Usage;
   /** False for model/parse failures — those denials do not trip pause thresholds. */
   countsTowardThreshold: boolean;
+  /** The classifier failed (model error, unparseable output) — no safety verdict exists. */
+  undetermined?: boolean;
 }
 
 export interface AutoModeClassifierOptions {
@@ -127,6 +129,7 @@ export class AutoModeClassifier {
       reason: `auto mode cannot determine the safety of this action (${this.model.ref}: ${error})`,
       usage,
       countsTowardThreshold: false,
+      undetermined: true,
     };
   }
 

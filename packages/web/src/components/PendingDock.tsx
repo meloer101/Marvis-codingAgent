@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { ClipboardList, ShieldQuestion } from 'lucide-react';
+import { planApprovalLabel } from '@harness-code/core/browser';
 
 import { Markdown } from '@/components/Markdown';
 import { toolPreview } from '@/components/tools/registry';
@@ -35,7 +36,9 @@ export function PendingDock({ view }: { view: SessionViewState }) {
     pendingAsk.toolName.toLowerCase() === 'bash' &&
     !pendingAsk.forcedByRule;
 
-  const planYesMode = autoAvailable ? 'auto' : 'acceptEdits';
+  // Approving sends no mode: the session applies its own resolved
+  // planApprovedMode, which the server mirrors here for the label.
+  const planYesMode = pendingPlan?.yesMode ?? 'acceptEdits';
 
   useEffect(() => {
     setFeedback('');
@@ -60,7 +63,7 @@ export function PendingDock({ view }: { view: SessionViewState }) {
       else if (key === 's' && offerAuto) hit(() => void sync.answerAsk(view.id, askId, 'auto'));
       else if (key === 'n' || e.key === 'Escape') hit(() => void sync.answerAsk(view.id, askId, 'deny', feedback));
     } else if (pendingPlan && planId) {
-      if (key === 'y') hit(() => void sync.answerPlan(view.id, planId, true, undefined, planYesMode));
+      if (key === 'y') hit(() => void sync.answerPlan(view.id, planId, true));
       else if (key === 'm') hit(() => void sync.answerPlan(view.id, planId, true, undefined, 'ask'));
       else if (key === 'e') hit(() => void sync.answerPlan(view.id, planId, false, 'revise'));
       else if (e.key === 'Escape') hit(() => void sync.answerPlan(view.id, planId, false, feedback));
@@ -118,7 +121,8 @@ export function PendingDock({ view }: { view: SessionViewState }) {
   }
 
   if (pendingPlan && planId) {
-    const yesLabel = autoAvailable ? 'Yes, auto mode' : 'Yes, auto-accept edits';
+    const label = planApprovalLabel(planYesMode);
+    const yesLabel = label.charAt(0).toUpperCase() + label.slice(1);
     return (
       <div
         ref={ref}
@@ -135,7 +139,7 @@ export function PendingDock({ view }: { view: SessionViewState }) {
         </div>
         {feedbackBox('Optional: what should change, if you reject')}
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button size="sm" onClick={() => void sync.answerPlan(view.id, planId, true, undefined, planYesMode)}>
+          <Button size="sm" onClick={() => void sync.answerPlan(view.id, planId, true)}>
             {yesLabel}
             <Key>y</Key>
           </Button>

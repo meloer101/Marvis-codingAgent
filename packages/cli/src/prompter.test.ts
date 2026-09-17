@@ -177,6 +177,17 @@ describe('ReadlinePrompter.approve', () => {
     h.close();
   });
 
+  it('labels y with the real destination instead of claiming auto mode', async () => {
+    const h = harness();
+    const p = h.prompter.approve({ title: 'Plan', body: 'do it', autoAvailable: true, yesMode: 'yolo' });
+    await tick();
+    expect(h.out()).toContain('yolo');
+    expect(h.out()).not.toContain('use auto mode');
+    h.send('y');
+    expect(await p).toEqual({ approved: true, mode: 'yolo' });
+    h.close();
+  });
+
   it('maps "m" to approve with ask mode', async () => {
     const h = harness();
     const p = h.prompter.approve({ title: 'Plan', body: 'do it', autoAvailable: true, yesMode: 'auto' });

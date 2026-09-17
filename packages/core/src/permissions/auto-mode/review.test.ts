@@ -25,6 +25,7 @@ describe('applySubagentReview', () => {
       reason: 'auto mode cannot determine the safety of this action (scripted/x: boom)',
       usage,
       countsTowardThreshold: false,
+      undetermined: true,
     }, 'explore');
     expect(out.startsWith(SUBAGENT_UNREVIEWED)).toBe(true);
     expect(out).toContain('body');

@@ -8,7 +8,7 @@ export function applySubagentReview(report: string, review: ClassifyResult | und
     return `${SUBAGENT_UNREVIEWED}\n\n${report}`;
   }
   if (review.decision === 'allow') return report;
-  if (!review.countsTowardThreshold && /cannot determine the safety/i.test(review.reason)) {
+  if (review.undetermined) {
     return `${SUBAGENT_UNREVIEWED}\n\n${report}`;
   }
   return (

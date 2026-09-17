@@ -155,7 +155,14 @@ export class SessionModel {
         this.#state = { ...this.#state, askId: event.askId };
         return true;
       case 'plan':
-        this.#dispatch({ type: 'PENDING_PLAN', plan: { title: event.title, body: event.body } });
+        this.#dispatch({
+          type: 'PENDING_PLAN',
+          plan: {
+            title: event.title,
+            body: event.body,
+            ...(event.yesMode ? { yesMode: event.yesMode } : {}),
+          },
+        });
         this.#state = { ...this.#state, planId: event.planId };
         return true;
       case 'resolved':
@@ -232,7 +239,13 @@ export function stateFromSnapshot(
           ...(s.pendingAsk.forcedByRule ? { forcedByRule: true } : {}),
         }
       : null,
-    pendingPlan: s.pendingPlan ? { title: s.pendingPlan.title, body: s.pendingPlan.body } : null,
+    pendingPlan: s.pendingPlan
+      ? {
+          title: s.pendingPlan.title,
+          body: s.pendingPlan.body,
+          ...(s.pendingPlan.yesMode ? { yesMode: s.pendingPlan.yesMode } : {}),
+        }
+      : null,
     id: s.id,
     running: s.running,
     hydrating: opts.hydrating ?? false,

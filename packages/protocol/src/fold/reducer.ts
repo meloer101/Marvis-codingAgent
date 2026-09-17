@@ -48,6 +48,8 @@ export interface PendingAsk {
 export interface PendingPlan {
   title: string;
   body: string;
+  /** Mode approving switches to (the session's resolved planApprovedMode). */
+  yesMode?: PermissionMode;
 }
 
 export interface FoldState {

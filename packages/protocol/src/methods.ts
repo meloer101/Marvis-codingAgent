@@ -56,7 +56,7 @@ export interface SessionSnapshot {
   context?: ContextSnapshot;
   running: boolean;
   pendingAsk?: { askId: string; toolName: string; input: unknown; reason: string; forcedByRule?: boolean };
-  pendingPlan?: { planId: string; title: string; body: string };
+  pendingPlan?: { planId: string; title: string; body: string; yesMode?: PermissionMode };
   lastSeq: number;
 }
 

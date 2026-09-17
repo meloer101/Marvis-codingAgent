@@ -12,9 +12,11 @@
  */
 
 export { describeToolInput } from './tools/util.js';
+export { planApprovalLabel } from './permissions/cycle.js';
 export { fmtTokens, fmtUSD } from './util/format.js';
 
 export type { TranscriptItem } from './agent/session.js';
+export type { PermissionMode } from './permissions/types.js';
 export type {
   ContentBlock,
   Message,

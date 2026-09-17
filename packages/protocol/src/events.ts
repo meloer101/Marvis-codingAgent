@@ -18,7 +18,7 @@ export type WireEvent =
   | { type: 'run_error'; runId: string; message: string }
   // human-in-the-loop
   | { type: 'ask'; askId: string; toolName: string; input: unknown; reason: string; forcedByRule?: boolean }
-  | { type: 'plan'; planId: string; title: string; body: string }
+  | { type: 'plan'; planId: string; title: string; body: string; yesMode?: PermissionMode }
   | { type: 'resolved'; requestId: string; by: 'user' | 'abort' }
   // state changes not otherwise visible
   | { type: 'mode'; mode: PermissionMode };

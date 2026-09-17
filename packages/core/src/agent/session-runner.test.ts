@@ -151,6 +151,55 @@ describe('AgentSession auto mode', () => {
     );
   });
 
+  it('downgrades an explicit planApprovedMode "auto" when auto is unavailable', async () => {
+    const { session, notices } = await createSession({
+      mode: 'plan',
+      planApprovedMode: 'auto',
+      settings: { permissions: { disableAutoMode: 'disable' } },
+    });
+    expect(session.planApprovedMode).toBe('acceptEdits');
+    expect(notices.some((n) => n.kind === 'auto-mode' && /planApprovedMode/.test(n.text))).toBe(true);
+  });
+
+  it('keeps the retry note when the next turn also references an MCP resource', async () => {
+    const cwd = await tempDir();
+    await writeFile(
+      join(cwd, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          'fixture-echo': { command: process.execPath, args: [ECHO_SERVER], env: {} },
+        },
+      }),
+      'utf8',
+    );
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'bash', input: { command: 'git push --force origin main' } }] },
+      { text: '<block>yes</block>' },
+      {
+        text: '<decision>block</decision><rule>Git Destructive</rule><reason>force-push rewrites history</reason>',
+      },
+      { text: 'blocked' },
+      { text: 'ok' },
+    ]);
+    const { session } = await createSession({ cwd, mcp: true, model: sessionModel(provider), mode: 'auto' });
+    try {
+      await session.runTurn('ship it');
+      const id = session.recentDenials[0]?.id;
+      expect(session.retryDenied(id!)).toBe(true);
+
+      await session.runTurn('try again with @fixture-echo:echo://greeting');
+      const lastUser = [...session.messages].reverse().find(
+        (m) => m.role === 'user' && m.content.some((b) => b.type === 'text'),
+      );
+      const text = lastUser?.content.map((b) => (b.type === 'text' ? b.text : '')).join('') ?? '';
+      expect(text).toContain('<resource server="fixture-echo"');
+      expect(text).toContain('authorized a retry');
+      expect(text).toContain('try again with');
+    } finally {
+      await session.close();
+    }
+  });
+
   it('allows workspace writes without a prompt', async () => {
     const cwd = await tempDir();
     const provider = new ScriptedProvider([

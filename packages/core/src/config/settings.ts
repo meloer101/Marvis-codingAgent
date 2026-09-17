@@ -179,14 +179,24 @@ export function mergeSettings(base: Settings, layer: Settings): Settings {
     merged.useAutoModeDuringPlan = layer.useAutoModeDuringPlan;
   }
   if (base.autoMode || layer.autoMode) {
+    // A rule list neither layer set must stay absent: `resolveAutoModeRules`
+    // reads `undefined` as "use the built-in rules" but `[]` as "no rules".
+    const list = (key: 'environment' | 'allow' | 'soft_deny' | 'hard_deny') => {
+      const b = base.autoMode?.[key];
+      const l = layer.autoMode?.[key];
+      return b === undefined && l === undefined ? {} : { [key]: [...(b ?? []), ...(l ?? [])] };
+    };
+    const model = layer.autoMode?.model ?? base.autoMode?.model;
+    const classifyAllShell = layer.autoMode?.classifyAllShell ?? base.autoMode?.classifyAllShell;
+    const injectionProbe = layer.autoMode?.injectionProbe ?? base.autoMode?.injectionProbe;
     merged.autoMode = {
-      model: layer.autoMode?.model ?? base.autoMode?.model,
-      classifyAllShell: layer.autoMode?.classifyAllShell ?? base.autoMode?.classifyAllShell,
-      injectionProbe: layer.autoMode?.injectionProbe ?? base.autoMode?.injectionProbe,
-      environment: [...(base.autoMode?.environment ?? []), ...(layer.autoMode?.environment ?? [])],
-      allow: [...(base.autoMode?.allow ?? []), ...(layer.autoMode?.allow ?? [])],
-      soft_deny: [...(base.autoMode?.soft_deny ?? []), ...(layer.autoMode?.soft_deny ?? [])],
-      hard_deny: [...(base.autoMode?.hard_deny ?? []), ...(layer.autoMode?.hard_deny ?? [])],
+      ...(model !== undefined ? { model } : {}),
+      ...(classifyAllShell !== undefined ? { classifyAllShell } : {}),
+      ...(injectionProbe !== undefined ? { injectionProbe } : {}),
+      ...list('environment'),
+      ...list('allow'),
+      ...list('soft_deny'),
+      ...list('hard_deny'),
     };
   }
   if (base.tui || layer.tui) {

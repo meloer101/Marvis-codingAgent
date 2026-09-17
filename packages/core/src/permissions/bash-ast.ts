@@ -90,9 +90,17 @@ export function inspectBash(command: string): BashInspection {
 }
 
 function tokensHaveWriteRedirect(tokens: Token[]): boolean {
-  return tokens.some(
-    (t) => typeof t === 'object' && t !== null && 'op' in t && (t.op === '>' || t.op === '>>'),
-  );
+  return tokens.some((t, i) => {
+    if (typeof t !== 'object' || t === null || !('op' in t)) return false;
+    if (t.op === '>' || t.op === '>>') return true;
+    // `>&word` writes stdout+stderr to the file `word`; only `>&2` / `>&-`
+    // (fd duplication / close) leave the filesystem alone.
+    if (t.op === '>&') {
+      const next = tokens[i + 1];
+      return !(typeof next === 'string' && /^(\d+|-)$/.test(next));
+    }
+    return false;
+  });
 }
 
 function splitSegments(tokens: Token[]): string[][] {

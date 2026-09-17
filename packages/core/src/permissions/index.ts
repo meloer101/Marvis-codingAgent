@@ -36,6 +36,7 @@ export {
   nextPermissionMode,
   offerAutoSwitch,
   defaultPlanYesMode,
+  planApprovalLabel,
 } from './cycle.js';
 export { createPermissionHooks, nonInteractiveAskHandler } from './hooks.js';
 export type { AutoModeHookOptions, AutoModeNotice } from './hooks.js';

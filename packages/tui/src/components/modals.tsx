@@ -7,7 +7,8 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-import { describeToolInput } from '@harness-code/core';
+import { describeToolInput, planApprovalLabel } from '@harness-code/core';
+import type { PermissionMode } from '@harness-code/core';
 
 import { Markdown } from '../markdown/render.js';
 import type { PendingAsk, PendingPlan } from '../state/reducer.js';
@@ -39,18 +40,14 @@ export function PermissionModal({
 export function PlanModal({
   plan,
   theme,
-  autoAvailable,
   yesMode,
 }: {
   plan: PendingPlan;
   theme: Theme;
-  autoAvailable?: boolean;
-  yesMode?: string;
+  /** The mode approving switches to — `session.planApprovedMode`. */
+  yesMode: PermissionMode;
 }) {
-  const yes =
-    yesMode === 'auto' || (autoAvailable && yesMode !== 'acceptEdits' && yesMode !== 'ask')
-      ? '[y] yes, and use auto mode'
-      : '[y] yes, auto-accept edits';
+  const yes = `[y] ${planApprovalLabel(yesMode)}`;
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Text bold>{plan.title}</Text>

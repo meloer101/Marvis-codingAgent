@@ -6,10 +6,15 @@ export type AutoModeAvailability =
   | { available: false; reason: string };
 
 /**
- * Auto mode is off if any layer set `permissions.disableAutoMode: "disable"`,
- * or if an explicit classifier model (`autoMode.model`, else `settings.model`)
- * cannot be resolved through the registry. When neither is set, `sessionModelRef`
- * (the live session model) is accepted without a registry lookup.
+ * Auto mode is off if any layer set `permissions.disableAutoMode: "disable"`.
+ * The classifier model is, in order: the user's explicit `autoMode.model`
+ * (must resolve through the registry), the live session model
+ * (`sessionModelRef`, accepted without a lookup), and only when there is no
+ * session — e.g. `hc auto-mode critique` — `settings.model`.
+ *
+ * `settings.model` must not win over the session model: it always carries the
+ * built-in default and may come from a project file, so preferring it would
+ * run the classifier on a model the user did not pick.
  */
 export function isAutoModeAvailable(
   settings: Settings,
@@ -23,13 +28,13 @@ export function isAutoModeAvailable(
   if (explicit) {
     return resolveRef(explicit, registry);
   }
-  if (settings.model) {
-    return resolveRef(settings.model, registry);
-  }
   if (sessionModelRef) {
     // Already-resolved session model — do not require it to live in the registry
     // (tests inject ScriptedProvider instances that are not registered).
     return { available: true, modelRef: sessionModelRef };
+  }
+  if (settings.model) {
+    return resolveRef(settings.model, registry);
   }
   return { available: false, reason: 'no classifier model configured' };
 }

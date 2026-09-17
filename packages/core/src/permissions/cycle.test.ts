@@ -5,6 +5,7 @@ import {
   nextPermissionMode,
   offerAutoSwitch,
   permissionModeCycle,
+  planApprovalLabel,
 } from './cycle.js';
 
 describe('permissionModeCycle', () => {
@@ -59,5 +60,15 @@ describe('defaultPlanYesMode', () => {
   it('uses auto when available, otherwise acceptEdits', () => {
     expect(defaultPlanYesMode(true)).toBe('auto');
     expect(defaultPlanYesMode(false)).toBe('acceptEdits');
+  });
+});
+
+describe('planApprovalLabel', () => {
+  it('names the mode approval actually switches to', () => {
+    expect(planApprovalLabel('auto')).toBe('yes, and use auto mode');
+    expect(planApprovalLabel('acceptEdits')).toBe('yes, auto-accept edits');
+    expect(planApprovalLabel('ask')).toBe('yes, manually approve edits');
+    expect(planApprovalLabel('yolo')).toMatch(/yolo/);
+    expect(planApprovalLabel('readOnly')).toBe('yes, and switch to readOnly mode');
   });
 });

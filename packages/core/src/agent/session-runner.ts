@@ -491,7 +491,17 @@ export class AgentSession {
       mode = 'ask';
     }
     const explicitPlanApproved = config.planApprovedMode ?? permissions.planApprovedMode;
-    const planApprovedMode = explicitPlanApproved ?? defaultPlanYesMode(autoAvailable.available);
+    let planApprovedMode = explicitPlanApproved ?? defaultPlanYesMode(autoAvailable.available);
+    // Keep planApprovedMode equal to the mode approval will actually land in —
+    // UIs label the approve button and set their mode indicator from it.
+    if (planApprovedMode === 'auto' && !autoAvailable.available) {
+      notify({
+        kind: 'auto-mode',
+        level: 'warn',
+        text: `planApprovedMode "auto" unavailable (${autoAvailable.reason}); approved plans switch to acceptEdits`,
+      });
+      planApprovedMode = 'acceptEdits';
+    }
     const engine = createPermissionEngine({
       workspaceRoot: cwd,
       mode,
@@ -820,7 +830,8 @@ export class AgentSession {
       for (const n of notes) {
         this.#config.onNotice?.({ kind: 'resource', level: 'info', text: `@resource ${n}` });
       }
-      if (context.length > 0) effectiveText = `${context.join('\n\n')}\n\n${input}`;
+      // Prepend onto effectiveText, not input, so pending retry notes survive.
+      if (context.length > 0) effectiveText = `${context.join('\n\n')}\n\n${effectiveText}`;
     }
 
     const userMessage: Message = {

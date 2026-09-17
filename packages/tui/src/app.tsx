@@ -14,7 +14,6 @@ import { Box, Static, Text, useInput, useStdout } from 'ink';
 import type { AgentSession, PermissionMode, ReasoningEffort } from '@harness-code/core';
 import {
   AGENT_DIR,
-  defaultPlanYesMode,
   findProjectRoot,
   listSessionIds,
   loadTranscript,
@@ -127,9 +126,9 @@ export function App({
     [session, d],
   );
 
-  const planYesMode = session.planApprovedModeIsExplicit
-    ? session.planApprovedMode
-    : defaultPlanYesMode(session.autoModeAvailable);
+  // Already resolved by the session (explicit setting, else auto/acceptEdits,
+  // with an unavailable `auto` downgraded) — the mode approval really lands in.
+  const planYesMode = session.planApprovedMode;
 
   const offerAuto =
     state.pendingAsk !== null &&
@@ -541,7 +540,6 @@ export function App({
         <PlanModal
           plan={state.pendingPlan}
           theme={theme}
-          autoAvailable={session.autoModeAvailable}
           yesMode={planYesMode}
         />
       )}

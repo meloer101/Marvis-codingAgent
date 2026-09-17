@@ -75,6 +75,7 @@ interface PendingPlan {
   planId: string;
   title: string;
   body: string;
+  yesMode: PermissionMode;
   resolve: (result: { approved: boolean; feedback?: string; mode?: PermissionMode }) => void;
 }
 
@@ -221,8 +222,9 @@ export class SessionHost {
   ): Promise<{ approved: boolean; feedback?: string; mode?: PermissionMode }> =>
     new Promise((resolve) => {
       const planId = randomUUID();
-      this.#pendingPlan = { planId, title: req.title, body: req.body, resolve };
-      this.#emit({ type: 'plan', planId, title: req.title, body: req.body });
+      const yesMode = this.#requireSession().planApprovedMode;
+      this.#pendingPlan = { planId, title: req.title, body: req.body, yesMode, resolve };
+      this.#emit({ type: 'plan', planId, title: req.title, body: req.body, yesMode });
     });
 
   // -- human-in-the-loop answers --------------------------------------------
@@ -423,6 +425,7 @@ export class SessionHost {
         planId: this.#pendingPlan.planId,
         title: this.#pendingPlan.title,
         body: this.#pendingPlan.body,
+        yesMode: this.#pendingPlan.yesMode,
       };
     }
     return snapshot;

@@ -9,6 +9,7 @@ import { ProviderRegistry } from '../provider/router.js';
 import { createPermissionEngine } from './engine.js';
 import { createPermissionHooks, nonInteractiveAskHandler } from './hooks.js';
 import { isAutoModeAvailable } from './available.js';
+import { resolveAutoModeRules } from './auto-mode/rules.js';
 import type { PermissionEngine } from './engine.js';
 
 describe('PermissionEngine', () => {
@@ -424,6 +425,32 @@ describe('PermissionEngine', () => {
       expect(v.decision).toBe('classify');
     });
 
+    it('sends redirect / flag tricks on read-only binaries to the classifier', async () => {
+      const e = engine({ mode: 'auto' });
+      for (const command of [
+        'echo hi >& .git/hooks/pre-commit',
+        'rg --pre=sh foo .',
+        'git diff --output=src/x.ts',
+        'find . -fprint out.txt',
+      ]) {
+        expect((await e.evaluate({ toolName: 'bash', input: { command }, readOnly: false })).decision, command).toBe(
+          'classify',
+        );
+      }
+      expect(
+        (await e.evaluate({ toolName: 'bash', input: { command: 'ls 2>&1' }, readOnly: false })).decision,
+      ).toBe('allow');
+    });
+
+    it('lets a rule that names a protected path cover it', async () => {
+      const call = { toolName: 'edit', input: { path: 'tsconfig.json', oldString: 'a', newString: 'b' }, readOnly: false };
+      expect((await engine({ mode: 'auto', allow: ['Edit(tsconfig.json)'] }).evaluate(call)).decision).toBe('allow');
+      expect((await engine({ mode: 'acceptEdits', allow: ['Edit(tsconfig.json)'] }).evaluate(call)).decision).toBe(
+        'allow',
+      );
+      expect((await engine({ mode: 'acceptEdits', allow: ['Edit'] }).evaluate(call)).decision).toBe('ask');
+    });
+
     it('ask rules still force a prompt in auto, with forcedByRule', async () => {
       const e = engine({ mode: 'auto', ask: ['Bash(pnpm test:*)'] });
       const v = await e.evaluate({
@@ -505,6 +532,17 @@ describe('mergeSettings permissions', () => {
   });
 });
 
+describe('mergeSettings autoMode defaults', () => {
+  it('leaves unset rule lists undefined so the built-in rules still apply', () => {
+    const merged = mergeSettings({}, { autoMode: { model: 'openai/gpt-5-mini' } });
+    expect(merged.autoMode).toEqual({ model: 'openai/gpt-5-mini' });
+    const rules = resolveAutoModeRules(merged);
+    expect(rules.soft_deny.length).toBeGreaterThan(0);
+    expect(rules.hard_deny.length).toBeGreaterThan(0);
+    expect(rules.allow.length).toBeGreaterThan(0);
+  });
+});
+
 describe('sanitizeProjectLayer', () => {
   it('drops project-level autoMode and permissions.mode auto so a repo cannot self-authorize', () => {
     const stripped = sanitizeProjectLayer({
@@ -542,6 +580,13 @@ describe('isAutoModeAvailable', () => {
     const registry = new ProviderRegistry({ env: {} });
     const result = isAutoModeAvailable({ model: 'ollama/qwen' }, registry);
     expect(result.available).toBe(true);
+  });
+
+  it('prefers the session model over settings.model', () => {
+    const registry = new ProviderRegistry({ env: {} });
+    // settings.model always carries a default; its provider needs a key that is absent here.
+    const result = isAutoModeAvailable({ model: 'deepseek/deepseek-v4-flash' }, registry, 'openai/gpt-5');
+    expect(result).toEqual({ available: true, modelRef: 'openai/gpt-5' });
   });
 
   it('treats an already-resolved session model as available without a registry lookup', () => {

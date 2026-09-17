@@ -149,7 +149,22 @@ describe('PendingDock', () => {
     fireEvent.click(screen.getByText(/Revise/));
     expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', false, 'revise');
     fireEvent.click(screen.getByText(/Yes, auto-accept edits/));
-    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', true, undefined, 'acceptEdits');
+    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', true);
+  });
+
+  it('labels y from the session-resolved yesMode and lets the session apply it', () => {
+    const sync = renderDock(
+      dockView({
+        pendingAsk: null,
+        askId: null,
+        pendingPlan: { title: 'Plan', body: '1. do it', yesMode: 'yolo' },
+        planId: 'p1',
+      }),
+    );
+    expect(screen.queryByText(/auto mode/)).toBeNull();
+    fireEvent.keyDown(sync.dock, { key: 'y' });
+    expect(screen.getByText(/skip all permission prompts \(yolo\)/i)).toBeTruthy();
+    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', true);
   });
 
   it('approves a plan into ask mode with m', () => {

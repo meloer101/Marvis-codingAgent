@@ -70,4 +70,10 @@ describe('inspectBash', () => {
     expect(inspectBash('node script.js').hardDenyReason).toBeUndefined();
     expect(inspectBash('python3 script.py').hardDenyReason).toBeUndefined();
   });
+  it('flags >& to a file as a write redirect but not fd duplication', () => {
+    expect(inspectBash('echo hi >& out.txt').hasWriteRedirect).toBe(true);
+    expect(inspectBash('ls 2>&1').hasWriteRedirect).toBeUndefined();
+    expect(inspectBash('echo hi >&2').hasWriteRedirect).toBeUndefined();
+    expect(inspectBash('echo hi >&-').hasWriteRedirect).toBeUndefined();
+  });
 });

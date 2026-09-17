@@ -42,6 +42,26 @@ export function offerAutoSwitch(opts: {
   return true;
 }
 
+/**
+ * Label for the plan-approval "yes" choice, derived from the mode approval
+ * actually switches to — so a `yolo` destination is never presented as auto.
+ */
+export function planApprovalLabel(mode: PermissionMode): string {
+  switch (mode) {
+    case 'auto':
+      return 'yes, and use auto mode';
+    case 'acceptEdits':
+      return 'yes, auto-accept edits';
+    case 'ask':
+      return 'yes, manually approve edits';
+    case 'yolo':
+      return 'yes, and skip all permission prompts (yolo)';
+    case 'plan':
+    case 'readOnly':
+      return `yes, and switch to ${mode} mode`;
+  }
+}
+
 /** Default destination for “[y] approve plan” when the user has not set planApprovedMode. */
 export function defaultPlanYesMode(autoAvailable: boolean): PermissionMode {
   return autoAvailable ? 'auto' : 'acceptEdits';

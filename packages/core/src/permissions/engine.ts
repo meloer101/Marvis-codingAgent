@@ -264,10 +264,12 @@ export class PermissionEngine {
         return { decision: 'allow' };
       }
 
-      if (!protectedWrite) {
-        const allowed = this.effectiveAllow().find((r) => ruleMatchesPath(r, tool, rel));
-        if (allowed) return { decision: 'allow' };
-      }
+      // A protected path is covered only by a rule that names it (`Edit(tsconfig.json)`),
+      // never by a whole-tool `Write` / `Edit` — same stance as sensitive paths above.
+      const allowed = this.effectiveAllow().find(
+        (r) => (!protectedWrite || r.pattern !== undefined) && ruleMatchesPath(r, tool, rel),
+      );
+      if (allowed) return { decision: 'allow' };
 
       const asked = this.askRules.find((r) => ruleMatchesPath(r, tool, rel));
       if (asked) {

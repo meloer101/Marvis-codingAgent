@@ -71,6 +71,7 @@ describe('AutoModeClassifier', () => {
     expect(result.countsTowardThreshold).toBe(false);
     expect(result.reason).toMatch(/cannot determine the safety/);
     expect(result.reason).toContain('classifier down');
+    expect(result.undetermined).toBe(true);
   });
 });
 
@@ -118,6 +119,40 @@ describe('createPermissionHooks auto mode', () => {
       if (fourth && fourth.decision === 'deny') {
         expect(fourth.reason).toMatch(/non-interactive/i);
       }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('hands the call to the ask handler when the classifier cannot decide', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'hc-auto-'));
+    try {
+      const provider = new ScriptedProvider([
+        { error: { kind: 'network', message: 'classifier down' } },
+      ]);
+      const engine = createPermissionEngine({
+        workspaceRoot: root,
+        mode: 'auto',
+        allow: [],
+        ask: [],
+        deny: [],
+      });
+      const state = new AutoModeState();
+      const asked: string[] = [];
+      const hooks = createPermissionHooks(
+        engine,
+        async ({ reason }) => {
+          asked.push(reason);
+          return { decision: 'allow' };
+        },
+        { classifier: new AutoModeClassifier({ model: model(provider) }), state },
+      );
+      const decision = await hooks.onBeforeToolCall?.(call, { turn: 1, cwd: root, messages });
+      expect(decision).toEqual({ decision: 'allow' });
+      expect(asked).toHaveLength(1);
+      expect(asked[0]).toMatch(/could not classify.*classifier down/);
+      expect(state.consecutiveDenials).toBe(0);
+      expect(state.recentDenials).toHaveLength(0);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
