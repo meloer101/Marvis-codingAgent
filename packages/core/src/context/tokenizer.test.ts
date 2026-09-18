@@ -65,7 +65,7 @@ describe('flattenRequestText', () => {
       capabilityOverrides: { '*': { streaming: false } },
       fetchImpl: jsonFetch({
         model: 'm',
-        choices: [{ finish_reason: 'stop', message: { content: '' } }],
+        choices: [{ finish_reason: 'stop', message: { content: 'ok' } }],
       }),
       maxRetries: 0,
     });

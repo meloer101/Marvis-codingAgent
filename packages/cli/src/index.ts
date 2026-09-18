@@ -139,7 +139,7 @@ program
   .command('raw')
   .description('Send one prompt straight to a model — no tools, no agent loop')
   .argument('<prompt>', 'the prompt to send')
-  .option('-m, --model <ref>', 'provider/model, e.g. deepseek/deepseek-v4-flash')
+  .option('-m, --model <ref>', 'provider/model, e.g. deepseek/deepseek-flash')
   .option('--no-stream', 'wait for the whole response instead of streaming')
   .option('--json', 'print the raw response object instead of text')
   .action(async (prompt: string, opts: { model?: string; stream: boolean; json?: boolean }) => {
@@ -215,7 +215,7 @@ program
       'Omit <prompt> to start an interactive session — this is also what bare `marvis` runs.',
   )
   .argument('[prompt]', 'the task to hand to the agent; omit to start an interactive session')
-  .option('-m, --model <ref>', 'provider/model, e.g. deepseek/deepseek-v4-flash')
+  .option('-m, --model <ref>', 'provider/model, e.g. deepseek/deepseek-flash')
   .option('--cwd <dir>', 'workspace root the agent operates in', process.cwd())
   .option('--max-turns <n>', 'stop after this many turns', (v) => parseInt(v, 10))
   .option('--max-cost <usd>', 'stop once estimated cost exceeds this', (v) => parseFloat(v))
@@ -225,7 +225,10 @@ program
     '--mode <mode>',
     'permission mode: ask|plan|acceptEdits|readOnly|yolo|auto (overrides settings.json)',
   )
-  .option('--effort <level>', 'reasoning effort for reasoning models: minimal|low|medium|high')
+  .option(
+    '--effort <level>',
+    'reasoning effort: off|minimal|low|medium|high|xhigh|max (mapped to the levels the model accepts)',
+  )
   .option('--allow <rule>', 'add an allow rule, e.g. "Bash(git status:*)" (repeatable)', collect, [])
   .option('--ask <rule>', 'add an ask rule (repeatable)', collect, [])
   .option('--deny <rule>', 'add a deny rule (repeatable)', collect, [])

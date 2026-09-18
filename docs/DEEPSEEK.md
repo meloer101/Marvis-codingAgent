@@ -1,6 +1,6 @@
 # DeepSeek 深度适配：调研结论与实施方案
 
-> 状态：已批准，待实施。调研日期 2026-09-16。
+> 状态：P0（正确性）已落地 2026-09-18，P1 / P2 待实施。调研日期 2026-09-16。
 > 本文回答两个问题：DeepSeek API 和 DeepSeek 自家 harness（dsh）现在长什么样；`hc` 在"模型在乎的层"
 > 上和它们差在哪里、按什么顺序补。完成的条目请从本文删除并同步到 [`ROADMAP.md`](./ROADMAP.md)。
 
@@ -21,6 +21,9 @@ eval 模型，但有几处假设已经过时，其中一处会直接导致带工
 ## 一、调研结论
 
 ### 1. DeepSeek API 2026-09 现状（一手来源：api-docs.deepseek.com）
+
+下表"仓库现状"一列记录的是 **P0 落地之前**的状态，保留下来是为了说明每条结论从哪来。
+
 
 | 项目 | 现状 | 仓库现状 |
 |---|---|---|
@@ -60,31 +63,21 @@ eval 模型，但有几处假设已经过时，其中一处会直接导致带工
 
 ## 二、方案（三档，按序落地）
 
-### P0 · 正确性（不做就会 400 / 算错账）
+### ~~P0 · 正确性~~ — 已落地（2026-09-18）
 
-**P0-1 reasoning_content 回传**（`openai-compat.ts` 的 `toOpenAIMessages`）
-- 新增 capability `reasoningReplay: 'none' | 'text'`；DeepSeek provider 默认 `'text'`。
-- `'text'` 时：assistant 消息若含 thinking 块，拼接为 `reasoning_content`；**不再跳过**纯 reasoning 轮（发 `content: ""` + `reasoning_content`）。
-- 所有 provider：空文本 `content` 发 `""` 而不是 `null`（dsh 同款注释：某些网关拒绝 null）。
-- 无 thinking 的 assistant 轮（非 thinking 运行、旧会话 resume）：请求带 tools 且 thinking 开时注入 `reasoning_content: ""`（社区 Hermes 修法）。**需实测**（见验证 §1）。
-- 自愈：`loop.ts` 回合重试处，若 400 消息匹配 `/reasoning_content.*passed back/`，以"注入空 reasoning_content"重发一次并打遥测。
-- 确认 `SessionRecorder.recordMessage` / `loadSession` 往返保留 ThinkingBlock，否则 `--resume` 必 400。
-- 改测试：`openai-compat.test.ts` 中"message translation"用例现在断言 thinking 不出现在出站消息，拆成 default caps 丢弃 / deepseek caps 回传两个用例。
-- 注意：所有 eval cassette 的请求指纹都会变，需重录（见验证 §3）。
+P0-1/P0-2/P0-3 已实现并有单测覆盖，本节其余内容已删除。**没做的三件事**，理由各异：
 
-**P0-2 模型目录、effort、定价**（`capabilities.ts`；`provider/types.ts`；`loop.ts` 请求构造）
-- 新增规则 `/^deepseek-flash/`（V4.1-Flash）：`reasoning: true`，`effortLevels: ['low','high','max']`，`defaultEffort: 'high'`，1M / 384K，`promptCache: 'implicit'`，`jsonMode: true`；`deepseek-v4-flash` 规则改为同一份（临时别名）。修正注释（服务端不折叠梯子）。
-- DeepSeek provider 级默认改为 1M / 384K / reasoning true（当前所有 DeepSeek 模型都是 V4 系）。
-- 定价改为峰时价并新增 `offPeak`：flash `{0.30, cached 0.006, out 1.20}` / offPeak `{0.15, 0.003, 0.60}`；pro `{1.32, 0.044, 3.96}` / offPeak `{0.66, 0.022, 1.98}`。`estimateCostUSD(usage, pricing, at?)` 按 UTC 时间选档（周一至五 01–04、06–10 UTC 为峰）。
-- effort 从 `extraBody.reasoning_effort` 改为 `ModelRequest.reasoningEffort` 类型字段，由 provider 按 caps 映射：minimal/low→low，medium/high→high，xhigh/max→max；`effortLevels` 有声明时 UI 只展示合法档。新增 `'off'` → `thinking: {type:'disabled'}` 且不发 effort。
-- 默认模型 `settings.ts` → `deepseek/deepseek-flash`；同步 `.agent/settings.example.json`、`README.md`、`evals/harbor/README.md`、`evals/harbor/run-subset.sh`、`scripts/record-demo.sh`、`evals/tasks/*/task.json`（6 个）、`evals/baseline.json`、`packages/cli/src/index.ts` 的示例文案。
-- `router.ts` baseUrl 保持 `https://api.deepseek.com/v1`（官方根是 `https://api.deepseek.com`，`/v1` 是别名，二者均可）。
+- **在无 thinking 的 assistant 轮上主动补 `reasoning_content: ""`** —— 需要实测（本节验证 §1
+  第 2 项）才知道端点接受哪种写法，所以只做了自愈：收到 `must be passed back` 的 400 时，带
+  空字段重发一次（`REASONING_REPLAY_REQUIRED`）。探针跑完后再决定是否改成默认注入。
+- **纯 reasoning 轮的 ephemeral 重发提示** —— 按原计划先在遥测里看频率，未默认开启。
+- **eval 任务的模型 id** —— `evals/tasks/*/task.json` 仍是 `deepseek-v4-flash`：cassette 的请求
+  指纹包含模型 id，改名等于全部失配。留到 P1 重录 cassette 时一起改（重录本身仍是必须的：
+  出站消息里现在多了 `reasoning_content`，录制内容已经变了）。
 
-**P0-3 finish_reason 与错误语义**（`openai-compat.ts` 的 `normalizeStopReason` / `mapHttpError`；`loop.ts` 停止处理）
-- `insufficient_system_resource` → 可重试 ProviderError（`server` 类），不再静默当 `end_turn`。
-- 空完成（有 chunk 但零文本、零 thinking、零 tool_calls，finish=stop）→ 可重试 `protocol` 错误，走现有 `maxTurnRetries`。
-- 402 → 新 kind `quota`，不可重试，消息明确"余额耗尽"（Harbor 跑到 18/89 就是这么死的）。
-- 纯 reasoning 轮（有 thinking、无文本、无工具）：按 dsh 记为 `content: ""` 正常结束；若还有回合重试额度，追加一条 ephemeral 提示"把最终答复写在正文"重发一次。先在遥测里统计频率再决定是否默认开启。
+自愈逻辑和 `reasoningReplay` 一旦被实测推翻，改动集中在 `openai-compat.ts` 的
+`requestCompletion` / `toOpenAIMessages` 两处。
+
 
 ### P1 · 成本与缓存（收益最大的一档）
 

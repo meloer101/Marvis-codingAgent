@@ -15,7 +15,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLI="$ROOT/packages/cli/dist/index.js"
 OUT="$ROOT/docs/demo.gif"
-MODEL="${HC_DEMO_MODEL:-deepseek/deepseek-v4-flash}"
+MODEL="${HC_DEMO_MODEL:-deepseek/deepseek-flash}"
 
 # --- pinned rendering knobs ------------------------------------------------
 WINDOW_SIZE="100x28"

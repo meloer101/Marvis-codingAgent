@@ -112,12 +112,29 @@ export function evalKeyScrub(s: string): string {
   return s.replace(/duration_ms['":\s]*[\d.]+/g, 'duration_ms 0');
 }
 
+/**
+ * A replayed run must cost the same at 10am as at midnight, or the baseline's
+ * ±15% cost gate fires on the clock rather than on a change. Off-peak rates are
+ * therefore dropped for replay, pricing every cassette at the peak (higher)
+ * figure; live and recording runs keep the real, time-dependent rates.
+ */
+function pinnedPricing(
+  caps: ModelCapabilities,
+  hitsTheEndpoint: boolean,
+): Pick<ModelCapabilities, 'pricing'> | Record<string, never> {
+  if (hitsTheEndpoint || !caps.pricing?.offPeak) return {};
+  const { offPeak: _dropped, ...peak } = caps.pricing;
+  return { pricing: peak };
+}
+
 export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
   const { provider: providerId, model } = parseModelRef(opts.modelRef);
+  const resolvedCaps = resolveCapabilities(providerId, model, {});
   const capabilities: ModelCapabilities = {
-    ...resolveCapabilities(providerId, model, {}),
+    ...resolvedCaps,
     ...(opts.promptTools ? { nativeTools: false } : {}),
     ...(opts.contextWindow ? { contextWindow: opts.contextWindow } : {}),
+    ...pinnedPricing(resolvedCaps, Boolean(opts.record || opts.live)),
   };
 
   let provider: Provider;

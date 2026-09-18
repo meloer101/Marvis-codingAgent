@@ -239,6 +239,7 @@ describe('OpenAICompatProvider errors', () => {
   const cases: Array<[number, string, string]> = [
     [401, '{"error":{"message":"invalid api key"}}', 'auth'],
     [404, '{"error":{"message":"model not found"}}', 'not_found'],
+    [402, '{"error":{"message":"Insufficient Balance"}}', 'quota'],
     [429, '{"error":{"message":"slow down"}}', 'rate_limit'],
     [500, '{"error":{"message":"boom"}}', 'server'],
     [400, '{"error":{"message":"maximum context length exceeded"}}', 'context_length'],
@@ -253,6 +254,79 @@ describe('OpenAICompatProvider errors', () => {
       expect((err as ProviderError).kind).toBe(kind);
     });
   }
+
+  it('does not retry a spent account', async () => {
+    let calls = 0;
+    const counting: typeof fetch = (async (u: string, init: RequestInit) => {
+      calls++;
+      return jsonFetch({ error: { message: 'Insufficient Balance' } }, 402)(u, init);
+    }) as unknown as typeof fetch;
+    const p = new OpenAICompatProvider({
+      id: 'test',
+      baseUrl: 'https://example.test/v1',
+      fetchImpl: counting,
+      maxRetries: 3,
+    });
+    const err = (await drainStream(p.stream(ask)).catch((e: unknown) => e)) as ProviderError;
+    expect(err.retryable).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  it('raises a load-shedding finish reason instead of ending the turn', async () => {
+    const p = provider(
+      sseFetch(sseFrames([delta({ content: 'partial' }), delta({}, 'insufficient_system_resource')])),
+    );
+    const err = (await drainStream(p.stream(ask)).catch((e: unknown) => e)) as ProviderError;
+    expect(err).toBeInstanceOf(ProviderError);
+    expect(err.retryable).toBe(true);
+    expect(err.message).toMatch(/insufficient_system_resource/);
+  });
+
+  it('retries an empty completion rather than reporting an empty turn', async () => {
+    const p = provider(sseFetch(sseFrames([delta({ role: 'assistant', content: '' }, 'stop')])));
+    const err = (await drainStream(p.stream(ask)).catch((e: unknown) => e)) as ProviderError;
+    expect(err).toBeInstanceOf(ProviderError);
+    expect(err.kind).toBe('protocol');
+    expect(err.retryable).toBe(true);
+  });
+
+  it('re-sends with an empty reasoning field when the endpoint demands one', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const spy: typeof fetch = (async (u: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      if (bodies.length === 1) {
+        return jsonFetch(
+          {
+            error: {
+              message:
+                'The reasoning_content in the thinking mode must be passed back to the API.',
+            },
+          },
+          400,
+        )(u, init);
+      }
+      return sseFetch(sseFrames([delta({ content: 'ok' }, 'stop')]))(u, init);
+    }) as unknown as typeof fetch;
+
+    const p = provider(spy, { reasoning: true, reasoningReplay: 'text' });
+    const res = await drainStream(
+      p.stream({
+        ...ask,
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+          { role: 'assistant', content: [{ type: 'text', text: 'no thinking here' }] },
+          { role: 'user', content: [{ type: 'text', text: 'again' }] },
+        ],
+      }),
+    );
+
+    expect(res.stopReason).toBe('end_turn');
+    const first = bodies[0]?.['messages'] as Array<Record<string, unknown>>;
+    const second = bodies[1]?.['messages'] as Array<Record<string, unknown>>;
+    // [0] system, [1] user, [2] the assistant turn with no thinking of its own.
+    expect(first[2]).not.toHaveProperty('reasoning_content');
+    expect(second[2]).toHaveProperty('reasoning_content', '');
+  });
 
   it('keeps credentials out of error details', async () => {
     const p = provider(
@@ -356,8 +430,54 @@ describe('message translation', () => {
       id: 'c1',
       function: { name: 'read', arguments: '{"path":"a.ts"}' },
     });
-    // Thinking is display-only: replaying it is rejected by several endpoints.
+    // Thinking is display-only unless the model asks for it back.
     expect(JSON.stringify(out)).not.toContain('internal');
+  });
+
+  it('replays reasoning where the endpoint requires it back', () => {
+    const caps = { ...DEFAULT_CAPABILITIES, reasoning: true, reasoningReplay: 'text' as const };
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', text: 'internal' },
+          { type: 'tool_use', id: 'c1', name: 'read', input: {} },
+        ],
+      },
+    ];
+
+    const out = toOpenAIMessages(undefined, messages, caps);
+
+    expect(out[1]?.reasoning_content).toBe('internal');
+    // Tool-only turns carry `""`, never null — DeepSeek 400s on a null content.
+    expect(out[1]?.content).toBe('');
+  });
+
+  it('keeps a reasoning-only turn instead of dropping it', () => {
+    const caps = { ...DEFAULT_CAPABILITIES, reasoning: true, reasoningReplay: 'text' as const };
+    const messages: Message[] = [
+      { role: 'assistant', content: [{ type: 'thinking', text: 'just thought' }] },
+    ];
+
+    expect(toOpenAIMessages(undefined, messages, caps)).toEqual([
+      { role: 'assistant', content: '', reasoning_content: 'just thought' },
+    ]);
+    // Without replay the turn has nothing to say on the wire and is skipped.
+    expect(toOpenAIMessages(undefined, messages, DEFAULT_CAPABILITIES)).toEqual([]);
+  });
+
+  it('can fill in an empty reasoning field for turns that never had one', () => {
+    const caps = { ...DEFAULT_CAPABILITIES, reasoning: true, reasoningReplay: 'text' as const };
+    const messages: Message[] = [
+      { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+    ];
+
+    expect(toOpenAIMessages(undefined, messages, caps)[0]?.reasoning_content).toBeUndefined();
+    expect(
+      toOpenAIMessages(undefined, messages, caps, { emptyReasoningFallback: true })[0]
+        ?.reasoning_content,
+    ).toBe('');
   });
 
   it('substitutes a placeholder for empty tool output', () => {
@@ -436,6 +556,41 @@ describe('request shaping', () => {
 
     await drainStream(provider(spy, { maxOutputTokens: 4096 }).stream({ ...ask, maxOutputTokens: 999_999 }));
     expect(bodies[0]).toHaveProperty('max_tokens', 4096);
+  });
+
+  it('maps reasoning effort onto the levels the model accepts', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const spy: typeof fetch = (async (_u: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return sseFetch(sseFrames([delta({ content: 'x' }, 'stop')]))('', {});
+    }) as unknown as typeof fetch;
+
+    const deepseekish = {
+      reasoning: true,
+      effortLevels: ['low', 'high', 'max'] as const,
+      thinkingParam: true,
+    };
+    await drainStream(provider(spy, deepseekish).stream({ ...ask, reasoningEffort: 'medium' }));
+    expect(bodies[0]).toMatchObject({
+      reasoning_effort: 'high',
+      thinking: { type: 'enabled' },
+    });
+
+    // `off` is not a level: the switch says disabled and no effort goes out.
+    await drainStream(provider(spy, deepseekish).stream({ ...ask, reasoningEffort: 'off' }));
+    expect(bodies[1]).toMatchObject({ thinking: { type: 'disabled' } });
+    expect(bodies[1]).not.toHaveProperty('reasoning_effort');
+
+    // Endpoints without the switch get the effort alone...
+    await drainStream(
+      provider(spy, { reasoning: true }).stream({ ...ask, reasoningEffort: 'medium' }),
+    );
+    expect(bodies[2]).toHaveProperty('reasoning_effort', 'medium');
+    expect(bodies[2]).not.toHaveProperty('thinking');
+
+    // ...and a model with no reasoning channel gets neither.
+    await drainStream(provider(spy).stream({ ...ask, reasoningEffort: 'high' }));
+    expect(bodies[3]).not.toHaveProperty('reasoning_effort');
   });
 
   it('sends the authorization header', async () => {

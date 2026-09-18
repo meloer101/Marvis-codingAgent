@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import { BUILTIN_PROVIDERS, ProviderRegistry, parseModelRef } from './router.js';
-import { resolveCapabilities, estimateCostUSD } from './capabilities.js';
+import { resolveCapabilities, estimateCostUSD, mapEffort } from './capabilities.js';
 import { ProviderError } from './types.js';
+import type { ReasoningEffort } from './types.js';
 
 describe('parseModelRef', () => {
   it('splits provider from model', () => {
@@ -122,6 +123,24 @@ describe('resolveCapabilities', () => {
     expect(resolveCapabilities('deepseek', 'deepseek-v4-flash').reasoning).toBe(true);
   });
 
+  it('gives deepseek-flash the V4.1 envelope, and its alias the same one', () => {
+    const flash = resolveCapabilities('deepseek', 'deepseek-flash');
+    expect(flash.contextWindow).toBe(1_000_000);
+    expect(flash.maxOutputTokens).toBe(384_000);
+    expect(flash.effortLevels).toEqual(['low', 'high', 'max']);
+    expect(flash.defaultEffort).toBe('high');
+    expect(flash.reasoningReplay).toBe('text');
+    // `deepseek-v4-flash` is DeepSeek's transitional alias for the same model.
+    expect(resolveCapabilities('deepseek', 'deepseek-v4-flash')).toEqual(flash);
+  });
+
+  it('keeps an unrecognized DeepSeek id on the V4 provider defaults', () => {
+    const caps = resolveCapabilities('deepseek', 'deepseek-v5-something');
+    expect(caps.reasoning).toBe(true);
+    expect(caps.contextWindow).toBe(1_000_000);
+    expect(caps.reasoningReplay).toBe('text');
+  });
+
   it('knows local runtimes do not report streamed usage', () => {
     expect(resolveCapabilities('ollama', 'qwen2.5-coder:7b').streamUsage).toBe(false);
     expect(resolveCapabilities('llamacpp', 'anything').nativeTools).toBe(false);
@@ -163,5 +182,38 @@ describe('estimateCostUSD', () => {
     expect(
       estimateCostUSD({ inputTokens: 10, outputTokens: 10, cachedInputTokens: 0 }, undefined),
     ).toBeUndefined();
+  });
+
+  it('picks the off-peak rates outside the provider peak window', () => {
+    const pricing = {
+      inputPerMTok: 1,
+      outputPerMTok: 2,
+      offPeak: { inputPerMTok: 0.5, outputPerMTok: 1 },
+    };
+    const usage = { inputTokens: 1_000_000, outputTokens: 0, cachedInputTokens: 0 };
+    // DeepSeek peak: Mon–Fri 01:00–04:00 and 06:00–10:00 UTC.
+    const wedPeak = new Date('2026-09-16T02:00:00Z');
+    const wedOffPeak = new Date('2026-09-16T05:00:00Z');
+    const satSameHour = new Date('2026-09-19T02:00:00Z');
+    expect(estimateCostUSD(usage, pricing, wedPeak)).toBeCloseTo(1, 6);
+    expect(estimateCostUSD(usage, pricing, wedOffPeak)).toBeCloseTo(0.5, 6);
+    expect(estimateCostUSD(usage, pricing, satSameHour)).toBeCloseTo(0.5, 6);
+  });
+});
+
+describe('mapEffort', () => {
+  it('folds the universal ladder onto the levels a model accepts', () => {
+    const deepseek: readonly ReasoningEffort[] = ['low', 'high', 'max'];
+    // Nearest level, ties going to the smarter one.
+    expect(mapEffort('minimal', deepseek)).toBe('low');
+    expect(mapEffort('low', deepseek)).toBe('low');
+    expect(mapEffort('medium', deepseek)).toBe('high');
+    expect(mapEffort('high', deepseek)).toBe('high');
+    expect(mapEffort('xhigh', deepseek)).toBe('max');
+    expect(mapEffort('max', deepseek)).toBe('max');
+  });
+
+  it('passes the level through when a model declares no subset', () => {
+    expect(mapEffort('medium', undefined)).toBe('medium');
   });
 });

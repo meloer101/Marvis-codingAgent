@@ -193,7 +193,7 @@ export interface AgentLoopOptions {
   maxTokens?: number;
   /** Per-request output cap; also reserved out of the context window. Defaults to the model's ceiling. */
   maxOutputTokens?: number;
-  /** Reasoning-effort level, sent as `reasoning_effort` (reasoning-capable models only). */
+  /** Reasoning-effort level; the provider maps it to what the model accepts. */
   reasoningEffort?: ReasoningEffort;
   temperature?: number;
   /** Fraction of the usable context window at which `onContextPressure` fires. */
@@ -360,7 +360,7 @@ export class AgentLoop {
         maxOutputTokens: this.maxOutputTokens,
         ...(this.opts.temperature !== undefined ? { temperature: this.opts.temperature } : {}),
         ...(this.opts.reasoningEffort && this.opts.model.capabilities.reasoning
-          ? { extraBody: { reasoning_effort: this.opts.reasoningEffort } }
+          ? { reasoningEffort: this.opts.reasoningEffort }
           : {}),
         ...(this.opts.system ? { system: this.opts.system } : {}),
         ...(this.opts.signal ? { signal: this.opts.signal } : {}),

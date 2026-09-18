@@ -109,9 +109,19 @@ export type ToolChoice =
 /**
  * Reasoning-effort level for models with a reasoning channel. The full union
  * spans providers (OpenAI: minimal→high; DeepSeek: low/high/max; Claude: up to
- * max); which subset a given model actually accepts is `capabilities.effortLevels`.
+ * max); which subset a given model actually accepts is `capabilities.effortLevels`,
+ * and a provider maps the rest onto it. `off` is not a level but the absence of
+ * one: reasoning is turned off (`thinking: { type: "disabled" }` where the
+ * endpoint has that switch) and no effort is sent.
  */
-export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ReasoningEffort =
+  | 'off'
+  | 'minimal'
+  | 'low'
+  | 'medium'
+  | 'high'
+  | 'xhigh'
+  | 'max';
 
 export interface ModelRequest {
   /** Bare model id as the endpoint expects it (routing already stripped). */
@@ -121,6 +131,12 @@ export interface ModelRequest {
   tools?: ToolDefinition[];
   toolChoice?: ToolChoice;
   maxOutputTokens?: number;
+  /**
+   * Requested reasoning effort. The provider maps it onto what the model
+   * accepts (`capabilities.effortLevels`) and decides how to express it, so the
+   * loop never has to know an endpoint's spelling of it.
+   */
+  reasoningEffort?: ReasoningEffort;
   temperature?: number;
   topP?: number;
   stopSequences?: string[];
@@ -197,6 +213,8 @@ export type StreamEvent =
 
 export type ProviderErrorKind =
   | 'auth'
+  /** Account is out of credit (DeepSeek 402). Retrying cannot help. */
+  | 'quota'
   | 'rate_limit'
   | 'context_length'
   | 'bad_request'

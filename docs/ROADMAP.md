@@ -19,6 +19,13 @@
 
 ## 1. 部分完成
 
+### A · Model / Provider layer
+- **DeepSeek 深度适配** — 已完成 P0（见 [`DEEPSEEK.md`](./DEEPSEEK.md)）：`reasoning_content`
+  回传 + 400 自愈、`deepseek-flash` 模型档、effort 按 `effortLevels` 客户端映射（含 `off`
+  → `thinking.disabled`）、峰谷定价、`insufficient_system_resource` / 空完成可重试、402 →
+  `quota`。剩余：P1（in-history system prompt、暖前缀压缩请求 —— 缓存命中率是成本大头）、
+  P2（工具形态对齐实验），以及 DEEPSEEK.md §四 §1 的线上探针和 cassette 重录。*(M)*
+
 ### C · Tool system & execution
 - **Broaden the structured-error sink** — 已完成：`NoModelConfiguredError` 在
   `--output-format json` / `stream-json` 下输出结构化 JSON（`packages/cli/src/index.ts`

@@ -93,7 +93,7 @@ describe('AgentLoop', () => {
       cwd: '/tmp',
       reasoningEffort: 'high',
     }).run([userText('hi')]);
-    expect(reasoning.requests[0]?.extraBody).toEqual({ reasoning_effort: 'high' });
+    expect(reasoning.requests[0]?.reasoningEffort).toBe('high');
 
     const plain = new ScriptedProvider([{ text: 'ok' }]);
     await new AgentLoop({
@@ -102,7 +102,7 @@ describe('AgentLoop', () => {
       cwd: '/tmp',
       reasoningEffort: 'high',
     }).run([userText('hi')]);
-    expect(plain.requests[0]?.extraBody).toBeUndefined();
+    expect(plain.requests[0]?.reasoningEffort).toBeUndefined();
   });
 
   it('runs concurrency-safe read-only tools in parallel', async () => {

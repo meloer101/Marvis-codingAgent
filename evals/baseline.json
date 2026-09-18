@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-14T16:04:30.734Z",
+  "generatedAt": "2026-09-18T19:18:29.204Z",
   "model": "deepseek/deepseek-v4-flash",
   "tasks": {
     "add-slug-helper": {
@@ -7,7 +7,7 @@
       "passHatK": true,
       "avgTurns": 6,
       "avgTokens": 18170,
-      "avgCostUSD": 0.003851,
+      "avgCostUSD": 0.001848,
       "graders": {
         "tests-untouched": 1,
         "diff-size": 1,
@@ -20,7 +20,7 @@
       "passHatK": true,
       "avgTurns": 5,
       "avgTokens": 15291,
-      "avgCostUSD": 0.003487,
+      "avgCostUSD": 0.001785,
       "graders": {
         "diff-size": 1,
         "scratch-sprawl": 1,
@@ -32,7 +32,7 @@
       "passHatK": true,
       "avgTurns": 7,
       "avgTokens": 22426,
-      "avgCostUSD": 0.004673,
+      "avgCostUSD": 0.002217,
       "graders": {
         "tests-untouched": 1,
         "diff-size": 1,
@@ -45,7 +45,7 @@
       "passHatK": true,
       "avgTurns": 5,
       "avgTokens": 14099,
-      "avgCostUSD": 0.003348,
+      "avgCostUSD": 0.001777,
       "graders": {
         "tests-untouched": 1,
         "diff-size": 1,
@@ -58,7 +58,7 @@
       "passHatK": true,
       "avgTurns": 3,
       "avgTokens": 8226,
-      "avgCostUSD": 0.00247,
+      "avgCostUSD": 0.001532,
       "graders": {
         "scratch-sprawl": 1
       }

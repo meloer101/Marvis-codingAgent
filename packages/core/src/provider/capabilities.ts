@@ -13,11 +13,11 @@ import type { ReasoningEffort } from './types.js';
 export type PromptCacheMode = 'none' | 'implicit' | 'explicit';
 
 /**
- * Universal reasoning-effort ladder shown by default (Faster→Smarter). It stays
- * rich on purpose: providers accept the whole ladder and map it to their own
- * native levels server-side (e.g. DeepSeek folds minimal/medium/xhigh/ultra into
- * low/high/max — api-docs.deepseek.com/guides/thinking_mode). A model overrides
- * `effortLevels` only when its endpoint rejects, rather than maps, unknown values.
+ * Universal reasoning-effort ladder shown by default (Faster→Smarter). A model
+ * declares `effortLevels` when its endpoint accepts only part of the ladder —
+ * DeepSeek does *not* fold unknown values server-side, it rejects them
+ * (api-docs.deepseek.com/guides/thinking_mode), so a requested level is mapped
+ * onto the declared ones here instead (`mapEffort`).
  */
 export const DEFAULT_REASONING_EFFORTS: readonly ReasoningEffort[] = [
   'minimal',
@@ -28,10 +28,38 @@ export const DEFAULT_REASONING_EFFORTS: readonly ReasoningEffort[] = [
   'max',
 ];
 
+/** Rates in $/MTok. `offPeak` applies outside the provider's peak window. */
 export interface Pricing {
   inputPerMTok: number;
   outputPerMTok: number;
   cachedInputPerMTok?: number;
+  offPeak?: {
+    inputPerMTok: number;
+    outputPerMTok: number;
+    cachedInputPerMTok?: number;
+  };
+}
+
+/**
+ * Maps a requested effort onto the levels a model actually accepts: nearest
+ * position on `DEFAULT_REASONING_EFFORTS`, ties going to the smarter level
+ * (so DeepSeek's low/high/max gets minimal→low, medium→high, xhigh→max).
+ * `off` is not a level — callers handle it before asking.
+ */
+export function mapEffort(
+  effort: Exclude<ReasoningEffort, 'off'>,
+  levels: readonly ReasoningEffort[] | undefined,
+): ReasoningEffort {
+  if (!levels || levels.length === 0 || levels.includes(effort)) return effort;
+  const rank = (e: ReasoningEffort) => DEFAULT_REASONING_EFFORTS.indexOf(e);
+  const want = rank(effort);
+  let best = levels[0]!;
+  for (const level of levels) {
+    const d = Math.abs(rank(level) - want);
+    const bestD = Math.abs(rank(best) - want);
+    if (d < bestD || (d === bestD && rank(level) > rank(best))) best = level;
+  }
+  return best;
 }
 
 export interface ModelCapabilities {
@@ -55,6 +83,18 @@ export interface ModelCapabilities {
   effortLevels?: readonly ReasoningEffort[];
   /** Default reasoning effort when none is configured. */
   defaultEffort?: ReasoningEffort;
+  /**
+   * Endpoint takes `thinking: { type: "enabled" | "disabled" }` — how DeepSeek
+   * turns reasoning off, as opposed to an effort level.
+   */
+  thinkingParam?: boolean;
+  /**
+   * Whether past assistant turns must carry their reasoning back on the wire.
+   * `text` replays it as `reasoning_content` (DeepSeek V4 400s without it once
+   * the request has `tools`); `none` drops it, which is what every other
+   * OpenAI-compatible endpoint expects.
+   */
+  reasoningReplay?: 'none' | 'text';
   contextWindow: number;
   maxOutputTokens: number;
   /** Endpoint rejects `temperature` (some reasoning models do). */
@@ -97,42 +137,56 @@ interface CapabilityRule {
  */
 const RULES: CapabilityRule[] = [
   // --- DeepSeek -----------------------------------------------------------
-  // `deepseek-chat`/`deepseek-reasoner` were retired 2026-07-24 in favor of
-  // `deepseek-v4-flash`/`deepseek-v4-pro`; thinking is now an effort level
-  // (low/high/max) on the same model id rather than a separate reasoning-only
-  // model, so both get `reasoning: true` here instead of only one of them.
-  // Context window (1M) and max output (384K) are DeepSeek's published V4
-  // figures — 1M context is the default across all official services. Pricing
-  // is DeepSeek's peak-hour rate (the conservative, higher figure — off-peak is
-  // roughly half) as a best-effort placeholder pending confirmation against
-  // DeepSeek's own pricing page; cached-input rates are an estimate carried
-  // over from the prior generation's cache-to-input ratio, not independently
-  // confirmed.
+  // `deepseek-chat`/`deepseek-reasoner` were retired 2026-07-24; the V4 line is
+  // `deepseek-flash` (V4.1-Flash, 2026-09-10) and `deepseek-v4-pro`, with
+  // `deepseek-v4-flash` routed to V4.1-Flash as a transitional alias. Thinking
+  // is an effort level on the same model id rather than a separate model, so
+  // every rule here sets `reasoning: true`. The endpoint takes only low/high/max
+  // and rejects the rest of the ladder, so `effortLevels` is declared and
+  // `mapEffort` folds the others onto it client-side. Context (1M) and output
+  // (384K) are DeepSeek's published V4 figures. Prices are the published
+  // peak-hour rates with `offPeak` (Mon–Fri outside 01:00–04:00 and 06:00–10:00
+  // UTC) — note the cache-hit rate is ~1/50 of the miss rate, which is why
+  // anything that breaks the prefix cache is worth avoiding.
+  {
+    provider: 'deepseek',
+    match: /^deepseek-(v4-)?flash/i,
+    caps: {
+      reasoning: true,
+      effortLevels: ['low', 'high', 'max'],
+      defaultEffort: 'high',
+      thinkingParam: true,
+      reasoningReplay: 'text',
+      contextWindow: 1_000_000,
+      maxOutputTokens: 384_000,
+      promptCache: 'implicit',
+      jsonMode: true,
+      pricing: {
+        inputPerMTok: 0.3,
+        outputPerMTok: 1.2,
+        cachedInputPerMTok: 0.006,
+        offPeak: { inputPerMTok: 0.15, outputPerMTok: 0.6, cachedInputPerMTok: 0.003 },
+      },
+    },
+  },
   {
     provider: 'deepseek',
     match: /^deepseek-v4-pro/i,
     caps: {
       reasoning: true,
-      // Accepts the full ladder and maps it to its native low/high/max
-      // server-side, so no `effortLevels` override — just a default of high.
+      effortLevels: ['low', 'high', 'max'],
       defaultEffort: 'high',
+      thinkingParam: true,
+      reasoningReplay: 'text',
       contextWindow: 1_000_000,
       maxOutputTokens: 384_000,
       promptCache: 'implicit',
-      pricing: { inputPerMTok: 1.32, outputPerMTok: 3.96, cachedInputPerMTok: 0.33 },
-    },
-  },
-  {
-    provider: 'deepseek',
-    match: /^deepseek-v4-flash/i,
-    caps: {
-      reasoning: true,
-      defaultEffort: 'high',
-      contextWindow: 1_000_000,
-      maxOutputTokens: 384_000,
-      promptCache: 'implicit',
-      jsonMode: true,
-      pricing: { inputPerMTok: 0.44, outputPerMTok: 1.32, cachedInputPerMTok: 0.11 },
+      pricing: {
+        inputPerMTok: 1.32,
+        outputPerMTok: 3.96,
+        cachedInputPerMTok: 0.044,
+        offPeak: { inputPerMTok: 0.66, outputPerMTok: 1.98, cachedInputPerMTok: 0.022 },
+      },
     },
   },
 
@@ -252,7 +306,19 @@ const RULES: CapabilityRule[] = [
 
 /** Provider-level defaults applied when no rule matches. */
 const PROVIDER_DEFAULTS: Record<string, Partial<ModelCapabilities>> = {
-  deepseek: { promptCache: 'implicit' },
+  // Every current DeepSeek model is a V4-series reasoning model on the same
+  // 1M/384K envelope, so an unrecognized id should not fall back to the
+  // 128K/8K/no-reasoning default and silently lose thinking.
+  deepseek: {
+    promptCache: 'implicit',
+    reasoning: true,
+    effortLevels: ['low', 'high', 'max'],
+    defaultEffort: 'high',
+    thinkingParam: true,
+    reasoningReplay: 'text',
+    contextWindow: 1_000_000,
+    maxOutputTokens: 384_000,
+  },
   moonshot: { promptCache: 'implicit' },
   openai: { promptCache: 'implicit', jsonMode: true, allowedToolsChoice: true },
   ollama: { streamUsage: false, parallelToolCalls: false },
@@ -280,17 +346,31 @@ export function resolveCapabilities(
   return merged;
 }
 
+/**
+ * DeepSeek's peak window: Monday–Friday 01:00–04:00 and 06:00–10:00 UTC
+ * (09:00–12:00 / 14:00–18:00 Beijing). Everything else bills at `offPeak`,
+ * roughly half. Weekend hours are off-peak throughout.
+ */
+function isPeakHour(at: Date): boolean {
+  const day = at.getUTCDay();
+  if (day === 0 || day === 6) return false;
+  const hour = at.getUTCHours() + at.getUTCMinutes() / 60;
+  return (hour >= 1 && hour < 4) || (hour >= 6 && hour < 10);
+}
+
 export function estimateCostUSD(
   usage: { inputTokens: number; outputTokens: number; cachedInputTokens: number },
   pricing: Pricing | undefined,
+  at: Date = new Date(),
 ): number | undefined {
   if (!pricing) return undefined;
+  const rates = pricing.offPeak && !isPeakHour(at) ? pricing.offPeak : pricing;
   const fresh = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
-  const cachedRate = pricing.cachedInputPerMTok ?? pricing.inputPerMTok;
+  const cachedRate = rates.cachedInputPerMTok ?? rates.inputPerMTok;
   return (
-    (fresh * pricing.inputPerMTok +
+    (fresh * rates.inputPerMTok +
       usage.cachedInputTokens * cachedRate +
-      usage.outputTokens * pricing.outputPerMTok) /
+      usage.outputTokens * rates.outputPerMTok) /
     1_000_000
   );
 }

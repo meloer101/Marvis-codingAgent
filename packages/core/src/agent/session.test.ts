@@ -78,6 +78,23 @@ describe('SessionRecorder / loadSession', () => {
     expect(messages[1]?.role).toBe('assistant');
   });
 
+  it('keeps thinking blocks across a resume', async () => {
+    // A resumed DeepSeek session has to replay each assistant turn's reasoning
+    // back to the endpoint, so the history on disk must still carry it.
+    const recorder = new SessionRecorder(agentDir, 'thinking-session');
+    await recorder.recordMessage(userText('hi'));
+    await recorder.recordMessage({
+      role: 'assistant',
+      content: [
+        { type: 'thinking', text: 'weighing options' },
+        { type: 'text', text: 'done' },
+      ],
+    });
+
+    const messages = await loadSession(agentDir, 'thinking-session');
+    expect(messages[1]?.content[0]).toEqual({ type: 'thinking', text: 'weighing options' });
+  });
+
   it('resumes from the last compaction snapshot plus messages recorded after it', async () => {
     const recorder = new SessionRecorder(agentDir, 'test-session');
     await recorder.recordMessage(userText('original goal'));

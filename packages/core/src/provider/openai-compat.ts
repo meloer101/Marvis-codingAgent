@@ -8,7 +8,7 @@
  * inline, because each one is a bug someone will otherwise rediscover.
  */
 
-import { estimateCostUSD, resolveCapabilities } from './capabilities.js';
+import { estimateCostUSD, mapEffort, resolveCapabilities } from './capabilities.js';
 import type { CapabilityOverrides, ModelCapabilities } from './capabilities.js';
 import { flattenRequestText, heuristicTokenCount } from '../context/tokenizer.js';
 import type { TokenCounter } from '../context/tokenizer.js';
@@ -121,14 +121,14 @@ export class OpenAICompatProvider implements Provider {
     caps: ModelCapabilities,
   ): AsyncGenerator<StreamEvent> {
     const usePromptTools = !caps.nativeTools && (req.tools?.length ?? 0) > 0;
-    const body = this.buildBody(req, caps, true, usePromptTools);
     const started = Date.now();
     let ttftMs: number | undefined;
 
-    const { response, dispose, timeoutSignal } = await this.request(
-      '/chat/completions',
-      body,
-      req.signal,
+    const { response, dispose, timeoutSignal } = await this.requestCompletion(
+      req,
+      caps,
+      true,
+      usePromptTools,
     );
     if (!response.body) {
       dispose();
@@ -270,6 +270,11 @@ export class OpenAICompatProvider implements Provider {
     }
 
     const toolBlocks = usePromptTools ? promptToolBlocks : nativeBlocks;
+    assertUsableCompletion(
+      finishReason,
+      text !== '' || thinking !== '' || toolBlocks.length > 0,
+      this.id,
+    );
     const content = assembleContent(text, thinking, toolBlocks);
     const response_: ModelResponse = {
       model: req.model,
@@ -293,12 +298,12 @@ export class OpenAICompatProvider implements Provider {
     caps: ModelCapabilities,
   ): Promise<ModelResponse> {
     const usePromptTools = !caps.nativeTools && (req.tools?.length ?? 0) > 0;
-    const body = this.buildBody(req, caps, false, usePromptTools);
     const started = Date.now();
-    const { response, dispose, timeoutSignal } = await this.request(
-      '/chat/completions',
-      body,
-      req.signal,
+    const { response, dispose, timeoutSignal } = await this.requestCompletion(
+      req,
+      caps,
+      false,
+      usePromptTools,
     );
     let json: OpenAICompletion;
     try {
@@ -331,6 +336,12 @@ export class OpenAICompatProvider implements Provider {
       );
     }
 
+    assertUsableCompletion(
+      choice?.finish_reason,
+      text !== '' || thinking !== '' || toolBlocks.length > 0,
+      this.id,
+    );
+
     const usage = json.usage
       ? normalizeUsage(json.usage)
       : this.estimateUsage(req, text + thinking);
@@ -349,11 +360,47 @@ export class OpenAICompatProvider implements Provider {
   // Request building
   // -------------------------------------------------------------------------
 
+  /**
+   * Issue the completion request, healing the one failure we can fix from here:
+   * an endpoint that wants `reasoning_content` back on assistant turns that
+   * never had any (a non-thinking run, or a session resumed from before we kept
+   * it). The retry re-sends once with an empty field on those turns. Nothing has
+   * been yielded to the caller at this point, so a streaming call can retry too.
+   */
+  private async requestCompletion(
+    req: ModelRequest,
+    caps: ModelCapabilities,
+    stream: boolean,
+    usePromptTools: boolean,
+  ): Promise<{ response: Response; dispose: () => void; timeoutSignal: AbortSignal }> {
+    try {
+      return await this.request(
+        '/chat/completions',
+        this.buildBody(req, caps, stream, usePromptTools),
+        req.signal,
+      );
+    } catch (err) {
+      if (
+        !(err instanceof ProviderError) ||
+        err.kind !== 'bad_request' ||
+        !REASONING_REPLAY_REQUIRED.test(err.message)
+      ) {
+        throw err;
+      }
+      return this.request(
+        '/chat/completions',
+        this.buildBody(req, caps, stream, usePromptTools, { emptyReasoningFallback: true }),
+        req.signal,
+      );
+    }
+  }
+
   private buildBody(
     req: ModelRequest,
     caps: ModelCapabilities,
     stream: boolean,
     usePromptTools: boolean,
+    messageOpts: ToOpenAIMessagesOptions = {},
   ): Record<string, unknown> {
     const system = usePromptTools
       ? appendSystemSegment(req.system, {
@@ -364,7 +411,7 @@ export class OpenAICompatProvider implements Provider {
 
     const body: Record<string, unknown> = {
       model: req.model,
-      messages: toOpenAIMessages(system, req.messages, caps),
+      messages: toOpenAIMessages(system, req.messages, caps, messageOpts),
       stream,
     };
 
@@ -373,6 +420,16 @@ export class OpenAICompatProvider implements Provider {
       // the old name, and several endpoints reject the new one outright.
       const key = caps.developerRole ? 'max_completion_tokens' : 'max_tokens';
       body[key] = Math.min(req.maxOutputTokens, caps.maxOutputTokens);
+    }
+    if (req.reasoningEffort !== undefined && caps.reasoning) {
+      if (req.reasoningEffort === 'off') {
+        // `off` is the absence of a level: say so with the endpoint's own
+        // switch where there is one, and never send an effort alongside it.
+        if (caps.thinkingParam) body['thinking'] = { type: 'disabled' };
+      } else {
+        if (caps.thinkingParam) body['thinking'] = { type: 'enabled' };
+        body['reasoning_effort'] = mapEffort(req.reasoningEffort, caps.effortLevels);
+      }
     }
     if (req.temperature !== undefined && !caps.fixedTemperature) {
       body['temperature'] = req.temperature;
@@ -597,10 +654,21 @@ function buildToolUseBlock(id: string, name: string, args: string): ToolUseBlock
 // Translation: internal shape -> OpenAI shape
 // ---------------------------------------------------------------------------
 
+export interface ToOpenAIMessagesOptions {
+  /**
+   * Put `reasoning_content: ""` on replayed assistant turns that carry no
+   * thinking of their own (a non-thinking run, or a session resumed from before
+   * reasoning was kept). Only used to recover from an endpoint that demands the
+   * field on every assistant turn — see `REASONING_REPLAY_REQUIRED`.
+   */
+  emptyReasoningFallback?: boolean;
+}
+
 export function toOpenAIMessages(
   system: readonly SystemSegment[] | undefined,
   messages: readonly Message[],
   caps: ModelCapabilities,
+  opts: ToOpenAIMessagesOptions = {},
 ): OpenAIMessage[] {
   const out: OpenAIMessage[] = [];
 
@@ -637,16 +705,31 @@ export function toOpenAIMessages(
       (b): b is ToolUseBlock => b.type === 'tool_use',
     );
 
-    // Thinking blocks are deliberately dropped on the way out. DeepSeek rejects
-    // replayed `reasoning_content`, and no OpenAI-compatible endpoint accepts a
-    // reasoning field on an input message. We keep them internally for display
-    // and telemetry only.
-    if (text === '' && toolCalls.length === 0) continue;
+    // Reasoning replay is per-model. DeepSeek V4 *requires* every past
+    // assistant turn's `reasoning_content` back once the request carries
+    // `tools`, and 400s without it ("The reasoning_content in the thinking mode
+    // must be passed back to the API"); everywhere else the field is unknown on
+    // an input message, so it is dropped and kept only for display/telemetry.
+    const replayReasoning = caps.reasoningReplay === 'text';
+    const thinking = replayReasoning
+      ? msg.content
+          .filter((b) => b.type === 'thinking')
+          .map((b) => (b as { text: string }).text)
+          .join('')
+      : '';
+
+    // A turn that is only reasoning still has to be replayed when the endpoint
+    // wants the reasoning back — dropping it loses part of the prefix.
+    if (text === '' && toolCalls.length === 0 && thinking === '') continue;
 
     const assistant: OpenAIMessage = {
+      // Never `null`: DeepSeek (and several gateways) reject a null content on
+      // an assistant turn, and dsh always sends `""`.
       role: 'assistant',
-      content: text === '' ? null : text,
+      content: text,
     };
+    if (thinking !== '') assistant.reasoning_content = thinking;
+    else if (replayReasoning && opts.emptyReasoningFallback) assistant.reasoning_content = '';
     if (toolCalls.length > 0) {
       assistant.tool_calls = toolCalls.map((tc) => ({
         id: tc.id,
@@ -708,6 +791,43 @@ function assembleContent(
 // ---------------------------------------------------------------------------
 // Normalization
 // ---------------------------------------------------------------------------
+
+/**
+ * Finish reasons that are failures wearing a completion's clothes. DeepSeek
+ * returns `insufficient_system_resource` when it sheds load mid-generation
+ * (api-docs.deepseek.com/quick_start/error_codes); treating it as `end_turn`
+ * silently truncates the run, so it is raised as a retryable error instead.
+ */
+const ERROR_FINISH_REASONS: Record<string, string> = {
+  insufficient_system_resource: 'the endpoint ran out of capacity mid-generation',
+};
+
+/**
+ * Raises the provider error behind a failure-shaped completion, if any:
+ * an error finish reason, or a completion that finished normally while saying
+ * nothing at all (no text, no reasoning, no tool call). DeepSeek's own harness
+ * retries both rather than surfacing an empty turn.
+ */
+function assertUsableCompletion(
+  finishReason: string | undefined | null,
+  hasContent: boolean,
+  provider: string,
+): void {
+  const known = finishReason ? ERROR_FINISH_REASONS[finishReason] : undefined;
+  if (known) {
+    throw new ProviderError('server', `${provider}: ${known} (${finishReason})`, {
+      provider,
+      retryable: true,
+    });
+  }
+  if (!hasContent && (finishReason === 'stop' || finishReason === 'eos')) {
+    throw new ProviderError(
+      'protocol',
+      `${provider}: the model returned an empty completion`,
+      { provider, retryable: true },
+    );
+  }
+}
 
 export function normalizeStopReason(
   finishReason: string | undefined | null,
@@ -784,6 +904,12 @@ const RETRYABLE_MESSAGE_PATTERNS: RegExp[] = [
   /EAI_AGAIN/i,
 ];
 
+/**
+ * DeepSeek's 400 when a thinking-mode request with tools replays an assistant
+ * turn without its `reasoning_content`.
+ */
+const REASONING_REPLAY_REQUIRED = /reasoning_content[\s\S]*passed back/i;
+
 /** True when the error text looks like a transient failure across OpenAI-compat providers. */
 export function messageSuggestsRetry(message: string): boolean {
   return RETRYABLE_MESSAGE_PATTERNS.some((re) => re.test(message));
@@ -816,6 +942,15 @@ function mapHttpError(
     return new ProviderError(
       'not_found',
       `${provider}: ${message} (check the model id and base URL)`,
+      { status, provider, retryable: false, detail: redact(detail) },
+    );
+  }
+  if (status === 402) {
+    // DeepSeek's "insufficient balance". Retrying burns the rest of a run
+    // against an account that cannot pay for it, so say so once and stop.
+    return new ProviderError(
+      'quota',
+      `${provider}: ${message} (account balance exhausted — top up or switch models)`,
       { status, provider, retryable: false, detail: redact(detail) },
     );
   }
@@ -1072,6 +1207,8 @@ interface OpenAICompletion {
 export interface OpenAIMessage {
   role: 'system' | 'developer' | 'user' | 'assistant' | 'tool';
   content: string | null;
+  /** Replayed reasoning for endpoints that require it back (DeepSeek V4). */
+  reasoning_content?: string;
   tool_call_id?: string;
   tool_calls?: Array<{
     id: string;
