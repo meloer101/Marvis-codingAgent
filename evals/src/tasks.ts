@@ -16,7 +16,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { PermissionMode } from '@harness-code/core';
+import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
 
 import type { GraderSpec } from './graders/index.js';
 
@@ -40,6 +40,8 @@ export interface TaskSpec {
   deny?: string[];
   /** Cap on agent turns for this task (harness default 30). */
   maxTurns?: number;
+  /** Reasoning effort for this task; omitted = the model's declared default. */
+  effort?: ReasoningEffort;
   /** Behaviour checks run after `assert.mjs` (see `graders/`). */
   graders: GraderSpec[];
 }
@@ -94,6 +96,7 @@ function validate(raw: unknown, id: string): TaskSpec {
     ...(Array.isArray(r.allow) ? { allow: r.allow.map(String) } : {}),
     ...(Array.isArray(r.deny) ? { deny: r.deny.map(String) } : {}),
     ...(typeof r.maxTurns === 'number' ? { maxTurns: Math.floor(r.maxTurns) } : {}),
+    ...(typeof r.effort === 'string' ? { effort: r.effort as ReasoningEffort } : {}),
     graders: graders as GraderSpec[],
   };
 }

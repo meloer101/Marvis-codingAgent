@@ -6,10 +6,14 @@
 
 import { ProviderError } from './types.js';
 
-/** Exponential backoff with a little jitter: ~1s, 2s, 4s … capped at 20s. */
+/**
+ * Exponential backoff with 10% jitter: 500ms, 1s, 2s … capped at 10s — the
+ * schedule DeepSeek's own harness retries on, and gentle enough that a short
+ * blip costs a second rather than twenty.
+ */
 export function backoffMs(attempt: number): number {
-  const base = Math.min(1_000 * 2 ** attempt, 20_000);
-  return base + Math.random() * 250;
+  const base = Math.min(500 * 2 ** attempt, 10_000);
+  return base * (1 + Math.random() * 0.1);
 }
 
 /** Wait `ms`, or reject with `ProviderError('aborted')` as soon as `signal` trips. */

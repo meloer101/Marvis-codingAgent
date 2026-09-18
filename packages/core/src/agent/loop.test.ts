@@ -467,6 +467,32 @@ describe('AgentLoop', () => {
     expect(seen[0]).toBe(1_000_000 - 64_000);
   });
 
+  it('plans against the quality window, and lets a budget narrow but not widen it', async () => {
+    const windows = async (
+      caps: Partial<typeof DEFAULT_CAPABILITIES>,
+      contextBudgetTokens?: number,
+    ): Promise<number | undefined> => {
+      const provider = new ScriptedProvider([{ text: 'done' }]);
+      let seen: number | undefined;
+      await new AgentLoop({
+        model: resolvedModel(provider, { maxOutputTokens: 384_000, ...caps }),
+        tools: new ToolRegistry([]),
+        cwd: '/tmp',
+        ...(contextBudgetTokens !== undefined ? { contextBudgetTokens } : {}),
+        onEvent: (e) => {
+          if (e.type === 'context') seen = e.windowTokens;
+        },
+      }).run([userText('hi')]);
+      return seen;
+    };
+
+    const caps = { contextWindow: 1_000_000, qualityContextWindow: 256_000 };
+    expect(await windows(caps)).toBe(256_000 - 64_000);
+    expect(await windows(caps, 128_000)).toBe(128_000 - 64_000);
+    // A budget past the model's own window is clamped to it.
+    expect(await windows(caps, 2_000_000)).toBe(1_000_000 - 64_000);
+  });
+
   it('calls onContextPressure with the ratio once the warn threshold is crossed', async () => {
     const provider = new ScriptedProvider([{ text: 'done' }]);
     const tools = new ToolRegistry([]);

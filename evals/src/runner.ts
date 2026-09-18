@@ -115,6 +115,7 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
         ...(task.spec.allow ? { allow: task.spec.allow } : {}),
         ...(task.spec.deny ? { deny: task.spec.deny } : {}),
         ...(task.spec.maxTurns ? { maxTurns: task.spec.maxTurns } : {}),
+        ...(task.spec.effort ? { reasoningEffort: task.spec.effort } : {}),
       });
 
       // For every task, pass = the assertion holds in the post-run workspace.

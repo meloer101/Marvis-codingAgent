@@ -5,7 +5,11 @@
 
 import matter from 'gray-matter';
 
+import type { ReasoningEffort } from '../provider/types.js';
 import type { AgentDefinition, AgentSource } from './types.js';
+
+/** Effort levels a definition may declare; the provider maps them per model. */
+const VALID_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 export const NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_NAME = 64;
@@ -75,6 +79,15 @@ export function parseAgent(input: {
 
   if (typeof data.model === 'string' && data.model.trim() !== '') {
     agent.model = data.model.trim();
+  }
+
+  if (typeof data.effort === 'string') {
+    const effort = data.effort.trim().toLowerCase();
+    if ((VALID_EFFORTS as readonly string[]).includes(effort)) {
+      agent.effort = effort as ReasoningEffort;
+    } else if (effort !== '') {
+      return { ok: false, reason: `effort must be one of ${VALID_EFFORTS.join(', ')}` };
+    }
   }
 
   return { ok: true, agent };

@@ -196,6 +196,13 @@ export interface AgentLoopOptions {
   /** Reasoning-effort level; the provider maps it to what the model accepts. */
   reasoningEffort?: ReasoningEffort;
   temperature?: number;
+  /**
+   * Context tokens to plan against when the model's window is bigger than the
+   * span it stays reliable over. Warn / compact / stop ratios are computed
+   * against this; it can only narrow the window, never widen it past the
+   * model's own. Defaults to the model's `qualityContextWindow`.
+   */
+  contextBudgetTokens?: number;
   /** Fraction of the usable context window at which `onContextPressure` fires. */
   contextWarnRatio?: number;
   /**
@@ -309,11 +316,17 @@ export class AgentLoop {
     // The reservation is capped at OUTPUT_RESERVE_CEILING so a model with a huge
     // `maxOutputTokens` (e.g. DeepSeek V4's 384k) does not shrink the window by
     // output it will almost never produce.
+    // Planning happens against the span the model is actually reliable over
+    // (`contextBudgetTokens`, else the model's `qualityContextWindow`), which on
+    // DeepSeek V4 is well short of the 1M it accepts. The hard window still
+    // caps it — a budget can only narrow the planning window, never widen it.
     const outputReserve = Math.min(this.maxOutputTokens, OUTPUT_RESERVE_CEILING);
-    const availableWindow = Math.max(
-      1,
-      this.opts.model.capabilities.contextWindow - outputReserve,
+    const caps = this.opts.model.capabilities;
+    const plannedWindow = Math.min(
+      caps.contextWindow,
+      this.opts.contextBudgetTokens ?? caps.qualityContextWindow ?? caps.contextWindow,
     );
+    const availableWindow = Math.max(1, plannedWindow - outputReserve);
     // The fixed buckets — system / project memory / tool schemas — don't change
     // within a run, so cost them once. `history` is then the remainder of the
     // anchored total, no full re-flatten per turn.
@@ -342,21 +355,26 @@ export class AgentLoop {
         return this.stop(messages, usage, completedTurns, 'max_cost');
       }
 
+      const toolless =
+        this.finalSummaryTurn && Number.isFinite(this.maxTurns) && turn >= this.maxTurns;
+      const toolDefs = toolless ? undefined : this.opts.tools.definitions();
+
+      // Hooks see the exact prefix this turn's request carries, so a hook that
+      // makes its own model call (compaction) can reuse the cached prefix.
       const turnCtx: TurnContext = {
         turn,
         cwd: this.opts.cwd,
         messages,
+        ...(this.opts.system ? { system: this.opts.system } : {}),
+        ...(toolDefs ? { tools: toolDefs } : {}),
         ...(this.opts.signal ? { signal: this.opts.signal } : {}),
       };
       await this.hooks.onBeforeTurn?.(turnCtx);
 
-      const toolless =
-        this.finalSummaryTurn && Number.isFinite(this.maxTurns) && turn >= this.maxTurns;
-
       const request: ModelRequest = {
         model: this.opts.model.model,
         messages,
-        ...(toolless ? {} : { tools: this.opts.tools.definitions() }),
+        ...(toolDefs ? { tools: toolDefs } : {}),
         maxOutputTokens: this.maxOutputTokens,
         ...(this.opts.temperature !== undefined ? { temperature: this.opts.temperature } : {}),
         ...(this.opts.reasoningEffort && this.opts.model.capabilities.reasoning

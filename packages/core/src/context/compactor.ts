@@ -17,7 +17,7 @@
  */
 
 import type { AgentHooks } from '../agent/hooks.js';
-import type { Message, Provider } from '../provider/types.js';
+import type { Message, Provider, ReasoningEffort } from '../provider/types.js';
 import { textOf } from '../provider/types.js';
 import { errorMessage } from '../tools/util.js';
 import { flattenRequestText, heuristicTokenCount } from './tokenizer.js';
@@ -348,6 +348,29 @@ function digestUserPrompt(goal: string, priorDigest: string | undefined, middleT
   return parts.join('\n\n---\n\n');
 }
 
+/**
+ * The same instruction as the digest system prompt, phrased as the final user
+ * message of a replayed conversation: the history above *is* the span being
+ * compacted, so nothing needs to be flattened into the prompt.
+ */
+function digestReplayPrompt(
+  conventions: string,
+  budget: number,
+  goal: string,
+  priorDigest: string | undefined,
+): string {
+  const parts = [
+    '现在停止手上的工作，改为压缩**以上全部对话历史**（最新的几轮除外，它们会原样保留）。',
+    digestSystemPrompt(conventions, budget),
+    `原始目标：\n${goal.trim()}`,
+  ];
+  if (priorDigest && priorDigest.trim() !== '') {
+    parts.push(`上一版 digest（在此基础上更新，不要丢信息）：\n${priorDigest.trim()}`);
+  }
+  parts.push('只输出 digest 本身，不要调用任何工具。');
+  return parts.join('\n\n---\n\n');
+}
+
 const PROHIBITION_RE = /(?:don't|do not|never|不要|禁止|别碰)[^\n]{0,80}/gi;
 const MAX_INVARIANTS = 12;
 
@@ -405,6 +428,20 @@ export interface CompactorOptions {
   pruneProtectTokens?: number;
   pruneMinReclaimTokens?: number;
   prunedToolsExempt?: readonly string[];
+  /**
+   * Ask for the digest by replaying the turn's own prefix (same system segments,
+   * same tools, the history verbatim) with the instruction appended as the last
+   * user message, instead of flattening the history into a fresh prompt. On an
+   * implicit prefix cache that makes almost the whole summarization request a
+   * cache hit — DeepSeek bills those at ~1/50 of fresh input.
+   *
+   * Only valid when the summarizer is the session's own model: another model
+   * has its own cache and its own window. Falls back to the flattened prompt
+   * whenever the loop passed no prefix (a hook invoked outside a turn).
+   */
+  warmPrefix?: boolean;
+  /** Effort for the summarization call. Summarizing needs little reasoning. */
+  summaryEffort?: ReasoningEffort;
   /**
    * Directory for pruned tool-output files (`toolout-<n>.txt`). When set with
    * `cwd`, prune placeholders point at a path the `read` tool can reopen.
@@ -476,15 +513,40 @@ export function createCompactor(opts: CompactorOptions): NonNullable<AgentHooks[
     }
 
     const { goal, priorDigest } = parseGoalAndPriorDigest(head);
+    const warm = opts.warmPrefix === true && ctx.system !== undefined;
 
     try {
       const res = await opts.provider.complete({
         model: opts.model,
-        system: [{ id: 'compactor', text: digestSystemPrompt(opts.conventions, budget) }],
-        messages: [
-          { role: 'user', content: [{ type: 'text', text: digestUserPrompt(goal, priorDigest, middleText) }] },
-        ],
-        temperature: 0,
+        // Warm path: the session's own prefix, the history as the model already
+        // saw it, and the instruction last. Cold path: one self-contained
+        // prompt with the history flattened into it.
+        system: warm
+          ? [...ctx.system!]
+          : [{ id: 'compactor', text: digestSystemPrompt(opts.conventions, budget) }],
+        messages: warm
+          ? [
+              head,
+              ...split.middle,
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: digestReplayPrompt(opts.conventions, budget, goal, priorDigest),
+                  },
+                ],
+              },
+            ]
+          : [
+              { role: 'user', content: [{ type: 'text', text: digestUserPrompt(goal, priorDigest, middleText) }] },
+            ],
+        // Same tools as the turn, so the cached prefix survives — but the answer
+        // is prose, so decoding is constrained away from them.
+        ...(warm && ctx.tools ? { tools: [...ctx.tools], toolChoice: 'none' as const } : {}),
+        // No `temperature`: thinking-mode endpoints ignore it, and sending it
+        // only risks a rejection on the ones that validate it.
+        ...(opts.summaryEffort ? { reasoningEffort: opts.summaryEffort } : {}),
         maxOutputTokens: Math.ceil(budget * 1.5),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
       });

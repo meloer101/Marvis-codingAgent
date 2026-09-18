@@ -8,7 +8,13 @@
  * hook backed by the rule engine; the loop itself does not change.
  */
 
-import type { Message, ToolUseBlock, Usage } from '../provider/types.js';
+import type {
+  Message,
+  SystemSegment,
+  ToolDefinition,
+  ToolUseBlock,
+  Usage,
+} from '../provider/types.js';
 import type { ToolResult } from '../tools/types.js';
 
 export interface TurnContext {
@@ -16,6 +22,13 @@ export interface TurnContext {
   cwd: string;
   /** Conversation so far, including the assistant tool_use being gated. */
   messages: readonly Message[];
+  /**
+   * The system segments and tools this turn's request carries — i.e. the prefix
+   * an implicit prompt cache is holding. A hook that issues its own model call
+   * (compaction) can reuse them verbatim and stay on the cached prefix.
+   */
+  system?: readonly SystemSegment[];
+  tools?: readonly ToolDefinition[];
   /** Aborts when the current turn is cancelled (Ctrl+C). Threaded through to the ask handler. */
   signal?: AbortSignal;
 }

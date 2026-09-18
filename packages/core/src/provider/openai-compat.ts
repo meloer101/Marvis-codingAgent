@@ -48,8 +48,17 @@ export interface OpenAICompatConfig {
   capabilityOverrides?: CapabilityOverrides;
   /** Injected for tests and for the record/replay provider. */
   fetchImpl?: typeof fetch;
-  /** Per-request timeout. Generous by default: agent turns are long. */
+  /**
+   * How long to wait for response *headers*. Generous by default: a queued
+   * request can sit a long time before the model starts.
+   */
   timeoutMs?: number;
+  /**
+   * How long the body may go silent before the request is abandoned. Reset by
+   * every chunk — including SSE keep-alive comments — so a long reasoning pause
+   * that is still streaming keep-alives never trips it.
+   */
+  idleTimeoutMs?: number;
   maxRetries?: number;
   /** Used only when the endpoint reports no usage. Phase 4 injects a real one. */
   countTokens?: TokenCounter;
@@ -58,7 +67,7 @@ export interface OpenAICompatConfig {
 export class OpenAICompatProvider implements Provider {
   readonly id: string;
   private readonly cfg: Required<
-    Pick<OpenAICompatConfig, 'baseUrl' | 'timeoutMs' | 'maxRetries'>
+    Pick<OpenAICompatConfig, 'baseUrl' | 'timeoutMs' | 'idleTimeoutMs' | 'maxRetries'>
   > &
     OpenAICompatConfig;
   private readonly doFetch: typeof fetch;
@@ -70,7 +79,10 @@ export class OpenAICompatProvider implements Provider {
       ...config,
       baseUrl: config.baseUrl.replace(/\/+$/, ''),
       timeoutMs: config.timeoutMs ?? 600_000,
-      maxRetries: config.maxRetries ?? 3,
+      idleTimeoutMs: config.idleTimeoutMs ?? 300_000,
+      // DeepSeek's own harness retries each retryable class five times; the
+      // backoff (500ms → 10s) keeps that from being a long stall.
+      maxRetries: config.maxRetries ?? 5,
     };
     this.doFetch = config.fetchImpl ?? globalThis.fetch;
     this.countTokens = config.countTokens ?? heuristicTokenCount;
@@ -124,7 +136,7 @@ export class OpenAICompatProvider implements Provider {
     const started = Date.now();
     let ttftMs: number | undefined;
 
-    const { response, dispose, timeoutSignal } = await this.requestCompletion(
+    const { response, dispose, timeoutSignal, touch } = await this.requestCompletion(
       req,
       caps,
       true,
@@ -156,7 +168,7 @@ export class OpenAICompatProvider implements Provider {
     const promptToolBlocks: ToolUseBlock[] = [];
 
     try {
-      for await (const msg of parseSSE(response.body, readSignal)) {
+      for await (const msg of parseSSE(response.body, readSignal, touch)) {
         if (msg.data === '[DONE]') break;
 
         const parsed = parseLooseJSON(msg.data);
@@ -220,7 +232,7 @@ export class OpenAICompatProvider implements Provider {
         }
       }
     } catch (err) {
-      throw normalizeStreamError(err, req.signal, timeoutSignal, this.id, this.cfg.timeoutMs);
+      throw normalizeStreamError(err, req.signal, timeoutSignal, this.id, this.cfg.idleTimeoutMs);
     } finally {
       // Stream drained (or failed) — the deadline is no longer needed.
       dispose();
@@ -237,7 +249,7 @@ export class OpenAICompatProvider implements Provider {
         req.signal,
         timeoutSignal,
         this.id,
-        this.cfg.timeoutMs,
+        this.cfg.idleTimeoutMs,
       );
     }
 
@@ -309,7 +321,7 @@ export class OpenAICompatProvider implements Provider {
     try {
       json = (await abortable(response.json(), timeoutSignal)) as OpenAICompletion;
     } catch (err) {
-      throw normalizeStreamError(err, req.signal, timeoutSignal, this.id, this.cfg.timeoutMs);
+      throw normalizeStreamError(err, req.signal, timeoutSignal, this.id, this.cfg.idleTimeoutMs);
     } finally {
       dispose();
     }
@@ -372,7 +384,12 @@ export class OpenAICompatProvider implements Provider {
     caps: ModelCapabilities,
     stream: boolean,
     usePromptTools: boolean,
-  ): Promise<{ response: Response; dispose: () => void; timeoutSignal: AbortSignal }> {
+  ): Promise<{
+    response: Response;
+    dispose: () => void;
+    timeoutSignal: AbortSignal;
+    touch: () => void;
+  }> {
     try {
       return await this.request(
         '/chat/completions',
@@ -456,7 +473,12 @@ export class OpenAICompatProvider implements Provider {
     path: string,
     body: unknown,
     signal: AbortSignal | undefined,
-  ): Promise<{ response: Response; dispose: () => void; timeoutSignal: AbortSignal }> {
+  ): Promise<{
+    response: Response;
+    dispose: () => void;
+    timeoutSignal: AbortSignal;
+    touch: () => void;
+  }> {
     const url = `${this.cfg.baseUrl}${path}`;
     const headers: Record<string, string> = {
       'content-type': 'application/json',
@@ -511,9 +533,18 @@ export class OpenAICompatProvider implements Provider {
       }
 
       if (res.ok) {
-        // Headers are in. The body (JSON parse or SSE read) is the caller's to
-        // consume; hand back the deadline so it stays armed until that is done.
-        return { response: res, dispose: dl.dispose, timeoutSignal: dl.signal };
+        // Headers are in, so the header deadline has done its job. The body is
+        // the caller's to consume under an *idle* deadline: a stream may take
+        // far longer than any total timeout would allow, as long as it keeps
+        // saying something.
+        dl.dispose();
+        const idle = deadline(this.cfg.idleTimeoutMs);
+        return {
+          response: res,
+          dispose: idle.dispose,
+          timeoutSignal: idle.signal,
+          touch: idle.refresh,
+        };
       }
 
       dl.dispose();
@@ -1048,20 +1079,36 @@ function retryAfterMs(headers: Headers): number | undefined {
  * fires minutes later and aborts a signal nobody listens to — Node reports the
  * resulting `TimeoutError` as an unhandled rejection and the process exits.
  */
-function deadline(ms: number): { signal: AbortSignal; dispose: () => void } {
+interface Deadline {
+  signal: AbortSignal;
+  dispose: () => void;
+  /** Restart the clock — the connection just proved it is alive. */
+  refresh: () => void;
+}
+
+function deadline(ms: number): Deadline {
   const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort(new DOMException(`Timed out after ${ms}ms`, 'TimeoutError'));
-  }, ms);
-  // Don't keep the event loop alive just for the deadline.
-  (timer as { unref?: () => void }).unref?.();
   let done = false;
+  let timer: ReturnType<typeof setTimeout>;
+  const arm = (): void => {
+    timer = setTimeout(() => {
+      controller.abort(new DOMException(`Timed out after ${ms}ms`, 'TimeoutError'));
+    }, ms);
+    // Don't keep the event loop alive just for the deadline.
+    (timer as { unref?: () => void }).unref?.();
+  };
+  arm();
   return {
     signal: controller.signal,
     dispose: () => {
       if (done) return;
       done = true;
       clearTimeout(timer);
+    },
+    refresh: () => {
+      if (done) return;
+      clearTimeout(timer);
+      arm();
     },
   };
 }

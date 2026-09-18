@@ -18,6 +18,14 @@ describe('parseAgent', () => {
     }
   });
 
+  it('parses a declared effort and rejects one off the ladder', () => {
+    const ok = parse(fm({ name: 'explore', description: 'd', effort: 'LOW' }));
+    expect(ok.ok && ok.agent.effort).toBe('low');
+    expect(parse(fm({ name: 'explore', description: 'd', effort: 'turbo' }))).toMatchObject({
+      ok: false,
+    });
+  });
+
   it('treats tools as optional (inherit all)', () => {
     const r = parse(fm({ name: 'explore', description: 'd' }));
     expect(r.ok && r.agent.tools).toBeUndefined();

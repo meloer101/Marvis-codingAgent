@@ -560,6 +560,11 @@ export class AgentSession {
               provider: summarizer.provider,
               model: summarizer.model,
               conventions: AGENT_CONVENTIONS,
+              // Replaying the turn's own prefix only pays off on the model
+              // whose cache is holding it.
+              warmPrefix: summarizer.ref === config.model.ref,
+              // A digest is transcription, not deliberation.
+              ...(summarizer.capabilities.reasoning ? { summaryEffort: 'low' as const } : {}),
               ...(config.budgets.compactKeepTurns !== undefined
                 ? { keepTurns: config.budgets.compactKeepTurns }
                 : {}),
@@ -594,6 +599,9 @@ export class AgentSession {
 
     const budgetOverrides: Partial<AgentLoopOptions> = {
       ...(config.budgets.maxTurns !== undefined ? { maxTurns: config.budgets.maxTurns } : {}),
+      ...(config.budgets.contextBudgetTokens !== undefined
+        ? { contextBudgetTokens: config.budgets.contextBudgetTokens }
+        : {}),
       ...(config.budgets.contextCompactRatio !== undefined
         ? { contextCompactRatio: config.budgets.contextCompactRatio }
         : {}),
@@ -1130,6 +1138,11 @@ export class AgentSession {
         : {}),
       ...(this.#config.budgets.temperature !== undefined
         ? { temperature: this.#config.budgets.temperature }
+        : {}),
+      // The definition's own effort wins; otherwise the sub-agent inherits the
+      // session's, mapped by the provider to what the child model accepts.
+      ...(childModel.capabilities.reasoning && (def.effort ?? this.#effort)
+        ? { reasoningEffort: (def.effort ?? this.#effort)! }
         : {}),
       ...(this.#config.budgets.contextCompactRatio !== undefined
         ? { contextCompactRatio: this.#config.budgets.contextCompactRatio }

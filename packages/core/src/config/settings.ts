@@ -35,6 +35,13 @@ export interface Settings extends RouterSettings {
   model?: string;
   /** Cheaper model for summarization and other background work. */
   smallModel?: string;
+  /**
+   * Context tokens to plan against, when the model's window is larger than the
+   * span it stays reliable over. Warn / compact / stop ratios are computed
+   * against this; the model's real window still decides overflow. Defaults to
+   * the model's `qualityContextWindow`, else its full window.
+   */
+  contextBudgetTokens?: number;
   maxTurns?: number;
   maxCostUSD?: number;
   /** Stop once cumulative input+output tokens exceed this. */

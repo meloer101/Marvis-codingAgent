@@ -23,8 +23,10 @@
 - **DeepSeek 深度适配** — 已完成 P0（见 [`DEEPSEEK.md`](./DEEPSEEK.md)）：`reasoning_content`
   回传 + 400 自愈、`deepseek-flash` 模型档、effort 按 `effortLevels` 客户端映射（含 `off`
   → `thinking.disabled`）、峰谷定价、`insufficient_system_resource` / 空完成可重试、402 →
-  `quota`。剩余：P1（in-history system prompt、暖前缀压缩请求 —— 缓存命中率是成本大头）、
-  P2（工具形态对齐实验），以及 DEEPSEEK.md §四 §1 的线上探针和 cassette 重录。*(M)*
+  `quota`。P1 已完成暖前缀压缩请求 + `contextBudgetTokens`、effort 传递（子代理 / eval /
+  分类器）、空闲超时与 dsh 式重试。剩余：P1-1（in-history system prompt + 工具列表稳定性）
+  —— 前者要先跑 DEEPSEEK.md §四 §1 的探针确认 Chat Completions 以最后一条 system 为准，
+  后者会改工具列表、必须与 cassette 重录一起做；P2（工具形态对齐实验）；以及重录本身。*(M)*
 
 ### C · Tool system & execution
 - **Broaden the structured-error sink** — 已完成：`NoModelConfiguredError` 在

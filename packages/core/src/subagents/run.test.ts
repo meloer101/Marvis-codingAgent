@@ -57,6 +57,19 @@ describe('runSubagent', () => {
     expect(calls).toEqual(['a.ts']);
   });
 
+  it('passes the requested effort on to the child loop', async () => {
+    const provider = new ScriptedProvider([{ text: 'done' }]);
+    const reasoningModel = model(provider);
+    await runSubagent({
+      ...base,
+      model: { ...reasoningModel, capabilities: { ...DEFAULT_CAPABILITIES, reasoning: true } },
+      tools: [],
+      prompt: 'search',
+      reasoningEffort: 'low',
+    });
+    expect(provider.requests[0]?.reasoningEffort).toBe('low');
+  });
+
   it('falls back to a note when the sub-agent produced no text', async () => {
     const provider = new ScriptedProvider([{ text: '', stopReason: 'end_turn' }]);
     const result = await runSubagent({

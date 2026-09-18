@@ -14,7 +14,7 @@ import type { AgentHooks } from '../agent/hooks.js';
 import { SessionState } from '../agent/session.js';
 import type { ResolvedModel } from '../provider/router.js';
 import { textOf, userText } from '../provider/types.js';
-import type { SystemSegment } from '../provider/types.js';
+import type { ReasoningEffort, SystemSegment } from '../provider/types.js';
 import { ToolRegistry } from '../tools/registry.js';
 import type { AnyToolSpec } from '../tools/types.js';
 import type { SubagentResult } from './types.js';
@@ -43,6 +43,7 @@ export interface RunSubagentOptions {
   maxTurns?: number;
   maxOutputTokens?: number;
   temperature?: number;
+  reasoningEffort?: ReasoningEffort;
   contextCompactRatio?: number;
   signal?: AbortSignal;
   onEvent?: (event: AgentEvent) => void;
@@ -60,6 +61,7 @@ export async function runSubagent(opts: RunSubagentOptions): Promise<SubagentRes
     ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
     ...(opts.maxOutputTokens !== undefined ? { maxOutputTokens: opts.maxOutputTokens } : {}),
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+    ...(opts.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
     ...(opts.contextCompactRatio !== undefined
       ? { contextCompactRatio: opts.contextCompactRatio }
       : {}),

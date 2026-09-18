@@ -654,7 +654,7 @@ describe('OpenAICompatProvider timeouts', () => {
 
   it('maps a mid-stream timeout to a retryable ProviderError', async () => {
     const p = provider(hangingStreamFetch(), {});
-    (p as unknown as { cfg: { timeoutMs: number } }).cfg.timeoutMs = 30;
+    (p as unknown as { cfg: { idleTimeoutMs: number } }).cfg.idleTimeoutMs = 30;
 
     const err = await withNoUnhandledRejection(() =>
       drainStream(p.stream(ask)).catch((e: unknown) => e),
@@ -666,7 +666,7 @@ describe('OpenAICompatProvider timeouts', () => {
 
   it('maps a non-streaming body timeout to a retryable ProviderError', async () => {
     const p = provider(hangingJsonFetch(), { streaming: false });
-    (p as unknown as { cfg: { timeoutMs: number } }).cfg.timeoutMs = 30;
+    (p as unknown as { cfg: { idleTimeoutMs: number } }).cfg.idleTimeoutMs = 30;
 
     const err = await withNoUnhandledRejection(() =>
       drainStream(p.stream(ask)).catch((e: unknown) => e),
@@ -676,10 +676,37 @@ describe('OpenAICompatProvider timeouts', () => {
     expect((err as ProviderError).retryable).toBe(true);
   });
 
+  it('keeps a slow stream alive while keep-alive comments arrive', async () => {
+    // A comment line carries no data, so only the idle deadline's refresh
+    // distinguishes "the model is thinking" from "the connection is dead".
+    const keepAliveThenAnswer: typeof fetch = (async () => {
+      const enc = new TextEncoder();
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          for (let i = 0; i < 4; i++) {
+            controller.enqueue(enc.encode(': keep-alive\n\n'));
+            await new Promise((r) => setTimeout(r, 20));
+          }
+          controller.enqueue(enc.encode(`data: ${JSON.stringify(delta({ content: 'hi' }, 'stop'))}\n\n`));
+          controller.enqueue(enc.encode('data: [DONE]\n\n'));
+          controller.close();
+        },
+      });
+      return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }) as unknown as typeof fetch;
+
+    const p = provider(keepAliveThenAnswer, {});
+    // Shorter than the whole stream (4 × 20ms), longer than any one gap.
+    (p as unknown as { cfg: { idleTimeoutMs: number } }).cfg.idleTimeoutMs = 50;
+
+    const res = await drainStream(p.stream(ask));
+    expect(res.content).toEqual([{ type: 'text', text: 'hi' }]);
+  });
+
   it('lets an external abort win over the deadline', async () => {
     const controller = new AbortController();
     const p = provider(hangingStreamFetch(), {});
-    (p as unknown as { cfg: { timeoutMs: number } }).cfg.timeoutMs = 10_000;
+    (p as unknown as { cfg: { idleTimeoutMs: number } }).cfg.idleTimeoutMs = 10_000;
     setTimeout(() => controller.abort(), 15);
 
     const err = (await drainStream(p.stream({ ...ask, signal: controller.signal })).catch(

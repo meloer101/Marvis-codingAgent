@@ -96,6 +96,14 @@ export interface ModelCapabilities {
    */
   reasoningReplay?: 'none' | 'text';
   contextWindow: number;
+  /**
+   * How much of `contextWindow` the model is actually good over, when that is
+   * less than the window it accepts. DeepSeek V4 retrieves reliably to ~256K
+   * (MRCR 8-needle ≥0.82) and degrades toward 1M (0.59), so warn/compact/stop
+   * ratios are computed against this rather than the hard limit; the hard limit
+   * still governs overflow. Settings can override it with `contextBudgetTokens`.
+   */
+  qualityContextWindow?: number;
   maxOutputTokens: number;
   /** Endpoint rejects `temperature` (some reasoning models do). */
   fixedTemperature?: boolean;
@@ -158,6 +166,7 @@ const RULES: CapabilityRule[] = [
       thinkingParam: true,
       reasoningReplay: 'text',
       contextWindow: 1_000_000,
+      qualityContextWindow: 256_000,
       maxOutputTokens: 384_000,
       promptCache: 'implicit',
       jsonMode: true,
@@ -179,6 +188,7 @@ const RULES: CapabilityRule[] = [
       thinkingParam: true,
       reasoningReplay: 'text',
       contextWindow: 1_000_000,
+      qualityContextWindow: 256_000,
       maxOutputTokens: 384_000,
       promptCache: 'implicit',
       pricing: {
@@ -317,6 +327,7 @@ const PROVIDER_DEFAULTS: Record<string, Partial<ModelCapabilities>> = {
     thinkingParam: true,
     reasoningReplay: 'text',
     contextWindow: 1_000_000,
+    qualityContextWindow: 256_000,
     maxOutputTokens: 384_000,
   },
   moonshot: { promptCache: 'implicit' },

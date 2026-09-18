@@ -49,6 +49,7 @@ import type {
   AgentRunResult,
   ModelCapabilities,
   PermissionMode,
+  ReasoningEffort,
   Provider,
   ResolvedModel,
   Settings,
@@ -89,6 +90,8 @@ export interface HarnessOptions {
   promptTools?: boolean;
 
   maxTurns?: number;
+  /** Reasoning effort; omitted = the model's declared default. */
+  reasoningEffort?: ReasoningEffort;
   allow?: string[];
   deny?: string[];
 }
@@ -208,6 +211,7 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
               ),
               cwd: opts.workDir,
               prompt: subPrompt,
+              ...(def.effort && capabilities.reasoning ? { reasoningEffort: def.effort } : {}),
               ...(runCtx.signal ? { signal: runCtx.signal } : {}),
             });
           },
@@ -236,6 +240,14 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
     hooks,
     trace,
     maxTurns: opts.maxTurns ?? DEFAULT_MAX_TURNS,
+    // Effort as the task declares it, else the model's own default — so the
+    // baseline reflects a configuration someone actually runs.
+    ...(capabilities.reasoning
+      ? {
+          reasoningEffort:
+            opts.reasoningEffort ?? capabilities.defaultEffort ?? ('high' as const),
+        }
+      : {}),
     ...(typeof opts.compaction === 'number' ? { contextCompactRatio: opts.compaction } : {}),
     ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}),
   });

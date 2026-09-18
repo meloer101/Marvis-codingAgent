@@ -13,9 +13,16 @@ export interface SSEMessage {
   id: string | undefined;
 }
 
+/**
+ * `onActivity` fires for every byte that arrives, including keep-alive comment
+ * lines (`: keep-alive`, which DeepSeek sends while a request waits behind load)
+ * and frames that carry no data. An idle deadline upstream refreshes on it, so a
+ * slow-but-alive stream is not mistaken for a dead one.
+ */
 export async function* parseSSE(
   stream: ReadableStream<Uint8Array>,
   signal?: AbortSignal,
+  onActivity?: () => void,
 ): AsyncGenerator<SSEMessage> {
   const decoder = new TextDecoder();
   const reader = stream.getReader();
@@ -28,6 +35,7 @@ export async function* parseSSE(
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      onActivity?.();
       buffer += decoder.decode(value, { stream: true });
 
       // Normalize line endings so a single split rule works everywhere.

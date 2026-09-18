@@ -3,6 +3,7 @@
 #
 #   evals/harbor/run-subset.sh [extra harbor run args...]
 #   HC_BENCH_LIST=evals/harbor/heldout.txt evals/harbor/run-subset.sh   # held-out set
+#   HC_BENCH_WAIT_OFFPEAK=1 evals/harbor/run-subset.sh                  # wait for the cheap window
 #
 # Afterwards: python3 evals/harbor/summarize.py   (infra errors vs agent failures)
 #
@@ -41,6 +42,33 @@ while IFS= read -r t; do
   case "$t" in */*) task_args+=(-i "$t") ;; *) task_args+=(-i "terminal-bench/$t") ;; esac
   n_tasks=$((n_tasks + 1))
 done < "$LIST"
+
+# DeepSeek bills peak (Mon-Fri 01:00-04:00 and 06:00-10:00 UTC) at roughly twice
+# the off-peak rate, and a full sweep is long enough for that to matter.
+peak_seconds_left() {
+  local day hour
+  day=$(date -u +%u)
+  hour=$(date -u +%H)
+  # 10#: keep leading-zero hours out of octal.
+  if [[ $day -ge 6 ]]; then echo 0; return; fi
+  if [[ $((10#$hour)) -ge 1 && $((10#$hour)) -lt 4 ]]; then
+    echo $(( (4 - 10#$hour) * 3600 - 10#$(date -u +%M) * 60 ))
+  elif [[ $((10#$hour)) -ge 6 && $((10#$hour)) -lt 10 ]]; then
+    echo $(( (10 - 10#$hour) * 3600 - 10#$(date -u +%M) * 60 ))
+  else
+    echo 0
+  fi
+}
+
+wait_s=$(peak_seconds_left)
+if [[ $wait_s -gt 0 ]]; then
+  if [[ "${HC_BENCH_WAIT_OFFPEAK:-}" == "1" ]]; then
+    echo "peak pricing for another $((wait_s / 60)) min — waiting for the off-peak window"
+    sleep "$wait_s"
+  else
+    echo "note: peak pricing for another $((wait_s / 60)) min (~2x). HC_BENCH_WAIT_OFFPEAK=1 waits it out." >&2
+  fi
+fi
 
 echo "hc @ terminal-bench-2  |  list=$(basename "$LIST")  model=$MODEL  tasks=$n_tasks  concurrency=$CONCURRENCY"
 

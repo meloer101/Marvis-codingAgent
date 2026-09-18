@@ -9,6 +9,8 @@
 
 export type AgentSource = 'project' | 'user' | 'builtin';
 
+import type { ReasoningEffort } from '../provider/types.js';
+
 export interface AgentDefinition {
   /** `^[a-z0-9]+(-[a-z0-9]+)*$`, ≤64 chars, equal to the filename stem. */
   name: string;
@@ -24,6 +26,11 @@ export interface AgentDefinition {
   tools?: string[];
   /** `provider/model` override; omitted = the parent's model. */
   model?: string;
+  /**
+   * Reasoning effort for this sub-agent; omitted = the parent's. Search-shaped
+   * agents rarely need deep reasoning, and a sub-agent's turns are its own.
+   */
+  effort?: ReasoningEffort;
 }
 
 export interface SubagentResult {

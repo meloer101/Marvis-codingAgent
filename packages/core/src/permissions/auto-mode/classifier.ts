@@ -145,6 +145,9 @@ export class AutoModeClassifier {
       messages,
       maxOutputTokens,
       temperature: 0,
+      // A classification is a short judgement against a fixed rubric: long
+      // reasoning buys nothing and doubles the latency of every gated call.
+      ...(this.model.capabilities.reasoning ? { reasoningEffort: 'low' as const } : {}),
       ...(signal ? { signal } : {}),
     });
     const text = res.content

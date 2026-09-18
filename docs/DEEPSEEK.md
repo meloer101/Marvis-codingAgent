@@ -79,31 +79,19 @@ P0-1/P0-2/P0-3 已实现并有单测覆盖，本节其余内容已删除。**没
 `requestCompletion` / `toOpenAIMessages` 两处。
 
 
-### P1 · 成本与缓存（收益最大的一档）
+### P1 · 成本与缓存 — P1-2 / P1-3 / P1-4 已落地（2026-09-18），P1-1 待实测
 
-**P1-1 system prompt 的 in-history 更新**（`session-runner.ts` 工具与 system 组装；`loop.ts`；`toOpenAIMessages`）
-- 现状：plan→approved、auto_mode overlay、skills/memory 变化都会改写头部 system 消息，整段历史缓存失效。
-- 新 capability `systemPromptUpdate: 'rewrite' | 'in-history'`，`deepseek-flash` 设 `'in-history'`。
-- 实现：loop 记住本会话首次发出的 system 文本；后续有效 prompt 变化时，不改头部，而是在历史末尾（新 user 消息之前）追加 `{role:'system', content: <完整新 prompt>}`。`Message` 需允许 `role: 'system'` 的历史节点（或用带标记的 SystemSegment 快照）。压缩把它当普通历史；若被摘要覆盖，则一次性回写头部（接受一次 miss）。
-- **前置实测**：dsh 只对 Messages 协议做了 e2e；必须先用探针确认 Chat Completions 也"以最后一条 system 为准"（验证 §1 第 3 项）。不成立则回退为"头部保持不变，模式指令放进 ephemeral user note"（现有 `withEphemeralNotes` 已在尾部）。
-- 工具列表稳定性：`exit_plan_mode` 只在 plan 模式注册。改为会话内始终注册、非 plan 模式由 permission engine 拒绝并给出明确工具错误；`task`/`skill`/`memory`/MCP 工具在会话开始一次性注册。用 `pnpm eval --ablation` 看缓存命中率变化后决定是否保留。
+**P1-1 system prompt 的 in-history 更新 —— 未做，两项都卡在前置条件上**
+- 现状未变：plan→approved、auto_mode overlay、skills/memory 变化仍会改写头部 system 消息，整段历史缓存失效。
+- 新 capability `systemPromptUpdate: 'rewrite' | 'in-history'`，`deepseek-flash` 设 `'in-history'`：loop 记住本会话首次发出的 system 文本；后续变化时不改头部，而是在历史末尾（新 user 消息之前）追加一条完整的 `system` 消息。压缩把它当普通历史；若被摘要覆盖，则一次性回写头部（接受一次 miss）。
+- **卡点**：必须先用探针确认 Chat Completions 也"以最后一条 system 为准"（验证 §四 §1 第 3 项）。不成立则回退为"头部保持不变，模式指令放进 ephemeral user note"（`withEphemeralNotes` 已在尾部）。
+- 工具列表稳定性（`exit_plan_mode` 会话内始终注册、非 plan 模式由 permission engine 拒绝）**同样未做**：工具列表在 cassette 的请求指纹里，改了等于所有回放失配，必须和重录一起做。做完用 `pnpm eval --ablation` 看缓存命中率再决定是否保留。
 
-**P1-2 压缩器复用暖前缀**（`context/compactor.ts`）
-- 摘要请求改为：同一组 `system` 段 + 同一份 `tools` + `[head..middle]` 原样消息 + 末尾一条 user 压缩指令（沿用现有中文 digest prompt 与 `ensureInvariants`）；`toolChoice: 'none'`；`reasoningEffort: 'low'`（可配）；去掉无效的 `temperature: 0`。
-- 效果：除尾部指令外全部命中缓存，输入侧成本约降 50 倍，且不再需要 `flattenRequestText` 拼纯文本。
-- 依赖 P0-1（重放的 assistant 消息带 reasoning_content 才合法）。
-- 新增 settings `contextBudgetTokens`（默认 DeepSeek 256K，可调到 768K）：warn/compact/stop 比例按"质量窗口"算而不是按 1M；`contextWindow` 仍是模型硬上限用于溢出判断。
-- 工具结果修剪：评估从"保护最近 40K token"改为 dsh 式"单条 >8K 字符则头 4K + 尾 1K"，用 ablation 度量后决定。
+**P1-2 压缩器复用暖前缀** —— 已完成：`TurnContext` 现在带上本回合请求的 `system` / `tools`，压缩请求 = 同一组 system 段 + 同一份 tools + `[head..middle]` 原样消息 + 末尾一条压缩指令，`toolChoice: 'none'`、`reasoningEffort: 'low'`、去掉无效的 `temperature: 0`。仅当 summarizer 就是会话模型时启用（`warmPrefix`），否则走原来的扁平 prompt。`contextBudgetTokens` 已加：DeepSeek 声明 `qualityContextWindow: 256K`，warn/compact/stop 按它算，硬窗口仍是 1M。**剩余**：工具结果修剪改成 dsh 式"单条 >8K 字符 → 头 4K + 尾 1K"，按原计划要先 ablation 度量。
 
-**P1-3 sub-agent / summarizer / eval 的 effort 传递**
-- `RunSubagentOptions`（`subagents/run.ts`）加 `reasoningEffort`，session-runner 转发；agent 定义可声明 `effort`（explore 类默认 low，父会话可用 pro、子代理用 flash）。
-- `evals/src/harness.ts` 透传 effort，让 baseline 反映声明的配置。
-- `compactor` 与 `auto-mode/classifier.ts` 明确使用 `off` 或 `low`（分类器不需要长思考）。
+**P1-3 effort 传递** —— 已完成：`RunSubagentOptions.reasoningEffort`，agent 定义可写 `effort:`（`explore` 已设 low），session-runner 按"定义优先、否则继承会话"转发；eval harness / task.json 透传 effort；压缩器用 low，auto-mode 分类器用 low。
 
-**P1-4 超时与保活**（`openai-compat.ts` 请求/重试；`sse.ts`）
-- 把 600s 总超时改为"空闲超时 300s + 首字节前最多 600s"：SSE 注释（`: keep-alive`）和任何帧都重置空闲计时；`parseSSE` 需向上报告注释活动。
-- 429 重试次数与退避对齐 dsh（5 次，500ms→10s，10% 抖动），保留 Retry-After 优先。
-- Harbor / eval 脚本：启动时若处于峰时打印提示；`run-subset.sh` 加 `HC_BENCH_WAIT_OFFPEAK=1`。
+**P1-4 超时与保活** —— 已完成：600s 变成"首字节前 600s + 空闲 300s"，`parseSSE` 把包括 `: keep-alive` 注释在内的任何字节上报给空闲计时器；重试对齐 dsh（5 次，500ms→10s，10% 抖动，Retry-After 优先）；`run-subset.sh` 峰时提示 + `HC_BENCH_WAIT_OFFPEAK=1` 等到谷时。
 
 ### P2 · 对齐实验（全部用 eval 度量，赢了才合入）
 

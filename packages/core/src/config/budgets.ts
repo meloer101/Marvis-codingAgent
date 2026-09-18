@@ -24,6 +24,7 @@ export interface ResolvedBudgets {
   maxOutputTokens?: number;
   temperature?: number;
   contextCompactRatio?: number;
+  contextBudgetTokens?: number;
   compactKeepTurns?: number;
   subagentMaxTurns?: number;
 }
@@ -37,6 +38,7 @@ export function resolveBudgets(flags: BudgetFlags, settings: Settings): Resolved
     temperature: settings.temperature,
     // `--no-compact` wins by pushing the trigger past any reachable ratio.
     contextCompactRatio: flags.noCompact ? Number.POSITIVE_INFINITY : settings.contextCompactRatio,
+    contextBudgetTokens: settings.contextBudgetTokens,
     compactKeepTurns: settings.compactKeepTurns,
     subagentMaxTurns: settings.subagentMaxTurns,
   };

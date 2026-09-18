@@ -136,6 +136,7 @@ Marvis 面向真实代码库设计，其安全边界如下：
 | reasoning 以 `reasoning_content`（DeepSeek）或 `reasoning`（OpenRouter）出现 | 都映射为 `thinking` 块；回传与否按模型声明——DeepSeek V4 带 `tools` 时不回传就 400，其余端点丢弃 |
 | reasoning effort 的档位各家不同（DeepSeek 只收 low/high/max，多收即拒） | 统一的档位在客户端映射到模型声明的档位；`off` 走 `thinking: disabled` |
 | 缓存 token 用三种不同字段名上报 | 全部归一到 `usage.cachedInputTokens` |
+| 高负载时只发 `: keep-alive` 注释，模型思考时长时间无输出 | 超时按"首字节前 600s + 空闲 300s"算，任何字节（含注释）都重置空闲计时 |
 | 完全不报用量（Ollama、多数 llama.cpp） | 估算并打标，CJK 与 ASCII 分别加权 |
 | 没有 `tools` 参数 | [prompt-encoded tool calling](packages/core/src/provider/prompt-tools.ts)——schema 进系统提示，调用从流里解析回来 |
 | 弱模型把标量字符串化（`"true"`）或该给对象处给了字符串 | 校验失败时按 schema [强制转换](packages/core/src/tools/coerce.ts)，用掉这一轮前再校验一次 |

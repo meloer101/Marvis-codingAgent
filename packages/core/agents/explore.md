@@ -2,6 +2,7 @@
 name: explore
 description: Read-only codebase search. Dispatch this for broad "where is X", "how does Y work", "what calls Z" questions when you only need the answer, not to make changes — it keeps the search output out of your context.
 tools: read glob grep
+effort: low
 ---
 
 Find what the caller asked about and report back concisely.

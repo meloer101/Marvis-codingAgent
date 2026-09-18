@@ -171,6 +171,57 @@ describe('createCompactor', () => {
     expect(provider.requests[0]?.messages[0]?.content[0]).toMatchObject({ type: 'text' });
   });
 
+  it('asks for the digest on the turn prefix when warmPrefix is on', async () => {
+    const provider = new ScriptedProvider([{ text: 'digest' }]);
+    const onCompact = createCompactor({
+      provider,
+      model: 'm',
+      conventions: 'c',
+      minCompactTokens: 0,
+      warmPrefix: true,
+      summaryEffort: 'low',
+    });
+    const system = [{ id: 'identity', text: 'You are a coding agent.' }];
+    const tools = [{ name: 'read', description: 'Read a file', inputSchema: { type: 'object' } }];
+
+    await onCompact(history(10), { usedTokens: 1, windowTokens: 1, ratio: 1 }, {
+      ...ctx,
+      system,
+      tools,
+    });
+
+    const req = provider.requests[0]!;
+    // Same prefix as the turn: same system, same tools, history verbatim.
+    expect(req.system).toEqual(system);
+    expect(req.tools).toEqual(tools);
+    expect(req.toolChoice).toBe('none');
+    expect(req.reasoningEffort).toBe('low');
+    expect(req.temperature).toBeUndefined();
+    // head + (10 - 3 kept) turns * 2 messages + the trailing instruction.
+    expect(req.messages).toHaveLength(1 + 14 + 1);
+    expect(req.messages[0]).toEqual(history(10)[0]);
+    const instruction = (req.messages.at(-1)?.content[0] as { text: string }).text;
+    expect(instruction).toContain('以上全部对话历史');
+  });
+
+  it('falls back to the flattened prompt when the turn passed no prefix', async () => {
+    const provider = new ScriptedProvider([{ text: 'digest' }]);
+    const onCompact = createCompactor({
+      provider,
+      model: 'm',
+      conventions: 'c',
+      minCompactTokens: 0,
+      warmPrefix: true,
+    });
+
+    await onCompact(history(10), { usedTokens: 1, windowTokens: 1, ratio: 1 }, ctx);
+
+    const req = provider.requests[0]!;
+    expect(req.messages).toHaveLength(1);
+    expect(req.tools).toBeUndefined();
+    expect((req.messages[0]?.content[0] as { text: string }).text).toContain('contents of f1.ts');
+  });
+
   it('feeds the prior digest back in on a second compaction', async () => {
     const provider = new ScriptedProvider([
       { text: 'digest v1' },
