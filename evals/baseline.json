@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-19T08:58:37.733Z",
+  "generatedAt": "2026-09-19T11:53:50.444Z",
   "model": "deepseek/deepseek-flash",
   "tasks": {
     "add-slug-helper": {
@@ -66,9 +66,9 @@
     "plan-then-implement": {
       "passRate": 1,
       "passHatK": true,
-      "avgTurns": 9,
-      "avgTokens": 39977,
-      "avgCostUSD": 0.004809,
+      "avgTurns": 8,
+      "avgTokens": 34632,
+      "avgCostUSD": 0.003863,
       "graders": {
         "tests-untouched": 1,
         "diff-size": 1,

@@ -128,15 +128,25 @@ const DEFAULT_MAX_TURNS = 30;
 
 /**
  * Normalization applied to a request before it is fingerprinted for the
- * cassette, on top of the workspace-path redaction. Two things are per-run and
- * would otherwise change the key on every replay: the `duration_ms` timings in
- * `node --test` / `npm test` output, and the timestamped filename
- * `exit_plan_mode` reports back after writing a plan.
+ * cassette, on top of the workspace-path redaction.
+ *
+ * Anything a tool leaks into history that differs run to run has to be
+ * flattened here, or the request never matches its recording. So far: the
+ * `duration_ms` timings in `node --test` output, the timestamped filename
+ * `exit_plan_mode` reports after writing a plan, and the mtimes in a directory
+ * listing — `ls -l` on a fixture copied minutes ago prints a different time
+ * every run.
  */
 export function evalKeyScrub(s: string): string {
-  return s
-    .replace(/duration_ms['":\s]*[\d.]+/g, 'duration_ms 0')
-    .replace(/\.agent\/plans\/[^\s"'`]+\.md/g, '.agent/plans/PLAN.md');
+  return (
+    s
+      .replace(/duration_ms['":\s]*[\d.]+/g, 'duration_ms 0')
+      .replace(/\.agent\/plans\/[^\s"'`]+\.md/g, '.agent/plans/PLAN.md')
+      // `ls -l` dates: "Sep 19 06:52" / "Sep  9 2025".
+      .replace(/\b[A-Z][a-z]{2}\s{1,2}\d{1,2}\s+(?:\d{2}:\d{2}|\d{4})\b/g, 'Jan  1 00:00')
+      // ISO timestamps from `date`, log lines, and similar.
+      .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?/g, '1970-01-01T00:00:00Z')
+  );
 }
 
 /**
@@ -195,6 +205,12 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
     allow: opts.allow ?? [],
     ask: [],
     deny: opts.deny ?? [],
+    // A default `hc` session has auto mode available, and therefore lets
+    // read-only shell through in plan mode. Leaving this off measured a
+    // configuration nobody runs: the agent burned turns rediscovering that
+    // `ls` was refused. Non-read-only bash still ends in a deny here, since
+    // no classifier is attached to the eval harness.
+    useAutoModeDuringPlan: true,
   });
 
   const compactionOff = opts.compaction === false;
@@ -233,6 +249,7 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
                     allow: opts.allow ?? [],
                     ask: [],
                     deny: opts.deny ?? [],
+                    useAutoModeDuringPlan: true,
                   }),
                   nonInteractiveAskHandler,
                 ),
