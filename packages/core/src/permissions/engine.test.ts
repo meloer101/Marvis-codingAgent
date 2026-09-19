@@ -76,7 +76,7 @@ describe('PermissionEngine', () => {
         .decision,
     ).toBe('deny');
     expect(
-      (await e.evaluate({ toolName: 'bash', input: { command: 'echo hi' }, readOnly: false })).decision,
+      (await e.evaluate({ toolName: 'bash', input: { command: 'npm run build' }, readOnly: false })).decision,
     ).toBe('deny');
     expect(
       (await e.evaluate({ toolName: 'read', input: { path: 'src/a.ts' }, readOnly: true })).decision,
@@ -86,6 +86,47 @@ describe('PermissionEngine', () => {
     );
   });
 
+  it('allows read-only shell in every mode, and lets it ride along with allowed commands', async () => {
+    for (const mode of ['ask', 'acceptEdits', 'plan', 'readOnly'] as const) {
+      const e = engine({ mode, allow: ['Bash(npm:*)'] });
+      const decide = async (command: string) =>
+        (await e.evaluate({ toolName: 'bash', input: { command }, readOnly: false })).decision;
+
+      // Exploration, with no rule for it at all.
+      expect(await decide('ls -la && cat package.json'), mode).toBe('allow');
+      expect(await decide('git diff | head -50'), mode).toBe('allow');
+      // A read-only segment rides along with one an allow rule covers: this is
+      // the shape (`… | tail`) that used to be refused despite `Bash(npm:*)`.
+      expect(await decide('npm test 2>&1 | tail -n 20'), mode).toBe('allow');
+      // A write redirect takes the whole command out of read-only.
+      expect(await decide('ls > listing.txt'), mode).not.toBe('allow');
+    }
+  });
+
+  it('keeps a sensitive file out of the read-only fast path, in every mode', async () => {
+    for (const mode of ['ask', 'acceptEdits', 'auto', 'plan', 'readOnly'] as const) {
+      const e = engine({ mode, allow: ['Bash(cat:*)'] });
+      const verdict = await e.evaluate({
+        toolName: 'bash',
+        input: { command: 'cat .env' },
+        readOnly: false,
+      });
+      // Reading a secret writes nothing, which is exactly why "read-only" is
+      // not the right question — and a command-prefix rule cannot override it.
+      expect(verdict.decision, mode).toBe('deny');
+      if (verdict.decision !== 'deny') throw new Error('unreachable');
+      expect(verdict.reason).toContain('sensitive file');
+    }
+  });
+
+  it('lets a rule that names the sensitive file itself through', async () => {
+    const e = engine({ mode: 'ask', allow: ['Bash(cat .env)'] });
+    expect(
+      (await e.evaluate({ toolName: 'bash', input: { command: 'cat .env' }, readOnly: false }))
+        .decision,
+    ).toBe('allow');
+  });
+
   it('acceptEdits allows write but asks for bash', async () => {
     const e = engine({ mode: 'acceptEdits' });
     expect(
@@ -93,7 +134,7 @@ describe('PermissionEngine', () => {
         .decision,
     ).toBe('allow');
     expect(
-      (await e.evaluate({ toolName: 'bash', input: { command: 'echo hi' }, readOnly: false })).decision,
+      (await e.evaluate({ toolName: 'bash', input: { command: 'npm run build' }, readOnly: false })).decision,
     ).toBe('ask');
   });
 
@@ -203,7 +244,7 @@ describe('PermissionEngine', () => {
       e.addAllowRule(toolName);
       return { decision: 'allow' };
     });
-    const call = { type: 'tool_use' as const, id: '1', name: 'bash', input: { command: 'ls' } };
+    const call = { type: 'tool_use' as const, id: '1', name: 'bash', input: { command: 'npm run build' } };
     await hooks.onBeforeToolCall!(call, { turn: 1, cwd: root, messages: [] });
     await hooks.onBeforeToolCall!(call, { turn: 2, cwd: root, messages: [] });
     expect(asks).toBe(1);
@@ -622,7 +663,7 @@ describe('createPermissionHooks', () => {
       });
       const hooks = createPermissionHooks(engine, nonInteractiveAskHandler);
       const decision = await hooks.onBeforeToolCall?.(
-        { type: 'tool_use', id: '1', name: 'bash', input: { command: 'echo hi' } },
+        { type: 'tool_use', id: '1', name: 'bash', input: { command: 'npm run build' } },
         { turn: 1, cwd: root, messages: [] },
       );
       expect(decision).toMatchObject({ decision: 'deny' });

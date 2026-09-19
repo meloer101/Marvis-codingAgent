@@ -273,7 +273,7 @@ describe('AgentLoop', () => {
     try {
       let ran = false;
       const provider = new ScriptedProvider([
-        { toolCalls: [{ name: 'bash', input: { command: 'echo hi' } }] },
+        { toolCalls: [{ name: 'bash', input: { command: 'npm run build' } }] },
         { text: 'done' },
       ]);
       const tools = new ToolRegistry([

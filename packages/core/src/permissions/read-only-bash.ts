@@ -1,7 +1,12 @@
 /**
- * Commands that make no workspace change — auto (and plan-with-auto) can
- * allow them without a classifier round-trip. Anything else, including the
- * same binary with a write redirect, is not read-only.
+ * Commands that make no workspace change.
+ *
+ * These are allowed in every permission mode (a write redirect, or a flag that
+ * turns a reader into a writer or an exec, takes a command out of the set), and
+ * a compound command is allowed when every segment is either read-only or
+ * matched by an allow rule — which is what makes `npm test 2>&1 | tail` work
+ * off a `Bash(npm:*)` rule. "Read-only" is about the filesystem, not about
+ * secrecy: the engine checks the arguments for sensitive paths separately.
  */
 
 export const READ_ONLY_BASH_COMMANDS = new Set([
@@ -55,6 +60,11 @@ export function isReadOnlyBashCommand(
   if (opts.hasWriteRedirect) return false;
   if (segments.length === 0) return false;
   return segments.every(isReadOnlySegment);
+}
+
+/** One segment of a pipeline / `&&` chain, on its own. */
+export function isReadOnlyBashSegment(argv: string[]): boolean {
+  return isReadOnlySegment(argv);
 }
 
 function isReadOnlySegment(argv: string[]): boolean {

@@ -92,8 +92,14 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
   await mkdir(traceDir, { recursive: true });
 
   for (let i = 0; i < n; i++) {
-    const workDir = await realpath(await mkdtemp(join(tmpdir(), `hc-eval-${task.spec.id}-`)));
+    // The workspace gets a private parent directory. `ls -la` prints the
+    // parent's link count and size for `..`, and a shared temp root changes
+    // those as unrelated runs come and go — which would put a different number
+    // into the model's history on every replay and never match the cassette.
+    const container = await realpath(await mkdtemp(join(tmpdir(), `hc-eval-${task.spec.id}-`)));
+    const workDir = join(container, 'work');
     try {
+      await mkdir(workDir, { recursive: true });
       await cp(task.fixtureDir, workDir, { recursive: true });
 
       const traceId = `${arm}${task.spec.id}-${i + 1}`;
@@ -149,7 +155,7 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
         ...(passed ? {} : { detail: assertion.output.slice(0, 2000) || `stopReason ${result.stopReason}` }),
       });
     } finally {
-      if (!cfg.keep) await rm(workDir, { recursive: true, force: true });
+      if (!cfg.keep) await rm(container, { recursive: true, force: true });
     }
   }
 

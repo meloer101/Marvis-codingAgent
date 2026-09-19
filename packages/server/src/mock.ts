@@ -23,9 +23,17 @@ function mockScript(): ScriptedTurn[] {
     // Send #1 (ask mode): think, talk, then three tools that each prompt.
     {
       thinking: 'Let me get my bearings in this workspace before I touch anything.',
-      text: "I'll start by taking a quick look around.",
+      // `tee` keeps this out of the read-only set — read-only commands are
+      // allowed in every mode now, and this reel exists to show the approval
+      // flow.
+      text: "I'll check that I can run commands here.",
       chunkSize: 12,
-      toolCalls: [{ name: 'bash', input: { command: 'echo "hello from the hc web mock"' } }],
+      toolCalls: [
+        {
+          name: 'bash',
+          input: { command: 'echo "hello from the hc web mock" | tee /dev/null' },
+        },
+      ],
     },
     {
       text: 'Good. Now I need a scratch file to work in.',

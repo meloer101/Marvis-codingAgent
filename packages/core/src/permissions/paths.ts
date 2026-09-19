@@ -79,6 +79,28 @@ export function isSensitivePath(relPosix: string): boolean {
   return false;
 }
 
+/**
+ * Arguments of a shell command that name a sensitive file (`.env`, `id_rsa`,
+ * `*.pem`, …). Used to keep `cat .env` out of the read-only fast path: nothing
+ * about reading a secret is harmless just because it writes nothing.
+ *
+ * Deliberately generous about what counts as a path — an unrecognized argument
+ * is cheap to check and the cost of missing one is a leaked credential. Values
+ * attached to flags (`--env-file=.env`) are checked too.
+ */
+export function sensitiveBashArgs(segments: readonly (readonly string[])[]): string[] {
+  const hits: string[] = [];
+  for (const argv of segments) {
+    for (const raw of argv.slice(1)) {
+      const arg = raw.startsWith('-') && raw.includes('=') ? raw.slice(raw.indexOf('=') + 1) : raw;
+      if (arg === '' || arg.startsWith('-')) continue;
+      const cleaned = arg.replace(/^['"]|['"]$/g, '');
+      if (isSensitivePath(cleaned)) hits.push(cleaned);
+    }
+  }
+  return hits;
+}
+
 const PROTECTED_DIR_NAMES = new Set([
   '.git',
   '.vscode',

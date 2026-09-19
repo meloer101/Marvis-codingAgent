@@ -146,6 +146,12 @@
   主要针对 Harbor 上的长时间构建和服务类任务。会改变工具列表 → 需要重录 cassette。*(M)*
 
 ### D · Permissions, safety & sandboxing
+- **只读 shell 的放行面** — 已完成（2026-09-19）：只读命令在所有模式放行，复合命令里只读段
+  可以和已放行的命令一起通过，`bash` 参数开始走敏感路径检查（`cat .env` 在任何模式都拒，
+  含此前 auto/plan 的漏洞）。剩余：`READ_ONLY_BASH_COMMANDS` 现在是默认模式的承重墙，值得
+  按需谨慎扩充——实测里还差 `sort`（有 `-o`，要排除）和 `for` 循环这类 shell 结构；另外
+  `grep -r` 仍会顺带读到 `.env` 的内容，参数检查拦不住。*(S)*
+
 - **[codex] 可解释、可自测的规则** — 支持对象形式的规则
   `{ rule, justification?, examples?: { match?, notMatch? } }`：justification 出现在
   deny/ask 的原因里（包括应该改用什么做法），examples 在规则加载时校验，并提供

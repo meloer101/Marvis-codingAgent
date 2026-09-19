@@ -7,10 +7,11 @@ import {
   PathEscapeError,
   isProtectedPath,
   isSensitivePath,
+  sensitiveBashArgs,
   relativeToWorkspace,
   resolveInWorkspace,
 } from './paths.js';
-import { isReadOnlyBashCommand } from './read-only-bash.js';
+import { isReadOnlyBashSegment } from './read-only-bash.js';
 import type {
   EvaluateRequest,
   PermissionMode,
@@ -222,6 +223,27 @@ export class PermissionEngine {
       }
     }
 
+    // A command that reads a secret is not harmless just because it writes
+    // nothing, so this sits above the allow rules — same stance as the sensitive
+    // check for `read`/`edit`. Only a rule that names the file itself
+    // (`Bash(cat .env)`) can override it; a command-prefix rule cannot.
+    const sensitive = sensitiveBashArgs(segs);
+    if (sensitive.length > 0) {
+      const named = this.effectiveAllow().find(
+        (r) =>
+          r.pattern !== undefined &&
+          sensitive.some((p) => r.pattern?.includes(p)) &&
+          segs.some((seg) => ruleMatchesBash(r, seg)),
+      );
+      if (!named) {
+        return {
+          decision: 'deny',
+          reason: `Refusing to access sensitive file ${sensitive[0]}`,
+        };
+      }
+      return { decision: 'allow' };
+    }
+
     const allow = this.effectiveAllow();
     if (segs.length > 0 && segs.every((seg) => allow.some((r) => ruleMatchesBash(r, seg)))) {
       return { decision: 'allow' };
@@ -234,8 +256,14 @@ export class PermissionEngine {
       }
     }
 
-    const readOnlyBash = isReadOnlyBashCommand(segs, { hasWriteRedirect: inspected.hasWriteRedirect });
-    if (readOnlyBash && (this.mode === 'auto' || (this.mode === 'plan' && this.useAutoModeDuringPlan))) {
+    // Read-only commands are allowed in every mode, and a read-only segment may
+    // ride along with allowed ones — `npm test 2>&1 | tail` off a `Bash(npm:*)`
+    // rule, `ls -la && cat package.json` off none at all. Exploration was the
+    // single biggest source of denials in the traces, and a `| tail` cannot do
+    // anything the command before it could not.
+    const readOnly = (seg: string[]): boolean =>
+      !inspected.hasWriteRedirect && isReadOnlyBashSegment(seg);
+    if (segs.length > 0 && segs.every((seg) => readOnly(seg) || allow.some((r) => ruleMatchesBash(r, seg)))) {
       return { decision: 'allow' };
     }
 

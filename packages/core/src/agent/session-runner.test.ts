@@ -365,7 +365,7 @@ describe('AgentSession', () => {
 
   it('an injected deny-all ask handler blocks the call and the loop continues', async () => {
     const provider = new ScriptedProvider([
-      { toolCalls: [{ name: 'bash', input: { command: 'echo hi' } }] },
+      { toolCalls: [{ name: 'bash', input: { command: 'npm run build' } }] },
       { text: 'done' },
     ]);
     const { session, events } = await createSession({
