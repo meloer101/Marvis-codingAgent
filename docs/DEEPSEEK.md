@@ -80,13 +80,13 @@ P0-1/P0-2/P0-3 已实现并有单测覆盖，本节其余内容已删除。**没
 `requestCompletion` / `toOpenAIMessages` 两处。
 
 
-### P1 · 成本与缓存 — P1-2 / P1-3 / P1-4 已落地（2026-09-18），P1-1 待实测
+### P1 · 成本与缓存 — 已全部落地（P1-2/3/4 2026-09-18，P1-1 2026-09-19）
 
-**P1-1 system prompt 的 in-history 更新 —— 未做，两项都卡在前置条件上**
-- 现状未变：plan→approved、auto_mode overlay、skills/memory 变化仍会改写头部 system 消息，整段历史缓存失效。
-- 新 capability `systemPromptUpdate: 'rewrite' | 'in-history'`，`deepseek-flash` 设 `'in-history'`：loop 记住本会话首次发出的 system 文本；后续变化时不改头部，而是在历史末尾（新 user 消息之前）追加一条完整的 `system` 消息。压缩把它当普通历史；若被摘要覆盖，则一次性回写头部（接受一次 miss）。
-- ~~卡点：先确认 Chat Completions 以最后一条 system 为准~~ —— **已实测成立**（§四 §1 第 3 项，2026-09-19，连续 3 次都读后追加的那条）。可以直接按 in-history 方案做，不需要 ephemeral user note 的回退。
-- 工具列表稳定性（`exit_plan_mode` 会话内始终注册、非 plan 模式由 permission engine 拒绝）**同样未做**：工具列表在 cassette 的请求指纹里，改了等于所有回放失配，必须和重录一起做。做完用 `pnpm eval --ablation` 看缓存命中率再决定是否保留。
+**P1-1 system prompt 的 in-history 更新 —— 已完成（2026-09-19），实现与原方案有一处关键出入**
+- 新 capability `systemPromptUpdate: 'rewrite' | 'in-history'`，DeepSeek 全系设 `'in-history'`；`ModelRequest.systemUpdate` 是"要生效但不许动头部"的那段文本，provider 把它放在历史倒数第一条消息之前发出（探针 3 验证过的形状）。`AgentSession` 记住本会话首次发出的 system 段（`#sessionSystem`），之后每回合只算差异。
+- **与原方案的出入**：原方案写"追加一条完整的新 prompt"。探针 6 实测这样**更贵**——正文在上下文里被复制一份，短历史下比直接改写头部还贵 2.8 倍。改为只追加**变化的段**（`agent/system-update.ts` 的 `systemUpdateSegments`）：短历史比改写省约 2 倍，长历史省约 11 倍。消失的段（退出 plan 模式）用一句话明确作废，探针 7 验证模型两个方向都照做。
+- 工具列表稳定性：`exit_plan_mode` 改为会话内始终注册，非 plan 模式由 permission engine 拒绝并说明原因（"这不是 plan 模式，直接动手做"）。工具列表因此不再随模式变化。
+- **未做**：`hc` 的 eval 套件测不到这两项——eval harness 自己拼工具列表（本来就没有 `exit_plan_mode`），任务里也没有中途切模式的场景。收益是按 API 层探针度量的（上表 6）。要在 eval 里看见，得先有一个"plan → 批准 → 实施"形态的 fixture。
 
 **P1-2 压缩器复用暖前缀** —— 已完成：`TurnContext` 现在带上本回合请求的 `system` / `tools`，压缩请求 = 同一组 system 段 + 同一份 tools + `[head..middle]` 原样消息 + 末尾一条压缩指令，`toolChoice: 'none'`、`reasoningEffort: 'low'`、去掉无效的 `temperature: 0`。仅当 summarizer 就是会话模型时启用（`warmPrefix`），否则走原来的扁平 prompt。`contextBudgetTokens` 已加：DeepSeek 声明 `qualityContextWindow: 256K`，warn/compact/stop 按它算，硬窗口仍是 1M。**剩余**：工具结果修剪改成 dsh 式"单条 >8K 字符 → 头 4K + 尾 1K"，按原计划要先 ablation 度量。
 
@@ -154,6 +154,8 @@ P0-1/P0-2/P0-3 已实现并有单测覆盖，本节其余内容已删除。**没
 | 3 | Chat Completions 是否"以最后一条 system 为准" | **是**，连续 3 次都答出后追加的暗号 | **P1-1 的前置条件成立**，in-history system prompt 更新可以做 |
 | 4 | thinking 下 `tool_choice` 与 effort 档位 | `none` 可用；`required` 400（`Thinking mode does not support this tool_choice`）；`minimal/low/medium/high/xhigh/max` 全部 200，只有瞎编的 `ultra` 422 | 压缩请求保留 tools + `tool_choice:'none'` 是安全的（P1-2 已这么做）。effort **不是**"多发即拒"：端点照单全收，`effortLevels` 收窄到三档是我们自己的取舍（只展示有区别的档位），不是端点强制 |
 | 5 | 同一前缀连发两次的缓存命中 | 第二次 1792/1963 prompt token 命中，约 **91%** | 缓存确实覆盖 system + tools，P1 这一整档的前提成立 |
+| 6 | 模式切换那一回合：改写头部 / 追加完整 prompt / 只追加改动段，哪个便宜 | 短历史 $0.000097 / $0.000275 / **$0.000040**；长历史 $0.000515 / $0.000279 / **$0.000045** | **追加完整 prompt 在短历史上比改写头部还贵**（正文被复制一份）。只追加改动段在短历史上省约 2 倍、长历史上省约 11 倍——P1-1 按"只发 delta"实现 |
+| 7 | delta 更新模型认不认，尤其是"撤销某一段" | 追加限制 → no/no/no；撤销限制 → yes/yes/yes | 两个方向都成立。消失的段必须**用文字明确作废**（省略无法撤销已经说过的话），这点已写进 `system-update.ts` |
 
 单次采样的 reasoning token 数在各档之间没有单调关系（43–101 token 来回跳），要判断 minimal/xhigh 到底折叠到哪一档，
 需要多次重复取中位数——目前没做，也不影响 `mapEffort` 的保守映射。

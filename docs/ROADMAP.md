@@ -26,9 +26,11 @@
   `quota`。P1 已完成暖前缀压缩请求 + `contextBudgetTokens`、effort 传递（子代理 / eval /
   分类器）、空闲超时与 dsh 式重试。线上探针已跑完并固化为
   `scripts/deepseek-probe.mjs`（结论见 DEEPSEEK.md §四 §1；其中一条推翻了"不回传 reasoning
-  必 400"的调研结论）。剩余：P1-1 —— in-history system prompt 的前置条件已实测成立、可以直接
-  做，工具列表稳定性会改工具列表、必须与 cassette 重录一起做；P2（工具形态对齐实验）；以及
-  重录本身。*(M)*
+  必 400"的调研结论）。P1 已全部落地：in-history system prompt 按"只发变化的段"实现
+  （追加完整 prompt 经实测比改写头部更贵），`exit_plan_mode` 改为常驻注册、由 permission
+  engine 按模式拒绝，cassette 已在 `deepseek-flash` 上重录。剩余：P2（工具形态对齐实验，要用
+  eval 度量）；以及一个"plan → 批准 → 实施"形态的 fixture —— 现在的 eval 套件测不到模式切换，
+  P1-1 的收益只能靠 API 层探针度量。*(M)*
 
 ### C · Tool system & execution
 - **Broaden the structured-error sink** — 已完成：`NoModelConfiguredError` 在

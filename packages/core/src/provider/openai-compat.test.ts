@@ -489,6 +489,36 @@ describe('message translation', () => {
     expect(out[0]?.content).toBe('(no output)');
   });
 
+  it('delivers a system update late in the history, leaving the head alone', () => {
+    const caps = {
+      ...DEFAULT_CAPABILITIES,
+      systemPromptUpdate: 'in-history' as const,
+    };
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'first' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', content: [{ type: 'text', text: 'second' }] },
+    ];
+
+    const out = toOpenAIMessages([{ id: 's', text: 'head' }], messages, caps, {
+      systemUpdate: [{ id: 's', text: 'revised' }],
+    });
+
+    // Head untouched (that is the cached prefix), update just before the last turn.
+    expect(out.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'system', 'user']);
+    expect(out[0]?.content).toBe('head');
+    expect(out[3]?.content).toBe('revised');
+    expect(out[4]?.content).toBe('second');
+  });
+
+  it('still delivers a system update when there is no history yet', () => {
+    const caps = { ...DEFAULT_CAPABILITIES, systemPromptUpdate: 'in-history' as const };
+    const out = toOpenAIMessages([{ id: 's', text: 'head' }], [], caps, {
+      systemUpdate: [{ id: 's', text: 'revised' }],
+    });
+    expect(out.map((m) => m.content)).toEqual(['head', 'revised']);
+  });
+
   it('uses the developer role where the model requires it', () => {
     const out = toOpenAIMessages([{ id: 's', text: 'sys' }], [], {
       ...DEFAULT_CAPABILITIES,
@@ -591,6 +621,26 @@ describe('request shaping', () => {
     // ...and a model with no reasoning channel gets neither.
     await drainStream(provider(spy).stream({ ...ask, reasoningEffort: 'high' }));
     expect(bodies[3]).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('sends a system update only to models that take updates in history', async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const spy: typeof fetch = (async (_u: string, init: RequestInit) => {
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      return sseFetch(sseFrames([delta({ content: 'x' }, 'stop')]))('', {});
+    }) as unknown as typeof fetch;
+
+    const req = { ...ask, systemUpdate: [{ id: 'identity', text: 'revised prompt' }] };
+
+    await drainStream(provider(spy, { systemPromptUpdate: 'in-history' }).stream(req));
+    const withUpdate = bodies[0]?.['messages'] as Array<Record<string, unknown>>;
+    expect(withUpdate.filter((m) => m['role'] === 'system')).toHaveLength(2);
+
+    // A `rewrite` model must not see it: the caller puts new text in `system`.
+    await drainStream(provider(spy).stream(req));
+    const without = bodies[1]?.['messages'] as Array<Record<string, unknown>>;
+    expect(without.filter((m) => m['role'] === 'system')).toHaveLength(1);
+    expect(JSON.stringify(without)).not.toContain('revised prompt');
   });
 
   it('sends the authorization header', async () => {

@@ -103,6 +103,18 @@ export interface ModelCapabilities {
    * turn's prefix byte-identical to the one already in the prompt cache.
    */
   reasoningReplay?: 'none' | 'text';
+  /**
+   * How a mid-session system-prompt change is delivered.
+   *
+   * `rewrite` (default) edits the system message at the head of the request —
+   * correct everywhere, but it changes the first token of the prompt and so
+   * throws away the whole cached prefix. `in-history` keeps the head exactly as
+   * first sent and appends the new text as a second `system` message late in
+   * the conversation, which endpoints that read the *last* system message
+   * honour while the prefix stays cached. Verified for DeepSeek Chat
+   * Completions by `scripts/deepseek-probe.mjs` probe 3.
+   */
+  systemPromptUpdate?: 'rewrite' | 'in-history';
   contextWindow: number;
   /**
    * How much of `contextWindow` the model is actually good over, when that is
@@ -174,6 +186,7 @@ const RULES: CapabilityRule[] = [
       defaultEffort: 'high',
       thinkingParam: true,
       reasoningReplay: 'text',
+      systemPromptUpdate: 'in-history',
       contextWindow: 1_000_000,
       qualityContextWindow: 256_000,
       maxOutputTokens: 384_000,
@@ -196,6 +209,7 @@ const RULES: CapabilityRule[] = [
       defaultEffort: 'high',
       thinkingParam: true,
       reasoningReplay: 'text',
+      systemPromptUpdate: 'in-history',
       contextWindow: 1_000_000,
       qualityContextWindow: 256_000,
       maxOutputTokens: 384_000,
@@ -335,6 +349,7 @@ const PROVIDER_DEFAULTS: Record<string, Partial<ModelCapabilities>> = {
     defaultEffort: 'high',
     thinkingParam: true,
     reasoningReplay: 'text',
+    systemPromptUpdate: 'in-history',
     contextWindow: 1_000_000,
     qualityContextWindow: 256_000,
     maxOutputTokens: 384_000,

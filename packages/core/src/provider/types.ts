@@ -127,6 +127,15 @@ export interface ModelRequest {
   /** Bare model id as the endpoint expects it (routing already stripped). */
   model: string;
   system?: SystemSegment[];
+  /**
+   * A revised system prompt that must take effect this turn without disturbing
+   * `system` — which, once a session has started, is the prefix an implicit
+   * cache is holding. Providers whose model declares
+   * `systemPromptUpdate: 'in-history'` deliver it as a second `system` message
+   * late in the conversation; everywhere else the caller should put the new
+   * text in `system` instead and accept the cache miss.
+   */
+  systemUpdate?: SystemSegment[];
   messages: Message[];
   tools?: ToolDefinition[];
   toolChoice?: ToolChoice;

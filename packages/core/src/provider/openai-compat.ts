@@ -432,7 +432,12 @@ export class OpenAICompatProvider implements Provider {
 
     const body: Record<string, unknown> = {
       model: req.model,
-      messages: toOpenAIMessages(system, req.messages, caps, messageOpts),
+      messages: toOpenAIMessages(system, req.messages, caps, {
+        ...messageOpts,
+        ...(caps.systemPromptUpdate === 'in-history' && req.systemUpdate?.length
+          ? { systemUpdate: req.systemUpdate }
+          : {}),
+      }),
       stream,
     };
 
@@ -691,6 +696,12 @@ function buildToolUseBlock(id: string, name: string, args: string): ToolUseBlock
 
 export interface ToOpenAIMessagesOptions {
   /**
+   * Revised system text to deliver without touching the head (see
+   * `ModelRequest.systemUpdate`). Emitted as a `system` message just before the
+   * conversation's last message — the shape probe 3 verified DeepSeek honours.
+   */
+  systemUpdate?: readonly SystemSegment[];
+  /**
    * Put `reasoning_content: ""` on replayed assistant turns that carry no
    * thinking of their own (a non-thinking run, or a session resumed from before
    * reasoning was kept). Only used to recover from an endpoint that demands the
@@ -712,7 +723,16 @@ export function toOpenAIMessages(
     out.push({ role: caps.developerRole ? 'developer' : 'system', content: systemText });
   }
 
-  for (const msg of messages) {
+  const updateText = (opts.systemUpdate ?? []).map((seg) => seg.text).join('\n\n');
+  // Index of the message the update goes in front of: the endpoint reads the
+  // last system message, and putting it before the final turn keeps it out of
+  // the span every earlier turn already cached.
+  const updateBefore = updateText === '' ? -1 : Math.max(0, messages.length - 1);
+
+  messages.forEach((msg, i) => {
+    if (i === updateBefore) {
+      out.push({ role: caps.developerRole ? 'developer' : 'system', content: updateText });
+    }
     if (msg.role === 'user') {
       // Tool results must land immediately after the assistant turn that asked
       // for them, and before any new user text, or the endpoint 400s.
@@ -729,7 +749,7 @@ export function toOpenAIMessages(
         .map((b) => (b as { text: string }).text)
         .join('\n');
       if (text !== '') out.push({ role: 'user', content: text });
-      continue;
+      return;
     }
 
     const text = msg.content
@@ -755,7 +775,7 @@ export function toOpenAIMessages(
 
     // A turn that is only reasoning still has to be replayed when the endpoint
     // wants the reasoning back — dropping it loses part of the prefix.
-    if (text === '' && toolCalls.length === 0 && thinking === '') continue;
+    if (text === '' && toolCalls.length === 0 && thinking === '') return;
 
     const assistant: OpenAIMessage = {
       // Never `null`: DeepSeek (and several gateways) reject a null content on
@@ -776,6 +796,11 @@ export function toOpenAIMessages(
       }));
     }
     out.push(assistant);
+  });
+
+  // An empty history still has to carry the update.
+  if (updateText !== '' && messages.length === 0) {
+    out.push({ role: caps.developerRole ? 'developer' : 'system', content: updateText });
   }
 
   return out;

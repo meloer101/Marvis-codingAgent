@@ -115,10 +115,22 @@ export class PermissionEngine {
   }
 
   /**
-   * `exit_plan_mode` still honours an explicit deny rule, but is otherwise always
-   * allowed — the real gate is the human approval the tool itself performs.
+   * `exit_plan_mode` is registered for the whole session — a tool list that
+   * changes with the mode invalidates the prompt cache from the first changed
+   * token — so the mode check lives here instead: outside plan mode the call is
+   * refused with a reason that tells the model what actually happened. Inside
+   * plan mode it honours an explicit deny rule but is otherwise allowed; the
+   * real gate is the human approval the tool itself performs.
    */
   private evaluateExitPlanMode(): PermissionVerdict {
+    if (this.mode !== 'plan') {
+      return {
+        decision: 'deny',
+        reason:
+          `exit_plan_mode only applies in plan mode, and this session is in ${this.mode} mode — ` +
+          'there is no plan to hand over. Carry out the work directly.',
+      };
+    }
     const denied = this.deny.find((r) => r.tool === 'exit_plan_mode');
     if (denied) return { decision: 'deny', reason: `Blocked by deny rule ${denied.raw}` };
     return { decision: 'allow' };

@@ -72,6 +72,7 @@ import type { AgentDefinition } from '../subagents/index.js';
 import { McpHub, loadMcpConfig, resolveResources } from '../mcp/index.js';
 import type { McpServerStatus } from '../mcp/index.js';
 import { AGENT_CONVENTIONS, buildAgentSystemPrompt, buildSubagentSystemPrompt } from './prompt.js';
+import { systemUpdateSegments } from './system-update.js';
 import { AgentLoop } from './loop.js';
 import type { AgentEvent, AgentLoopOptions, AgentRunResult } from './loop.js';
 import { mergeHooks } from './hooks.js';
@@ -87,7 +88,7 @@ import {
 } from './session.js';
 import { TraceRecorder } from '../telemetry/trace.js';
 import { addUsage } from '../provider/types.js';
-import type { Message, Usage } from '../provider/types.js';
+import type { Message, SystemSegment, Usage } from '../provider/types.js';
 import { ProviderRegistry } from '../provider/router.js';
 import type { ResolvedModel } from '../provider/router.js';
 import { DEFAULT_REASONING_EFFORTS, estimateCostUSD } from '../provider/capabilities.js';
@@ -966,7 +967,11 @@ export class AgentSession {
     const activeMode = this.#engine.getMode();
     const specs: AnyToolSpec[] = [
       ...builtinTools(),
-      ...(activeMode === 'plan' ? [exitPlanModeTool] : []),
+      // Registered in every mode on purpose: the tool list is part of the
+      // cached prefix, so adding and removing a tool on each mode switch
+      // invalidates it. The permission engine refuses the call outside plan
+      // mode (with a reason the model can act on).
+      exitPlanModeTool,
       ...(this.#skillCatalog.size > 0 ? [createSkillTool(this.#skillCatalog)] : []),
       // Only when the manifest token cap left skills out — otherwise the manifest
       // already lists every skill and this tool would just duplicate it.
@@ -977,22 +982,35 @@ export class AgentSession {
       ...(this.#taskTool ? [this.#taskTool] : []),
       ...this.#mcpToolSpecs,
     ];
+    const system = buildAgentSystemPrompt({
+      cwd: this.#cwd,
+      platform: this.#platform,
+      mode: activeMode,
+      ...(this.#memory.text ? { projectMemory: this.#memory.text } : {}),
+      ...(this.#skillCatalog.manifest()
+        ? { skillsManifest: this.#skillCatalog.manifest() }
+        : {}),
+      ...(this.#config.memory !== false
+        ? { memoryManifest: this.#memoryCatalog.manifest() ?? emptyMemoryManifest() }
+        : {}),
+    });
+    // The system prompt changes mid-session whenever the mode, the loaded
+    // skills or memory do. Rewriting the head invalidates the cached prefix for
+    // the whole conversation; on a model that reads the last system message we
+    // keep the head as first sent and append the new text instead.
+    const inHistory = this.#model.capabilities.systemPromptUpdate === 'in-history';
+    const head = this.#sessionSystem;
+    // Only the segments that changed — appending the whole prompt would
+    // duplicate it in context and cost more than the rewrite it replaces.
+    const update = inHistory && head ? systemUpdateSegments(head, system) : undefined;
+    if (!inHistory || head === undefined) this.#sessionSystem = system;
+
     return new AgentLoop({
       model: this.#model,
       tools: new ToolRegistry(specs),
       cwd: this.#cwd,
-      system: buildAgentSystemPrompt({
-        cwd: this.#cwd,
-        platform: this.#platform,
-        mode: activeMode,
-        ...(this.#memory.text ? { projectMemory: this.#memory.text } : {}),
-        ...(this.#skillCatalog.manifest()
-          ? { skillsManifest: this.#skillCatalog.manifest() }
-          : {}),
-        ...(this.#config.memory !== false
-          ? { memoryManifest: this.#memoryCatalog.manifest() ?? emptyMemoryManifest() }
-          : {}),
-      }),
+      system: inHistory && head !== undefined ? head : system,
+      ...(update ? { systemUpdate: update } : {}),
       recorder: this.#recorder,
       ...(this.#trace ? { trace: this.#trace } : {}),
       session: this.#session,
@@ -1005,6 +1023,12 @@ export class AgentSession {
       ...this.#config.loopOverrides,
     });
   }
+
+  /**
+   * The system prompt as first sent this session — the head an implicit prompt
+   * cache is anchored on. Only set for models that take updates in history.
+   */
+  #sessionSystem: SystemSegment[] | undefined;
 
   #onEvent = (event: AgentEvent): void => {
     if (event.type === 'context') {

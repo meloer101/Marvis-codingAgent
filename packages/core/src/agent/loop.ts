@@ -155,6 +155,12 @@ export interface AgentLoopOptions {
   tools: ToolRegistry;
   cwd: string;
   system?: SystemSegment[];
+  /**
+   * Revised system prompt for this turn, when the caller wants it to take
+   * effect without rewriting `system` (whose first token anchors the prompt
+   * cache). Providers deliver it per `capabilities.systemPromptUpdate`.
+   */
+  systemUpdate?: SystemSegment[];
   session?: SessionState;
   recorder?: SessionRecorder;
   /** Per-turn telemetry. Absent = no trace written. */
@@ -381,6 +387,7 @@ export class AgentLoop {
           ? { reasoningEffort: this.opts.reasoningEffort }
           : {}),
         ...(this.opts.system ? { system: this.opts.system } : {}),
+        ...(this.opts.systemUpdate ? { systemUpdate: this.opts.systemUpdate } : {}),
         ...(this.opts.signal ? { signal: this.opts.signal } : {}),
       };
       if (!toolless) {

@@ -141,13 +141,25 @@ describe('PermissionEngine', () => {
     expect(blocked.decision).toBe('deny');
   });
 
-  it('exit_plan_mode is a known tool (not rejected as unknown)', async () => {
-    const v = await engine({ mode: 'ask' }).evaluate({
+  it('allows exit_plan_mode in plan mode and refuses it elsewhere', async () => {
+    // The tool stays registered in every mode (a tool list that changes with
+    // the mode invalidates the prompt cache), so the mode check is here.
+    const inPlan = await engine({ mode: 'plan' }).evaluate({
       toolName: 'exit_plan_mode',
       input: {},
       readOnly: false,
     });
-    expect(v.decision).not.toBe('deny');
+    expect(inPlan.decision).toBe('allow');
+
+    const outside = await engine({ mode: 'ask' }).evaluate({
+      toolName: 'exit_plan_mode',
+      input: {},
+      readOnly: false,
+    });
+    expect(outside.decision).toBe('deny');
+    if (outside.decision !== 'deny') throw new Error('unreachable');
+    expect(outside.reason).toContain('plan mode');
+    expect(outside.reason).not.toContain('Unknown tool');
   });
 
   it('addAllowRule whitelists a whole tool for the rest of the session', async () => {

@@ -378,6 +378,167 @@ async function probe5() {
   };
 }
 
+/**
+ * §1.6 — what an in-history system update is actually worth, and in what shape.
+ *
+ * The turn after a mode switch, measured three ways over the same conversation:
+ *   rewrite      — put the revised prompt in the head (what `rewrite` models need)
+ *   append-full  — head untouched, the whole revised prompt appended late
+ *   append-delta — head untouched, only the changed segment appended
+ *
+ * Run at two history sizes, because the trade-off inverts: rewriting the head
+ * re-processes the entire history, while appending pays for whatever it
+ * duplicates. Cost is computed at DeepSeek flash off-peak rates ($0.15/MTok
+ * fresh, $0.003/MTok cached) so the columns are comparable.
+ */
+async function probe6() {
+  const headText = [
+    'You are a coding agent working in a repository.',
+    ...Array.from(
+      { length: 120 },
+      (_, i) => `Convention ${i}: prefer the smallest change that satisfies the requirement.`,
+    ),
+  ].join('\n');
+  const modeBlock = '<plan_mode>Plan only. Do not modify files. Propose a plan and stop.</plan_mode>';
+  const revisedText = `${headText}\n\n${modeBlock}`;
+  const common = { tools: [tool], max_tokens: 16, thinking: { type: 'disabled' } };
+  const nextUser = { role: 'user', content: 'Reply with the single word ok.' };
+  const cost = (u) =>
+    ((u.prompt_tokens - u.prompt_cache_hit_tokens) * 0.15 + u.prompt_cache_hit_tokens * 0.003) /
+    1_000_000;
+
+  const lines = [];
+  let deltaWinsWhereItShould = true;
+
+  for (const [label, turns] of [
+    ['short history', 2],
+    ['long history', 40],
+  ]) {
+    // A fresh conversation per size, so one measurement cannot warm the other.
+    const history = [];
+    for (let i = 0; i < turns; i++) {
+      history.push({ role: 'user', content: `Question ${label} ${i}: where is helper ${i} defined?` });
+      history.push({
+        role: 'assistant',
+        content: `Helper ${i} lives in src/helpers/${i}.js and is re-exported from src/index.js. ${'Detail. '.repeat(20)}`,
+      });
+    }
+
+    // Establish the prefix the way a real session does.
+    await call({ messages: [{ role: 'system', content: headText }, ...history], ...common });
+
+    const variants = {
+      rewrite: [{ role: 'system', content: revisedText }, ...history, nextUser],
+      'append-full': [
+        { role: 'system', content: headText },
+        ...history,
+        { role: 'system', content: revisedText },
+        nextUser,
+      ],
+      'append-delta': [
+        { role: 'system', content: headText },
+        ...history,
+        { role: 'system', content: modeBlock },
+        nextUser,
+      ],
+    };
+
+    const measured = {};
+    for (const [name, messages] of Object.entries(variants)) {
+      const res = await call({ messages, ...common });
+      if (!res.ok) return { pass: false, detail: `${label}/${name} → HTTP ${res.status} ${short(res.message, 80)}` };
+      measured[name] = res.usage;
+    }
+
+    lines.push(
+      `${label}: ` +
+        Object.entries(measured)
+          .map(
+            ([name, u]) =>
+              `${name} ${u.prompt_cache_hit_tokens}/${u.prompt_tokens} cached, $${cost(u).toFixed(6)}`,
+          )
+          .join(' · '),
+    );
+    if (turns > 2 && cost(measured['append-delta']) >= cost(measured['rewrite'])) {
+      deltaWinsWhereItShould = false;
+    }
+  }
+
+  return {
+    pass: deltaWinsWhereItShould,
+    detail: lines.join('\n   '),
+    implication: deltaWinsWhereItShould
+      ? 'append only the CHANGED segment: rewriting re-processes the whole history, appending the full prompt duplicates it. The delta costs neither.'
+      : 'no measurable win for appending on a long history — revisit systemPromptUpdate',
+  };
+}
+
+/**
+ * §1.7 — does a delta update actually change behaviour? Probe 6 says appending
+ * only the changed sections is the cheap shape; this checks it is also an
+ * understood one, in both directions:
+ *   add     — the head permits writing, the update forbids it
+ *   cancel  — the head forbids writing, the update withdraws that section
+ *
+ * Cancelling is the risky half: a section that disappears from the prompt
+ * cannot be un-said by omission, so the update has to say so in words.
+ */
+async function probe7() {
+  const identity = 'You are a coding agent working in a repository.';
+  const planMode =
+    '<plan_mode>You are in plan mode. Never modify files; only propose a plan.</plan_mode>';
+  const header =
+    '[system update] The following supersedes the correspondingly-named sections of the ' +
+    'system prompt above. Everything not mentioned here still applies.';
+  const question = {
+    role: 'user',
+    content: 'Are you currently allowed to modify files? Answer with exactly one word: yes or no.',
+  };
+  const chat = [
+    { role: 'user', content: 'Hello.' },
+    { role: 'assistant', content: 'Hello — what are we working on?' },
+  ];
+
+  const ask = async (headSystem, updateText) => {
+    const answers = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await call({
+        messages: [
+          { role: 'system', content: headSystem },
+          ...chat,
+          ...(updateText ? [{ role: 'system', content: updateText }] : []),
+          question,
+        ],
+        max_tokens: 16,
+        thinking: { type: 'disabled' },
+      });
+      if (!res.ok) return { error: `HTTP ${res.status} ${short(res.message, 80)}` };
+      answers.push(textOf(res.choice).toLowerCase().replace(/[^a-z]/g, ''));
+    }
+    return { answers };
+  };
+
+  const added = await ask(identity, `${header}\n\n${planMode}`);
+  const cancelled = await ask(
+    `${identity}\n\n${planMode}`,
+    `${header}\n\nThe "plan_mode" section above no longer applies. Disregard it entirely.`,
+  );
+  if (added.error || cancelled.error) {
+    return { pass: false, detail: `add → ${added.error ?? 'ok'}; cancel → ${cancelled.error ?? 'ok'}` };
+  }
+
+  const allNo = added.answers.every((a) => a.startsWith('no'));
+  const allYes = cancelled.answers.every((a) => a.startsWith('yes'));
+  return {
+    pass: allNo && allYes,
+    detail: `added a restriction → ${added.answers.join(', ')}; cancelled it → ${cancelled.answers.join(', ')}`,
+    implication:
+      allNo && allYes
+        ? 'delta updates are understood in both directions — a dropped section must be cancelled in words, and that works'
+        : 'the model did not follow the delta in one direction — send the full prompt in the update instead, and pay for it',
+  };
+}
+
 // --- runner ----------------------------------------------------------------
 
 const PROBES = [
@@ -386,6 +547,8 @@ const PROBES = [
   ['3', 'does a later system message win', probe3],
   ['4', 'tool_choice:none + effort ladder', probe4],
   ['5', 'implicit prefix cache coverage', probe5],
+  ['6', 'system-update shape: rewrite vs append-full vs append-delta', probe6],
+  ['7', 'are delta updates understood, including cancellation', probe7],
 ];
 
 const wanted = process.argv.slice(2).filter((a) => !a.startsWith('-'));

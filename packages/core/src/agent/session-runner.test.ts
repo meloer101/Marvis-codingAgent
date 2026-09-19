@@ -382,7 +382,48 @@ describe('AgentSession', () => {
     expect(result.messages).toHaveLength(4);
   });
 
-  it('plan mode: confirm approval leaves plan mode and drops exit_plan_mode next turn', async () => {
+  it('keeps the system head stable across a mode switch when the model takes updates in history', async () => {
+    const provider = new ScriptedProvider([{ text: 'one' }, { text: 'two' }]);
+    const { session } = await createSession({
+      model: sessionModel(provider, { systemPromptUpdate: 'in-history' }),
+      mode: 'plan',
+    });
+
+    await session.runTurn('first');
+    session.setMode('acceptEdits');
+    await session.runTurn('second');
+
+    const [before, after] = provider.requests;
+    // The head is byte-identical across the switch — that is the cached prefix.
+    expect(after?.system).toEqual(before?.system);
+    expect(before?.systemUpdate).toBeUndefined();
+    // The change rides along as an update instead of rewriting the head — and
+    // carries only the delta (cancelling plan mode), not a second full prompt.
+    const update = (after?.systemUpdate ?? []).map((seg) => seg.text).join('\n');
+    const headText = (before?.system ?? []).map((seg) => seg.text).join('\n');
+    expect(headText).toContain('plan_mode');
+    expect(update).toContain('plan_mode');
+    expect(update).toContain('no longer applies');
+    expect(update.length).toBeLessThan(headText.length / 4);
+  });
+
+  it('rewrites the system prompt on a mode switch when the model has no in-history path', async () => {
+    const provider = new ScriptedProvider([{ text: 'one' }, { text: 'two' }]);
+    const { session } = await createSession({
+      model: sessionModel(provider),
+      mode: 'plan',
+    });
+
+    await session.runTurn('first');
+    session.setMode('acceptEdits');
+    await session.runTurn('second');
+
+    const [before, after] = provider.requests;
+    expect(after?.systemUpdate).toBeUndefined();
+    expect(after?.system).not.toEqual(before?.system);
+  });
+
+  it('plan mode: confirm approval leaves plan mode and refuses exit_plan_mode after', async () => {
     const provider = new ScriptedProvider([
       { toolCalls: [{ name: 'exit_plan_mode', input: { title: 'T', plan: 'do X' } }] },
       { text: 'implementing' },
@@ -405,8 +446,12 @@ describe('AgentSession', () => {
     expect(session.mode).toBe('acceptEdits');
     expect(notices.some((n) => n.kind === 'mode-changed')).toBe(true);
 
+    // The tool stays registered — the tool list is part of the cached prefix —
+    // so the refusal now comes from the permission engine, by mode.
     await session.runTurn('continue');
-    expect(lastToolEnd(events, 'exit_plan_mode')?.result.content).toContain('Unknown tool');
+    const after = lastToolEnd(events, 'exit_plan_mode')?.result.content ?? '';
+    expect(after).toContain('plan mode');
+    expect(after).not.toContain('Unknown tool');
   });
 
   it('skills/subagents/mcp/recorder/trace all disabled → no discovery, no tools, no files', async () => {
