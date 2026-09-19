@@ -1,7 +1,7 @@
 {
   "id": "fix-null-deref",
   "prompt": "The test suite (run it with `npm test`) is failing. Find the bug in src/config.js and fix it so every test passes. Do not change any file under test/.",
-  "model": "deepseek/deepseek-v4-flash",
+  "model": "deepseek/deepseek-flash",
   "mode": "acceptEdits",
   "tags": [
     "bug-fix"
