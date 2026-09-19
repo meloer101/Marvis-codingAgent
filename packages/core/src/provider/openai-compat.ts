@@ -724,10 +724,16 @@ export function toOpenAIMessages(
   }
 
   const updateText = (opts.systemUpdate ?? []).map((seg) => seg.text).join('\n\n');
-  // Index of the message the update goes in front of: the endpoint reads the
-  // last system message, and putting it before the final turn keeps it out of
-  // the span every earlier turn already cached.
-  const updateBefore = updateText === '' ? -1 : Math.max(0, messages.length - 1);
+  // Where the update goes: as late as possible (the endpoint reads the last
+  // system message, and a late message is outside the span earlier turns
+  // cached), but never between an assistant's tool_calls and the tool messages
+  // answering them — that split is a 400. When the conversation ends on tool
+  // results, the update goes after everything instead.
+  const last = messages[messages.length - 1];
+  const endsOnToolResults =
+    last?.role === 'user' && last.content.some((b) => b.type === 'tool_result');
+  const updateBefore =
+    updateText === '' || endsOnToolResults || messages.length === 0 ? -1 : messages.length - 1;
 
   messages.forEach((msg, i) => {
     if (i === updateBefore) {
@@ -798,8 +804,9 @@ export function toOpenAIMessages(
     out.push(assistant);
   });
 
-  // An empty history still has to carry the update.
-  if (updateText !== '' && messages.length === 0) {
+  // Not placed inline (an empty history, or one ending on tool results): the
+  // update still has to be said, so it goes last.
+  if (updateText !== '' && updateBefore === -1) {
     out.push({ role: caps.developerRole ? 'developer' : 'system', content: updateText });
   }
 

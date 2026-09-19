@@ -86,7 +86,7 @@ P0-1/P0-2/P0-3 已实现并有单测覆盖，本节其余内容已删除。**没
 - 新 capability `systemPromptUpdate: 'rewrite' | 'in-history'`，DeepSeek 全系设 `'in-history'`；`ModelRequest.systemUpdate` 是"要生效但不许动头部"的那段文本，provider 把它放在历史倒数第一条消息之前发出（探针 3 验证过的形状）。`AgentSession` 记住本会话首次发出的 system 段（`#sessionSystem`），之后每回合只算差异。
 - **与原方案的出入**：原方案写"追加一条完整的新 prompt"。探针 6 实测这样**更贵**——正文在上下文里被复制一份，短历史下比直接改写头部还贵 2.8 倍。改为只追加**变化的段**（`agent/system-update.ts` 的 `systemUpdateSegments`）：短历史比改写省约 2 倍，长历史省约 11 倍。消失的段（退出 plan 模式）用一句话明确作废，探针 7 验证模型两个方向都照做。
 - 工具列表稳定性：`exit_plan_mode` 改为会话内始终注册，非 plan 模式由 permission engine 拒绝并说明原因（"这不是 plan 模式，直接动手做"）。工具列表因此不再随模式变化。
-- **未做**：`hc` 的 eval 套件测不到这两项——eval harness 自己拼工具列表（本来就没有 `exit_plan_mode`），任务里也没有中途切模式的场景。收益是按 API 层探针度量的（上表 6）。要在 eval 里看见，得先有一个"plan → 批准 → 实施"形态的 fixture。
+- **已在 eval 里度量**（2026-09-19）：新任务 `plan-then-implement`（plan → 批准 → 实施两个回合）加上 `pnpm eval --task plan-then-implement --ablation system-update`。切换模式之后那一次请求的缓存命中：**只发变化段 98.2%（9344/9516）对 改写头部 13.3%（640/4800）**；整轮 94.9% 对 79.7%。两条轨迹本身不同，所以看比率不看总量。
 
 **P1-2 压缩器复用暖前缀** —— 已完成：`TurnContext` 现在带上本回合请求的 `system` / `tools`，压缩请求 = 同一组 system 段 + 同一份 tools + `[head..middle]` 原样消息 + 末尾一条压缩指令，`toolChoice: 'none'`、`reasoningEffort: 'low'`、去掉无效的 `temperature: 0`。仅当 summarizer 就是会话模型时启用（`warmPrefix`），否则走原来的扁平 prompt。`contextBudgetTokens` 已加：DeepSeek 声明 `qualityContextWindow: 256K`，warn/compact/stop 按它算，硬窗口仍是 1M。**剩余**：工具结果修剪改成 dsh 式"单条 >8K 字符 → 头 4K + 尾 1K"，按原计划要先 ablation 度量。
 

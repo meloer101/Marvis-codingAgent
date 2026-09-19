@@ -1,0 +1,38 @@
+{
+  "id": "plan-then-implement",
+  "prompt": "`npm test` fails: test/temperature.test.mjs imports a `toFahrenheit` that src/temperature.js does not export. Read the tests, then hand over an implementation plan with exit_plan_mode. Do not change any file yet.",
+  "followUp": "Approved. Implement the plan now and make the whole test suite pass. Do not change any file under test/.",
+  "model": "deepseek/deepseek-flash",
+  "mode": "plan",
+  "planApprovedMode": "acceptEdits",
+  "suite": "regression",
+  "tags": [
+    "plan-mode",
+    "feature"
+  ],
+  "runs": 1,
+  "allow": [
+    "Bash(npm:*)",
+    "Bash(node:*)"
+  ],
+  "graders": [
+    {
+      "name": "tests-untouched"
+    },
+    {
+      "name": "diff-size",
+      "maxChangedLines": 20,
+      "maxNewFiles": 0,
+      "ignore": [
+        ".agent/**",
+        "package-lock.json"
+      ]
+    },
+    {
+      "name": "scratch-sprawl",
+      "allow": [
+        ".agent/**"
+      ]
+    }
+  ]
+}

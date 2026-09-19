@@ -29,8 +29,11 @@
   必 400"的调研结论）。P1 已全部落地：in-history system prompt 按"只发变化的段"实现
   （追加完整 prompt 经实测比改写头部更贵），`exit_plan_mode` 改为常驻注册、由 permission
   engine 按模式拒绝，cassette 已在 `deepseek-flash` 上重录。剩余：P2（工具形态对齐实验，要用
-  eval 度量）；以及一个"plan → 批准 → 实施"形态的 fixture —— 现在的 eval 套件测不到模式切换，
-  P1-1 的收益只能靠 API 层探针度量。*(M)*
+  eval 度量）；*(M)*
+- **eval 覆盖模式切换** — 已完成：`plan-then-implement`（plan → 批准 → 实施两回合）加上
+  `--ablation system-update`，切换后那一次请求的缓存命中 98.2%（只发变化段）对 13.3%
+  （改写头部）。剩余：这个任务只录了一条轨迹（`runs: 1`），两条以上的轨迹在一份 cassette
+  里回放不了；要提高统计力得先解决多轨迹回放。*(S)*
 
 ### C · Tool system & execution
 - **Broaden the structured-error sink** — 已完成：`NoModelConfiguredError` 在

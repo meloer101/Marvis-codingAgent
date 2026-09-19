@@ -18,6 +18,8 @@
  *                          compaction    — compaction on/off (under a squeezed window)
  *                          subagents     — the `task` tool offered vs. not
  *                          prompt-tools  — prompt-encoded vs. native tool calling
+ *                          system-update — mid-session prompt change: in-history delta
+ *                                          vs. rewriting the head (plan-shaped tasks only)
  *                        Every ablation arm hits the real endpoint (a changed tool set
  *                        or window can't replay a cassette), so it needs a key in .env.
  *   --update-baseline    write the current numbers to baseline.json
@@ -39,8 +41,13 @@ import type { RunConfig, TaskResult } from './runner.js';
 import { SUITES, evalsRoot, loadTasks } from './tasks.js';
 import type { Suite } from './tasks.js';
 
-type AblationDim = 'compaction' | 'subagents' | 'prompt-tools';
-const ABLATION_DIMS: readonly AblationDim[] = ['compaction', 'subagents', 'prompt-tools'];
+type AblationDim = 'compaction' | 'subagents' | 'prompt-tools' | 'system-update';
+const ABLATION_DIMS: readonly AblationDim[] = [
+  'compaction',
+  'subagents',
+  'prompt-tools',
+  'system-update',
+];
 
 interface Flags {
   tasks: string[];
@@ -283,6 +290,15 @@ function ablationSpec(kind: AblationDim): AblationSpec {
         arms: { on: 'prompt-encoded', off: 'native' },
         onCfg: { promptTools: true },
         offCfg: {},
+      };
+    case 'system-update':
+      // How a mid-session prompt change is delivered. Only a task that changes
+      // the prompt mid-run (a plan-shaped one: `--task plan-then-implement`)
+      // can tell the arms apart; elsewhere they are the same run twice.
+      return {
+        arms: { on: 'in-history delta', off: 'rewrite head' },
+        onCfg: { systemPromptUpdate: 'in-history' },
+        offCfg: { systemPromptUpdate: 'rewrite' },
       };
   }
 }

@@ -31,6 +31,7 @@ export interface RunConfig {
   maxOutputTokens?: number;
   subagents?: boolean;
   promptTools?: boolean;
+  systemPromptUpdate?: 'rewrite' | 'in-history';
   /** Distinguishes trace ids / result buckets across ablation arms. */
   label?: string;
 }
@@ -112,10 +113,15 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
         ...(cfg.maxOutputTokens ? { maxOutputTokens: cfg.maxOutputTokens } : {}),
         ...(cfg.subagents ? { subagents: true } : {}),
         ...(cfg.promptTools ? { promptTools: true } : {}),
+        ...(cfg.systemPromptUpdate ? { systemPromptUpdate: cfg.systemPromptUpdate } : {}),
         ...(task.spec.allow ? { allow: task.spec.allow } : {}),
         ...(task.spec.deny ? { deny: task.spec.deny } : {}),
         ...(task.spec.maxTurns ? { maxTurns: task.spec.maxTurns } : {}),
         ...(task.spec.effort ? { reasoningEffort: task.spec.effort } : {}),
+        ...(task.spec.followUp ? { followUp: task.spec.followUp } : {}),
+        ...(task.spec.planApprovedMode
+          ? { planApprovedMode: task.spec.planApprovedMode }
+          : {}),
       });
 
       // For every task, pass = the assertion holds in the post-run workspace.

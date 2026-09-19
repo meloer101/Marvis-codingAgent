@@ -511,6 +511,25 @@ describe('message translation', () => {
     expect(out[4]?.content).toBe('second');
   });
 
+  it('never splits tool calls from their results when placing an update', () => {
+    const caps = { ...DEFAULT_CAPABILITIES, systemPromptUpdate: 'in-history' as const };
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: 'go' }] },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'c1', name: 'read', input: {} }],
+      },
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: 'c1', content: 'body' }] },
+    ];
+
+    const out = toOpenAIMessages(undefined, messages, caps, {
+      systemUpdate: [{ id: 's', text: 'revised' }],
+    });
+
+    // A system message between the assistant and its tool reply is a 400.
+    expect(out.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'system']);
+  });
+
   it('still delivers a system update when there is no history yet', () => {
     const caps = { ...DEFAULT_CAPABILITIES, systemPromptUpdate: 'in-history' as const };
     const out = toOpenAIMessages([{ id: 's', text: 'head' }], [], caps, {

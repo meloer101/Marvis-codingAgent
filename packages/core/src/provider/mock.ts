@@ -192,16 +192,24 @@ export interface CassetteEntry {
  * calls, and `grep` output all embed that path; without this the key would
  * differ on every machine and every run.
  */
-export function requestKey(req: ModelRequest, redact?: (s: string) => string): string {
-  const normalized = {
+export function normalizeForKey(req: ModelRequest): Record<string, unknown> {
+  return {
     model: req.model,
     system: (req.system ?? []).map((s) => s.text),
+    // Only when present: adding an always-there field would change every key
+    // ever recorded, for a field almost no request carries.
+    ...(req.systemUpdate?.length
+      ? { systemUpdate: req.systemUpdate.map((s) => s.text) }
+      : {}),
     messages: req.messages,
     tools: (req.tools ?? []).map((t) => ({ name: t.name, schema: t.inputSchema })),
     toolChoice: req.toolChoice ?? 'auto',
     temperature: req.temperature ?? null,
   };
-  let serialized = stableStringify(normalized);
+}
+
+export function requestKey(req: ModelRequest, redact?: (s: string) => string): string {
+  let serialized = stableStringify(normalizeForKey(req));
   if (redact) serialized = redact(serialized);
   return createHash('sha256').update(serialized).digest('hex').slice(0, 32);
 }
@@ -361,10 +369,23 @@ export class ReplayProvider implements Provider {
       entry = this.order[this.sequentialCursor++];
     }
     if (!entry) {
+      // Debugging a miss means comparing what was hashed, not what was sent —
+      // path redaction and `keyScrub` sit in between. `HC_REPLAY_DUMP=<dir>`
+      // writes the normalized request so it can be diffed against a recording.
+      const dumpDir = process.env['HC_REPLAY_DUMP'];
+      if (dumpDir) {
+        const { writeFileSync, mkdirSync } = await import('node:fs');
+        mkdirSync(dumpDir, { recursive: true });
+        writeFileSync(
+          `${dumpDir}/miss-${key}.json`,
+          this.keyRedact(stableStringify(normalizeForKey(req))),
+        );
+      }
       throw new ProviderError(
         'not_found',
         `No recorded response for request ${key}. Re-record the cassette, or the ` +
-          `prompt changed since it was made (${summarize(req)}).`,
+          `prompt changed since it was made (${summarize(req)}).` +
+          (dumpDir ? ` Normalized request written to ${dumpDir}.` : ''),
       );
     }
 

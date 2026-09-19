@@ -40,6 +40,28 @@ measure with paired CIs  ←──────────  change the harness (
 
 `suite` is set in `task.json` and defaults to `regression`.
 
+### Plan-shaped tasks
+
+A task with `"mode": "plan"` and a `followUp` prompt runs two user turns:
+plan → approval (scripted) → implement. It is the only shape where a mid-session
+prompt change and a mode-stable tool list are observable, so it is where the
+`system-update` ablation has a signal; `plan-then-implement` is the one such
+task. It records a single trajectory (`"runs": 1`): the two halves diverge
+enough between live runs that several trajectories in one cassette cannot be
+replayed coherently.
+
+Measured on it (2026-09-19, `--ablation system-update`), on the first request
+after the mode switch — the turn where the strategies differ:
+
+| delivery of the changed prompt | that request's prompt cache |
+| --- | --- |
+| append only the changed segments (`in-history`) | 9344/9516 cached — **98.2%** |
+| rewrite the head (`rewrite`) | 640/4800 cached — **13.3%** |
+
+Rewriting the head moves every token after the edit, so the whole conversation
+is re-processed; over a run, the arms came out at 94.9% vs 79.7% cached. The
+arms take different trajectories, so compare the *rates*, not the totals.
+
 ## Metrics
 
 - **pass@k**: at least one of k trials passed. **pass^k**: all k passed. An agent
@@ -76,6 +98,7 @@ held-out split).
 pnpm eval                                         # regression replay + gate (every change)
 pnpm eval --live --suite capability --runs 5      # capability measurement (real model, costs money)
 pnpm eval --ablation <dim>                        # paired A/B of a harness switch
+pnpm eval --task plan-then-implement --ablation system-update   # the prompt-update A/B
 pnpm eval --analyze latest                        # transcript digest of failing runs → analysis.md
 pnpm eval --analyze latest --all-runs             # include passing runs (weekly reading)
 evals/harbor/run-subset.sh && python3 evals/harbor/summarize.py

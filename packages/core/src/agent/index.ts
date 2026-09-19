@@ -6,3 +6,4 @@ export * from './guardrails.js';
 export * from './control.js';
 export * from './loop.js';
 export * from './prompt.js';
+export * from './system-update.js';

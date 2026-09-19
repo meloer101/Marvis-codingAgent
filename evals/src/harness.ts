@@ -40,16 +40,22 @@ import {
   runSubagent,
   subagentToolSpecs,
   buildSubagentSystemPrompt,
+  exitPlanModeTool,
+  systemUpdateSegments,
+  addUsage,
   summarizeTrace,
   readTrace,
   TraceRecorder,
   userText,
 } from '@harness-code/core';
 import type {
+  AgentControl,
   AgentRunResult,
+  Message,
   ModelCapabilities,
   PermissionMode,
   ReasoningEffort,
+  SystemSegment,
   Provider,
   ResolvedModel,
   Settings,
@@ -88,10 +94,25 @@ export interface HarnessOptions {
   subagents?: boolean;
   /** Force prompt-encoded tool calling instead of native `tools`. */
   promptTools?: boolean;
+  /**
+   * Override how a mid-session prompt change is delivered, for the
+   * `system-update` ablation: `rewrite` edits the head (and drops the cached
+   * prefix), `in-history` appends the delta.
+   */
+  systemPromptUpdate?: 'rewrite' | 'in-history';
 
   maxTurns?: number;
   /** Reasoning effort; omitted = the model's declared default. */
   reasoningEffort?: ReasoningEffort;
+  /**
+   * A second user turn, sent after the first run ends. With `mode: 'plan'` this
+   * is what makes a task plan-shaped: turn 1 plans and calls `exit_plan_mode`,
+   * approval switches the mode, turn 2 implements — the only shape in which a
+   * mid-session prompt change and a mode-stable tool list are observable.
+   */
+  followUp?: string;
+  /** Mode an approved plan switches to. Default `acceptEdits`. */
+  planApprovedMode?: PermissionMode;
   allow?: string[];
   deny?: string[];
 }
@@ -107,12 +128,15 @@ const DEFAULT_MAX_TURNS = 30;
 
 /**
  * Normalization applied to a request before it is fingerprinted for the
- * cassette, on top of the workspace-path redaction. Tool output the agent runs
- * (`node --test` / `npm test`) carries per-run `duration_ms` timings that would
- * otherwise change the key on every replay.
+ * cassette, on top of the workspace-path redaction. Two things are per-run and
+ * would otherwise change the key on every replay: the `duration_ms` timings in
+ * `node --test` / `npm test` output, and the timestamped filename
+ * `exit_plan_mode` reports back after writing a plan.
  */
 export function evalKeyScrub(s: string): string {
-  return s.replace(/duration_ms['":\s]*[\d.]+/g, 'duration_ms 0');
+  return s
+    .replace(/duration_ms['":\s]*[\d.]+/g, 'duration_ms 0')
+    .replace(/\.agent\/plans\/[^\s"'`]+\.md/g, '.agent/plans/PLAN.md');
 }
 
 /**
@@ -137,6 +161,7 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
     ...resolvedCaps,
     ...(opts.promptTools ? { nativeTools: false } : {}),
     ...(opts.contextWindow ? { contextWindow: opts.contextWindow } : {}),
+    ...(opts.systemPromptUpdate ? { systemPromptUpdate: opts.systemPromptUpdate } : {}),
     ...pinnedPricing(resolvedCaps, Boolean(opts.record || opts.live)),
   };
 
@@ -184,7 +209,11 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
       };
   const hooks = mergeHooks(createPermissionHooks(engine, nonInteractiveAskHandler), compactHook);
 
-  const tools = [...builtinTools()];
+  // `exit_plan_mode` is registered for a plan-shaped task and stays registered
+  // after approval — the session behaves the same way, because a tool list that
+  // changes with the mode invalidates the cached prefix.
+  const planShaped = opts.mode === 'plan' || opts.followUp !== undefined;
+  const tools = [...builtinTools(), ...(planShaped ? [exitPlanModeTool] : [])];
   if (opts.subagents) {
     const { agents } = await discoverAgents(opts.workDir);
     if (agents.length > 0) {
@@ -231,28 +260,81 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
     mode: opts.mode,
   });
 
-  const loop = new AgentLoop({
-    model: resolved,
-    tools: new ToolRegistry(tools),
-    cwd: opts.workDir,
-    system: buildAgentSystemPrompt({ cwd: opts.workDir, mode: opts.mode, platform: 'linux' }),
-    session: new SessionState(),
-    hooks,
-    trace,
-    maxTurns: opts.maxTurns ?? DEFAULT_MAX_TURNS,
-    // Effort as the task declares it, else the model's own default — so the
-    // baseline reflects a configuration someone actually runs.
-    ...(capabilities.reasoning
-      ? {
-          reasoningEffort:
-            opts.reasoningEffort ?? capabilities.defaultEffort ?? ('high' as const),
-        }
-      : {}),
-    ...(typeof opts.compaction === 'number' ? { contextCompactRatio: opts.compaction } : {}),
-    ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}),
-  });
+  const session = new SessionState();
+  const registry = new ToolRegistry(tools);
+  // Approval is scripted: a plan-shaped eval measures what the agent does with
+  // the mode change, not whether a human says yes.
+  const control: AgentControl = {
+    get mode(): PermissionMode {
+      return engine.getMode();
+    },
+    exitPlanMode(mode?: PermissionMode): PermissionMode {
+      const next = mode ?? opts.planApprovedMode ?? 'acceptEdits';
+      engine.setMode(next);
+      return next;
+    },
+    async confirm(): Promise<{ approved: boolean }> {
+      control.exitPlanMode();
+      return { approved: true };
+    },
+  };
 
-  const result = await loop.run([userText(opts.prompt)]);
+  const systemFor = (mode: PermissionMode) =>
+    buildAgentSystemPrompt({ cwd: opts.workDir, mode, platform: 'linux' });
+  const head = systemFor(opts.mode);
+
+  const runTurn = async (
+    messages: Message[],
+    system: SystemSegment[],
+    systemUpdate: SystemSegment[] | undefined,
+  ): Promise<AgentRunResult> =>
+    new AgentLoop({
+      model: resolved,
+      tools: registry,
+      cwd: opts.workDir,
+      system,
+      ...(systemUpdate ? { systemUpdate } : {}),
+      session,
+      hooks,
+      trace,
+      ...(planShaped ? { control } : {}),
+      maxTurns: opts.maxTurns ?? DEFAULT_MAX_TURNS,
+      // Effort as the task declares it, else the model's own default — so the
+      // baseline reflects a configuration someone actually runs.
+      ...(capabilities.reasoning
+        ? {
+            reasoningEffort:
+              opts.reasoningEffort ?? capabilities.defaultEffort ?? ('high' as const),
+          }
+        : {}),
+      ...(typeof opts.compaction === 'number' ? { contextCompactRatio: opts.compaction } : {}),
+      ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}),
+    }).run(messages);
+
+  let result = await runTurn([userText(opts.prompt)], head, undefined);
+
+  if (opts.followUp !== undefined) {
+    // The mode may have changed mid-run (an approved plan). The session does
+    // exactly this between user turns: recompute the prompt, then either
+    // rewrite the head or send the delta, per the model's capability.
+    const current = systemFor(engine.getMode());
+    const update =
+      capabilities.systemPromptUpdate === 'in-history'
+        ? systemUpdateSegments(head, current)
+        : undefined;
+    const keepHead = capabilities.systemPromptUpdate === 'in-history';
+    const second = await runTurn(
+      [...result.messages, userText(opts.followUp)],
+      keepHead ? head : current,
+      update,
+    );
+    result = {
+      messages: second.messages,
+      usage: addUsage(result.usage, second.usage),
+      stopReason: second.stopReason,
+      turns: result.turns + second.turns,
+    };
+  }
 
   await trace.append({
     type: 'run_end',

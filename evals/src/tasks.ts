@@ -42,6 +42,13 @@ export interface TaskSpec {
   maxTurns?: number;
   /** Reasoning effort for this task; omitted = the model's declared default. */
   effort?: ReasoningEffort;
+  /**
+   * A second user turn, sent after the first run ends. With `"mode": "plan"`
+   * this makes the task plan-shaped: plan → approve → implement.
+   */
+  followUp?: string;
+  /** Mode an approved plan switches to. Default `acceptEdits`. */
+  planApprovedMode?: PermissionMode;
   /** Behaviour checks run after `assert.mjs` (see `graders/`). */
   graders: GraderSpec[];
 }
@@ -97,6 +104,10 @@ function validate(raw: unknown, id: string): TaskSpec {
     ...(Array.isArray(r.deny) ? { deny: r.deny.map(String) } : {}),
     ...(typeof r.maxTurns === 'number' ? { maxTurns: Math.floor(r.maxTurns) } : {}),
     ...(typeof r.effort === 'string' ? { effort: r.effort as ReasoningEffort } : {}),
+    ...(typeof r.followUp === 'string' ? { followUp: r.followUp } : {}),
+    ...(typeof r.planApprovedMode === 'string'
+      ? { planApprovedMode: r.planApprovedMode as PermissionMode }
+      : {}),
     graders: graders as GraderSpec[],
   };
 }
