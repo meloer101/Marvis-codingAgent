@@ -378,6 +378,10 @@ export class OpenAICompatProvider implements Provider {
    * never had any (a non-thinking run, or a session resumed from before we kept
    * it). The retry re-sends once with an empty field on those turns. Nothing has
    * been yielded to the caller at this point, so a streaming call can retry too.
+   *
+   * No endpoint demands this today (see `REASONING_REPLAY_REQUIRED`); it costs
+   * one branch on an error path and turns a dead run into a retried one if any
+   * ever does.
    */
   private async requestCompletion(
     req: ModelRequest,
@@ -936,8 +940,10 @@ const RETRYABLE_MESSAGE_PATTERNS: RegExp[] = [
 ];
 
 /**
- * DeepSeek's 400 when a thinking-mode request with tools replays an assistant
- * turn without its `reasoning_content`.
+ * DeepSeek's documented 400 for a thinking-mode request with tools whose
+ * history drops an assistant turn's `reasoning_content`. Probing the live
+ * endpoint (2026-09-19) never produced it — we replay regardless, so this is
+ * insurance against the documented behaviour reappearing, not a hot path.
  */
 const REASONING_REPLAY_REQUIRED = /reasoning_content[\s\S]*passed back/i;
 

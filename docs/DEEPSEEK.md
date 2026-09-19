@@ -29,7 +29,7 @@ eval 模型，但有几处假设已经过时，其中一处会直接导致带工
 |---|---|---|
 | 模型 id | `deepseek-flash`（V4.1-Flash，09-10 发布，1M ctx / 384K out，原生视觉，默认开 thinking）；`deepseek-v4-pro`（09-14 后继续提供）；`deepseek-v4-flash` 临时路由到 V4.1-Flash | 默认 `deepseek-v4-flash`；`deepseek-flash` 不命中任何规则，退化成 128K/8K/无 reasoning（`capabilities.ts` 的 `PROVIDER_DEFAULTS`） |
 | thinking 开关 | `thinking: {type: enabled\|disabled}`；effort `reasoning_effort: low\|high\|max`（默认 high）；**不接受** minimal/medium/xhigh（dsh 客户端直接拒绝） | `capabilities.ts` 顶部注释声称"服务端会折叠整条梯子"，并把 6 档全发出去 |
-| **reasoning_content 回传** | 请求带 `tools` 时，**所有**历史 assistant 轮的 `reasoning_content` 必须原样回传（包括没调工具的轮），否则 400：`The reasoning_content in the thinking mode must be passed back to the API.` 不带 tools 时被忽略 | `toOpenAIMessages` **主动丢弃** thinking（R1 时代的规则，现在反了）；纯 reasoning 轮整条被跳过 |
+| **reasoning_content 回传** | 调研当时的结论是"带 `tools` 时必须原样回传，否则 400"。**2026-09-19 实测推翻**（§四 §1 第 1 项）：回传和省略都是 200 | `toOpenAIMessages` **主动丢弃** thinking（R1 时代的规则，现在反了）；纯 reasoning 轮整条被跳过 |
 | assistant content | 纯工具调用轮官方样例回传 `""`；`content: null` 且无 tool_calls 会 400 | 空文本发 `null` |
 | thinking 模式下 | temperature / presence / frequency 无效（不报错）；top_p 下限 0.95；`tool_choice: "required"` 400，`none` / 指定函数可用 | 无影响，但 compactor 传 `temperature: 0` 是无效参数 |
 | max_tokens | 默认 8K（非 thinking）/ 64K（thinking）/ 128K（max）；上限 384K | `OUTPUT_RESERVE_CEILING = 64K` 合理 |
@@ -67,9 +67,10 @@ eval 模型，但有几处假设已经过时，其中一处会直接导致带工
 
 P0-1/P0-2/P0-3 已实现并有单测覆盖，本节其余内容已删除。**没做的三件事**，理由各异：
 
-- **在无 thinking 的 assistant 轮上主动补 `reasoning_content: ""`** —— 需要实测（本节验证 §1
-  第 2 项）才知道端点接受哪种写法，所以只做了自愈：收到 `must be passed back` 的 400 时，带
-  空字段重发一次（`REASONING_REPLAY_REQUIRED`）。探针跑完后再决定是否改成默认注入。
+- **在无 thinking 的 assistant 轮上主动补 `reasoning_content: ""`** —— 探针（§四 §1 第 2 项，
+  2026-09-19）已回答：省略字段完全没问题，**不需要**注入，维持现状。同一轮探针还推翻了本文
+  P0-1 的前提——不回传也不会 400（第 1 项）——所以 `REASONING_REPLAY_REQUIRED` 自愈现在是
+  保险而非必需；回传本身保留，理由改为"和 dsh 一致 + 前缀与缓存字节一致"。
 - **纯 reasoning 轮的 ephemeral 重发提示** —— 按原计划先在遥测里看频率，未默认开启。
 - **eval 任务的模型 id** —— `evals/tasks/*/task.json` 仍是 `deepseek-v4-flash`：cassette 的请求
   指纹包含模型 id，改名等于全部失配。留到 P1 重录 cassette 时一起改（重录本身仍是必须的：
@@ -84,7 +85,7 @@ P0-1/P0-2/P0-3 已实现并有单测覆盖，本节其余内容已删除。**没
 **P1-1 system prompt 的 in-history 更新 —— 未做，两项都卡在前置条件上**
 - 现状未变：plan→approved、auto_mode overlay、skills/memory 变化仍会改写头部 system 消息，整段历史缓存失效。
 - 新 capability `systemPromptUpdate: 'rewrite' | 'in-history'`，`deepseek-flash` 设 `'in-history'`：loop 记住本会话首次发出的 system 文本；后续变化时不改头部，而是在历史末尾（新 user 消息之前）追加一条完整的 `system` 消息。压缩把它当普通历史；若被摘要覆盖，则一次性回写头部（接受一次 miss）。
-- **卡点**：必须先用探针确认 Chat Completions 也"以最后一条 system 为准"（验证 §四 §1 第 3 项）。不成立则回退为"头部保持不变，模式指令放进 ephemeral user note"（`withEphemeralNotes` 已在尾部）。
+- ~~卡点：先确认 Chat Completions 以最后一条 system 为准~~ —— **已实测成立**（§四 §1 第 3 项，2026-09-19，连续 3 次都读后追加的那条）。可以直接按 in-history 方案做，不需要 ephemeral user note 的回退。
 - 工具列表稳定性（`exit_plan_mode` 会话内始终注册、非 plan 模式由 permission engine 拒绝）**同样未做**：工具列表在 cassette 的请求指纹里，改了等于所有回放失配，必须和重录一起做。做完用 `pnpm eval --ablation` 看缓存命中率再决定是否保留。
 
 **P1-2 压缩器复用暖前缀** —— 已完成：`TurnContext` 现在带上本回合请求的 `system` / `tools`，压缩请求 = 同一组 system 段 + 同一份 tools + `[head..middle]` 原样消息 + 末尾一条压缩指令，`toolChoice: 'none'`、`reasoningEffort: 'low'`、去掉无效的 `temperature: 0`。仅当 summarizer 就是会话模型时启用（`warmPrefix`），否则走原来的扁平 prompt。`contextBudgetTokens` 已加：DeepSeek 声明 `qualityContextWindow: 256K`，warn/compact/stop 按它算，硬窗口仍是 1M。**剩余**：工具结果修剪改成 dsh 式"单条 >8K 字符 → 头 4K + 尾 1K"，按原计划要先 ablation 度量。
@@ -140,12 +141,22 @@ P0-1/P0-2/P0-3 已实现并有单测覆盖，本节其余内容已删除。**没
 
 ## 四、验证
 
-**§1 先做的实测探针**（scratchpad 小脚本，直连 `DEEPSEEK_API_KEY`，谷时跑，每项几分钱）
-1. 带 tools + thinking 的 3 轮工具循环：回传 reasoning_content 不 400；故意省略时收到 `must be passed back` 的 400 原文。
-2. 历史里放一条无 reasoning 的 assistant 轮：`reasoning_content: ""` 与省略字段各试一次，记录哪种被接受。
-3. in-history 语义：头部 system 说"暗号 A"，历史末尾追加 system 说"暗号 B"，问模型暗号是什么；连续 3 次都答 B 才算成立。
-4. thinking 开时 `tool_choice: 'none'` 可用；`reasoning_effort: 'medium'` 的返回码。
-5. 同一前缀连发两次，第二次 `prompt_cache_hit_tokens` 覆盖 system + tools。
+**§1 实测探针 —— 已跑（2026-09-19，deepseek-flash，谷时，全部 5 项共几分钱）**
+
+脚本固化在 [`scripts/deepseek-probe.mjs`](../scripts/deepseek-probe.mjs)，读 `DEEPSEEK_API_KEY`（或 `.env`），
+`node scripts/deepseek-probe.mjs` 全跑、`node scripts/deepseek-probe.mjs 1 3` 挑着跑、
+`HC_PROBE_MODEL=deepseek-v4-pro` 换模型。每项打印实测结果和它对代码意味着什么，全部符合预期则退出码 0。
+
+| # | 问题 | 实测结果 | 结论 |
+|---|---|---|---|
+| 1 | 带 tools 时不回传 `reasoning_content` 会不会 400 | **不会**。回传 200、省略 200、从纯文本轮里删掉也 200；`deepseek-flash` 和 `deepseek-v4-pro` 一致 | 调研里"不回传必 400"这条**不成立**。仍然回传（dsh 同款做法，且能让前缀和缓存里的字节完全一致），`openai-compat.ts` 的 400 自愈降级为保险 |
+| 2 | 历史里有一条从未带 reasoning 的 assistant 轮 | 省略 / `""` / 占位字符串都是 200 | 保持现状：什么都不发。不需要主动注入 `""` |
+| 3 | Chat Completions 是否"以最后一条 system 为准" | **是**，连续 3 次都答出后追加的暗号 | **P1-1 的前置条件成立**，in-history system prompt 更新可以做 |
+| 4 | thinking 下 `tool_choice` 与 effort 档位 | `none` 可用；`required` 400（`Thinking mode does not support this tool_choice`）；`minimal/low/medium/high/xhigh/max` 全部 200，只有瞎编的 `ultra` 422 | 压缩请求保留 tools + `tool_choice:'none'` 是安全的（P1-2 已这么做）。effort **不是**"多发即拒"：端点照单全收，`effortLevels` 收窄到三档是我们自己的取舍（只展示有区别的档位），不是端点强制 |
+| 5 | 同一前缀连发两次的缓存命中 | 第二次 1792/1963 prompt token 命中，约 **91%** | 缓存确实覆盖 system + tools，P1 这一整档的前提成立 |
+
+单次采样的 reasoning token 数在各档之间没有单调关系（43–101 token 来回跳），要判断 minimal/xhigh 到底折叠到哪一档，
+需要多次重复取中位数——目前没做，也不影响 `mapEffort` 的保守映射。
 
 **§2 单测 / 类型**：`pnpm typecheck && pnpm test`。新增用例：deepseek caps 下出站消息含 reasoning_content、default caps 不含；`content` 为 `""`；effort 映射表；`insufficient_system_resource` → 可重试；402 → quota；峰谷定价选档；DSML 两种文法 + 裸格式回收；压缩请求 = 原 system/tools + 原消息 + 尾部指令。
 

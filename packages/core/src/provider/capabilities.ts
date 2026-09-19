@@ -14,10 +14,14 @@ export type PromptCacheMode = 'none' | 'implicit' | 'explicit';
 
 /**
  * Universal reasoning-effort ladder shown by default (Faster→Smarter). A model
- * declares `effortLevels` when its endpoint accepts only part of the ladder —
- * DeepSeek does *not* fold unknown values server-side, it rejects them
- * (api-docs.deepseek.com/guides/thinking_mode), so a requested level is mapped
- * onto the declared ones here instead (`mapEffort`).
+ * declares `effortLevels` when only part of the ladder means anything to it;
+ * `mapEffort` then folds a requested level onto the declared ones.
+ *
+ * DeepSeek is the reason this exists, though not quite as documented: probed
+ * 2026-09-19 (`scripts/deepseek-probe.mjs`), its endpoint *accepts* the whole
+ * ladder (only a nonsense value 422s) while publishing three native levels.
+ * We keep the picker on the three real ones rather than offering six that
+ * collapse to three.
  */
 export const DEFAULT_REASONING_EFFORTS: readonly ReasoningEffort[] = [
   'minimal',
@@ -89,10 +93,14 @@ export interface ModelCapabilities {
    */
   thinkingParam?: boolean;
   /**
-   * Whether past assistant turns must carry their reasoning back on the wire.
-   * `text` replays it as `reasoning_content` (DeepSeek V4 400s without it once
-   * the request has `tools`); `none` drops it, which is what every other
-   * OpenAI-compatible endpoint expects.
+   * Whether past assistant turns carry their reasoning back on the wire.
+   * `text` replays it as `reasoning_content`; `none` drops it, which is what
+   * every other OpenAI-compatible endpoint expects.
+   *
+   * DeepSeek is documented as *requiring* the replay once a request has
+   * `tools`, but probing it (2026-09-19) found omission accepted as well. We
+   * replay anyway: it is what DeepSeek's own harness does, and it keeps the
+   * turn's prefix byte-identical to the one already in the prompt cache.
    */
   reasoningReplay?: 'none' | 'text';
   contextWindow: number;
@@ -149,9 +157,10 @@ const RULES: CapabilityRule[] = [
   // `deepseek-flash` (V4.1-Flash, 2026-09-10) and `deepseek-v4-pro`, with
   // `deepseek-v4-flash` routed to V4.1-Flash as a transitional alias. Thinking
   // is an effort level on the same model id rather than a separate model, so
-  // every rule here sets `reasoning: true`. The endpoint takes only low/high/max
-  // and rejects the rest of the ladder, so `effortLevels` is declared and
-  // `mapEffort` folds the others onto it client-side. Context (1M) and output
+  // every rule here sets `reasoning: true`. low/high/max are the published
+  // native levels — the endpoint tolerates the rest of the ladder, but
+  // `effortLevels` keeps the picker on the three that mean something and
+  // `mapEffort` folds the others onto them. Context (1M) and output
   // (384K) are DeepSeek's published V4 figures. Prices are the published
   // peak-hour rates with `offPeak` (Mon–Fri outside 01:00–04:00 and 06:00–10:00
   // UTC) — note the cache-hit rate is ~1/50 of the miss rate, which is why

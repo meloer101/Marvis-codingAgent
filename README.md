@@ -133,8 +133,8 @@ Marvis 面向真实代码库设计，其安全边界如下：
 | --- | --- |
 | 流式 `tool_calls` 增量带稳定 `index`、无 `index`、或整调一次给全 | `ToolCallAccumulator` 三种都能重组，含拆分/重复的 `function.name` |
 | `finish_reason` 说 `stop`，而负载里仍带着 tool call | 以负载为准——信那个字段会让循环卡死 |
-| reasoning 以 `reasoning_content`（DeepSeek）或 `reasoning`（OpenRouter）出现 | 都映射为 `thinking` 块；回传与否按模型声明——DeepSeek V4 带 `tools` 时不回传就 400，其余端点丢弃 |
-| reasoning effort 的档位各家不同（DeepSeek 只收 low/high/max，多收即拒） | 统一的档位在客户端映射到模型声明的档位；`off` 走 `thinking: disabled` |
+| reasoning 以 `reasoning_content`（DeepSeek）或 `reasoning`（OpenRouter）出现 | 都映射为 `thinking` 块；回传与否按模型声明——DeepSeek 回传（保持缓存前缀一致），其余端点丢弃 |
+| reasoning effort 的档位各家不同（DeepSeek 的原生档位是 low/high/max） | 统一的档位在客户端映射到模型声明的档位；`off` 走 `thinking: disabled` |
 | 缓存 token 用三种不同字段名上报 | 全部归一到 `usage.cachedInputTokens` |
 | 高负载时只发 `: keep-alive` 注释，模型思考时长时间无输出 | 超时按"首字节前 600s + 空闲 300s"算，任何字节（含注释）都重置空闲计时 |
 | 完全不报用量（Ollama、多数 llama.cpp） | 估算并打标，CJK 与 ASCII 分别加权 |
