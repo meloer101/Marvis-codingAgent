@@ -87,6 +87,7 @@ import {
   sessionArtifactsDir,
 } from './session.js';
 import { TraceRecorder } from '../telemetry/trace.js';
+import { ToolOutputStore } from '../context/tool-output.js';
 import { addUsage } from '../provider/types.js';
 import type { Message, SystemSegment, Usage } from '../provider/types.js';
 import { ProviderRegistry } from '../provider/router.js';
@@ -222,6 +223,7 @@ interface SessionInit {
   messages: Message[];
   hooks: AgentHooks;
   compactHook: AgentHooks | undefined;
+  toolOutputStore: ToolOutputStore | undefined;
   registry: ProviderRegistry;
   budgetOverrides: Partial<AgentLoopOptions>;
   autoState?: AutoModeState;
@@ -257,6 +259,7 @@ export class AgentSession {
   readonly #trace: TraceRecorder | undefined;
   readonly #hooks: AgentHooks;
   readonly #compactHook: AgentHooks | undefined;
+  readonly #toolOutputStore: ToolOutputStore | undefined;
   readonly #budgetOverrides: Partial<AgentLoopOptions>;
   readonly #autoState: AutoModeState | undefined;
   readonly #autoClassifier: AutoModeClassifier | undefined;
@@ -306,6 +309,7 @@ export class AgentSession {
     this.#messages = init.messages;
     this.#hooks = init.hooks;
     this.#compactHook = init.compactHook;
+    this.#toolOutputStore = init.toolOutputStore;
     this.#budgetOverrides = init.budgetOverrides;
     this.#autoState = init.autoState;
     this.#autoClassifier = init.autoClassifier;
@@ -553,6 +557,11 @@ export class AgentSession {
     const summarizer =
       config.summarizerModel ??
       (settings.smallModel ? registry.resolve(settings.smallModel) : config.model);
+    // One store per session for full tool outputs: the loop's output cap and the
+    // compactor's pruning both write here, numbered from one counter.
+    const toolOutputStore = recorder
+      ? new ToolOutputStore(sessionArtifactsDir(agentDir, recorder.id), cwd)
+      : undefined;
     const compactHook =
       config.compact === false
         ? undefined
@@ -569,9 +578,7 @@ export class AgentSession {
               ...(config.budgets.compactKeepTurns !== undefined
                 ? { keepTurns: config.budgets.compactKeepTurns }
                 : {}),
-              ...(recorder
-                ? { offloadDir: sessionArtifactsDir(agentDir, recorder.id), cwd }
-                : {}),
+              ...(toolOutputStore ? { offloadStore: toolOutputStore } : {}),
               onSkip: (reason) =>
                 notify({ kind: 'compaction', level: 'info', text: reason }),
             }),
@@ -636,6 +643,7 @@ export class AgentSession {
       messages: priorMessages,
       hooks,
       compactHook,
+      toolOutputStore,
       registry,
       budgetOverrides,
       autoAvailable,
@@ -1015,6 +1023,7 @@ export class AgentSession {
       ...(this.#trace ? { trace: this.#trace } : {}),
       session: this.#session,
       hooks: this.#hooks,
+      ...(this.#toolOutputStore ? { toolOutputStore: this.#toolOutputStore } : {}),
       control: this.#control,
       signal,
       ...this.#budgetOverrides,

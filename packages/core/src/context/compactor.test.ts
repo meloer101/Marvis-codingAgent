@@ -18,6 +18,7 @@ import {
   splitForCompaction,
 } from './compactor.js';
 import { heuristicTokenCount } from './tokenizer.js';
+import { ToolOutputStore } from './tool-output.js';
 
 const goal = (text: string): Message => ({ role: 'user', content: [{ type: 'text', text }] });
 
@@ -492,7 +493,7 @@ describe('applyToolOutputOffload', () => {
     const pruned = pruneToolOutputs(msgs, { protectTokens: 0, minReclaimTokens: 100 });
     const dir = await mkdtemp(join(tmpdir(), 'hc-toolout-'));
     const cwd = join(dir, '..');
-    const offloaded = await applyToolOutputOffload(pruned, { dir, cwd });
+    const offloaded = await applyToolOutputOffload(pruned, { store: new ToolOutputStore(dir, cwd) });
 
     const result = offloaded.messages[2]!.content[0] as { content: string };
     expect(result.content).toContain(PRUNED_TOOL_RESULT_PREFIX);
@@ -518,12 +519,11 @@ describe('applyToolOutputOffload', () => {
       },
     ];
     const pruned = pruneToolOutputs(msgs, { protectTokens: 0, minReclaimTokens: 100 });
+    const dir = await mkdtemp(join(tmpdir(), 'hc-toolout-'));
     const offloaded = await applyToolOutputOffload(pruned, {
-      dir: '/tmp/hc-toolout-unused',
-      cwd: '/tmp',
-      writeFile: async () => {
+      store: new ToolOutputStore(dir, tmpdir(), async () => {
         throw new Error('ENOSPC');
-      },
+      }),
     });
 
     const result = offloaded.messages[2]!.content[0] as { content: string };

@@ -147,6 +147,9 @@ flowchart TD
   The same module prunes bulky `tool_result` bodies and **offloads** them to
   `.agent/sessions/<id>/toolout-*.txt`, leaving a placeholder that points `read`
   at the file (reversible; a write failure falls back to a re-call stub).
+- **`tool-output.ts`** — one token cap (default 10k) on every tool result as it
+  enters history, keeping the start and the end; the full text goes to the same
+  `toolout-*.txt` store the compactor offloads into, and the result names the file.
 - **`tokenizer.ts`** — heuristic token counting with an **EMA calibrator** that
   regresses the heuristic against each turn's real `usage`, so budget math tracks
   the endpoint rather than a fixed ratio (CJK weighted apart from ASCII).

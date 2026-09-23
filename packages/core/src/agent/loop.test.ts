@@ -1666,4 +1666,50 @@ describe('AgentLoop', () => {
       expect(counter.runs).toBe(2);
     });
   });
+
+  describe('tool output cap', () => {
+    const bigTool = (name: string): ToolSpec<unknown> => ({
+      name,
+      description: 'emits a lot',
+      schema: noInput,
+      readOnly: true,
+      concurrencySafe: true,
+      async execute() {
+        return { content: Array.from({ length: 4_000 }, (_, i) => `row ${i}`).join('\n') };
+      },
+    });
+
+    async function runWith(name: string, hooks: AgentHooks = allowAllHooks) {
+      const provider = new ScriptedProvider([
+        { toolCalls: [{ name, input: {} }] },
+        { text: 'done' },
+      ]);
+      const loop = new AgentLoop({
+        model: resolvedModel(provider),
+        tools: new ToolRegistry([bigTool(name)]),
+        cwd: '/tmp',
+        hooks,
+        toolOutputMaxTokens: 500,
+      });
+      const result = await loop.run([userText('go')]);
+      return (result.messages[2]!.content[0] as { content: string }).content;
+    }
+
+    it('caps a large result before guardrail feedback is appended', async () => {
+      const content = await runWith('dump', {
+        ...allowAllHooks,
+        onAfterToolCall: async () => ({ appendToResult: 'GUARDRAIL NOTE' }),
+      });
+      expect(content).toMatch(/^\[Output truncated:/);
+      expect(content).toContain('row 3999');
+      expect(content.endsWith('GUARDRAIL NOTE')).toBe(true);
+    });
+
+    it('leaves skill bodies whole', async () => {
+      const content = await runWith('skill');
+      expect(content).not.toContain('Output truncated');
+      expect(content.split('\n')).toHaveLength(4_000);
+    });
+  });
 });
+

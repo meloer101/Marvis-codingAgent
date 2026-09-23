@@ -32,6 +32,8 @@ import type {
 } from '../provider/types.js';
 import { allowedToolNames } from '../skills/narrow.js';
 import { parseGoalAndPriorDigest } from '../context/compactor.js';
+import { DEFAULT_TOOL_OUTPUT_MAX_TOKENS, capToolOutput } from '../context/tool-output.js';
+import type { ToolOutputStore } from '../context/tool-output.js';
 import { maybeVaryObservation } from './observations.js';
 import { z } from 'zod';
 
@@ -242,6 +244,14 @@ export interface AgentLoopOptions {
    * call. Intended for sub-agents; main agent default is off.
    */
   finalSummaryTurn?: boolean;
+  /**
+   * Token cap on every tool result, applied before `onAfterToolCall` so
+   * guardrail feedback is never cut. Default `DEFAULT_TOOL_OUTPUT_MAX_TOKENS`
+   * (10k); `Infinity` disables it.
+   */
+  toolOutputMaxTokens?: number;
+  /** Where a capped result's full text is saved, so the model can `read` it. */
+  toolOutputStore?: ToolOutputStore;
   signal?: AbortSignal;
   /** Passed through to every tool's `ctx.control`. */
   control?: AgentControl;
@@ -1043,6 +1053,23 @@ export class AgentLoop {
     call: ToolUseBlock,
     decision: PermissionDecision,
     truncated = false,
+  ): Promise<ToolResult> {
+    const result = await this.executeTool(call, decision, truncated);
+    // A skill body is instructions the model asked to load; cutting it would
+    // silently drop part of them.
+    if (call.name === 'skill') return result;
+    const maxTokens = this.opts.toolOutputMaxTokens ?? DEFAULT_TOOL_OUTPUT_MAX_TOKENS;
+    const content = await capToolOutput(result.content, {
+      maxTokens,
+      ...(this.opts.toolOutputStore ? { store: this.opts.toolOutputStore } : {}),
+    });
+    return content === result.content ? result : { ...result, content };
+  }
+
+  private async executeTool(
+    call: ToolUseBlock,
+    decision: PermissionDecision,
+    truncated: boolean,
   ): Promise<ToolResult> {
     if (decision.decision === 'deny') {
       return { content: `Denied: ${decision.reason}`, isError: true };

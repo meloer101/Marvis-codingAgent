@@ -21,8 +21,7 @@ import type { Message, Provider, ReasoningEffort } from '../provider/types.js';
 import { textOf } from '../provider/types.js';
 import { errorMessage } from '../tools/util.js';
 import { flattenRequestText, heuristicTokenCount } from './tokenizer.js';
-import { mkdir, writeFile as writeFileNative } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { ToolOutputStore } from './tool-output.js';
 
 /** Separates the verbatim original goal from the digest inside the merged head. */
 export const COMPACTION_MARKER = '\n\n---\n[此前对话已压缩 · compacted]\n';
@@ -247,17 +246,14 @@ export function pruneToolOutputs(
 }
 
 export interface ToolOutputOffloadOptions {
-  /** Absolute directory to write `toolout-<n>.txt` files into. */
-  dir: string;
-  /** Workspace root; placeholder paths are relative to this so `read` can open them. */
-  cwd: string;
-  writeFile?: (path: string, data: string) => Promise<void>;
+  /** Where pruned bodies are written; shared with the loop's output cap so file names never collide. */
+  store: ToolOutputStore;
 }
 
 /**
- * Persist pruned tool bodies to `dir` and rewrite placeholders to point at the
- * files. A write failure on one body falls back to the re-call placeholder for
- * that body only — never aborts the compaction.
+ * Persist pruned tool bodies through `store` and rewrite placeholders to point
+ * at the files. A write failure on one body falls back to the re-call
+ * placeholder for that body only — never aborts the compaction.
  */
 export async function applyToolOutputOffload(
   result: PruneToolOutputsResult,
@@ -265,26 +261,15 @@ export async function applyToolOutputOffload(
 ): Promise<PruneToolOutputsResult> {
   if (result.pruned.length === 0) return result;
 
-  const write = opts.writeFile ?? writeFileNative;
   const replacements = new Map<string, string>();
-  let n = 0;
-  try {
-    await mkdir(opts.dir, { recursive: true });
-  } catch {
-    return result;
-  }
-
   for (const hit of result.pruned) {
-    const filename = `toolout-${n++}.txt`;
-    const abs = join(opts.dir, filename);
-    const key = `${hit.msgIdx}:${hit.blockIdx}`;
-    try {
-      await write(abs, hit.content);
-      const rel = relative(opts.cwd, abs).split(sep).join('/');
-      replacements.set(key, offloadedPrunedPlaceholder(hit.toolName, hit.content.length, rel));
-    } catch {
-      // keep the fallback placeholder already in `result.messages`
-    }
+    const rel = await opts.store.save(hit.content);
+    // On failure keep the fallback placeholder already in `result.messages`.
+    if (rel === undefined) continue;
+    replacements.set(
+      `${hit.msgIdx}:${hit.blockIdx}`,
+      offloadedPrunedPlaceholder(hit.toolName, hit.content.length, rel),
+    );
   }
 
   if (replacements.size === 0) return result;
@@ -450,6 +435,11 @@ export interface CompactorOptions {
   offloadDir?: string;
   cwd?: string;
   writeFile?: (path: string, data: string) => Promise<void>;
+  /**
+   * Store to offload through instead of `offloadDir`/`cwd` — pass the session's
+   * shared store so pruning and the loop's output cap number files together.
+   */
+  offloadStore?: ToolOutputStore;
   /** Called with a one-line reason whenever compaction is skipped (empty middle, failed call). */
   onSkip?(reason: string): void;
 }
@@ -466,6 +456,13 @@ export function createCompactor(opts: CompactorOptions): NonNullable<AgentHooks[
   const minCompactTokens = opts.minCompactTokens ?? DEFAULT_MIN_COMPACT_TOKENS;
   const budget = opts.digestTokenBudget ?? DEFAULT_DIGEST_TOKEN_BUDGET;
   const pruneBefore = opts.pruneBeforeSummary !== false;
+  // One store for the compactor's lifetime: numbering must carry across
+  // compactions, or the second one overwrites the files the first pointed at.
+  const offloadStore =
+    opts.offloadStore ??
+    (opts.offloadDir && opts.cwd
+      ? new ToolOutputStore(opts.offloadDir, opts.cwd, opts.writeFile)
+      : undefined);
 
   return async (messages, _pressure, ctx) => {
     let working: readonly Message[] = messages;
@@ -482,12 +479,8 @@ export function createCompactor(opts: CompactorOptions): NonNullable<AgentHooks[
           ? { protectedTools: opts.prunedToolsExempt }
           : {}),
       });
-      if (pruned.reclaimedTokens > 0 && opts.offloadDir && opts.cwd) {
-        pruned = await applyToolOutputOffload(pruned, {
-          dir: opts.offloadDir,
-          cwd: opts.cwd,
-          ...(opts.writeFile ? { writeFile: opts.writeFile } : {}),
-        });
+      if (pruned.reclaimedTokens > 0 && offloadStore) {
+        pruned = await applyToolOutputOffload(pruned, { store: offloadStore });
       }
       if (pruned.reclaimedTokens > 0) {
         working = pruned.messages;
