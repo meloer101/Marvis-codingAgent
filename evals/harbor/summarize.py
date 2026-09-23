@@ -122,7 +122,7 @@ def main(argv: list[str]) -> int:
         print("agent failure stop reasons: " + ", ".join(f"{k} ×{v}" for k, v in stops.most_common()))
     print("environment config(s): " + "; ".join(f"{k} ×{v}" for k, v in envs.most_common()))
     if failures:
-        print("\nagent failures to read (hc traces under <trial>/agent/hc-traces/):")
+        print("\nagent failures to read (python3 evals/harbor/digest.py <jobs_dir> for their transcripts):")
         for task, bucket, stop, trial_dir in failures:
             print(f"  {task:32} {bucket:14} {stop:12} {trial_dir}")
     return 0

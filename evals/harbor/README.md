@@ -16,6 +16,8 @@ container-isolated capability measurement on a public benchmark.
 | `hc_agent.py` | Harbor **installed-agent adapter** — `HcAgent(BaseInstalledAgent)`. Ships the `hc` bundle into each task container and runs it headless. |
 | `subset.txt` | The task ids for the baseline run (tune freely). |
 | `run-subset.sh` | Convenience wrapper around `harbor run` for the subset. |
+| `summarize.py` | Pass / agent-fail / agent-timeout / infra per task, infra kept out of the pass rate. |
+| `digest.py` | Turn-by-turn transcript of each trial (failures by default, `--all` for every trial), for error analysis. |
 
 Nothing here is imported by `packages/*`; `hc` itself is untouched.
 
@@ -61,6 +63,7 @@ HC_BENCH_LIST=evals/harbor/heldout.txt evals/harbor/run-subset.sh
 
 ```bash
 python3 evals/harbor/summarize.py            # or pass a jobs dir
+python3 evals/harbor/digest.py <jobs_dir> -o digest.md   # transcripts of the failures; --all for every trial
 ```
 
 This splits trials into `pass` / `agent-fail` / `agent-timeout` / `infra`. Infra
