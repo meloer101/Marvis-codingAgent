@@ -15,11 +15,9 @@
 
 ## 0. 建议顺序
 
-1. **四个 quick win**：C「工具输出统一上限」、C「`edit` 分级模糊匹配」、E「压缩时原样保留近期用户
-   消息」、G「上下文布局快照 + 前缀不变式测试」。都不改变模型看到的提示内容，eval cassette 不用重录。
-2. **A「DSML / 纯文本工具调用兜底解析」**：`deepseek-flash` 是主力模型，这个故障会让回合直接结束。
-3. **G「失败模式统计」**：先把已有的 18 条 Harbor 轨迹逐条计入 §G 的表，H 节的 measure 项都依赖它。
-4. 同时处理下面「待决定」里的问题。
+1. **A「DSML / 纯文本工具调用兜底解析」**：`deepseek-flash` 是主力模型，这个故障会让回合直接结束。
+2. **G「失败模式统计」**：先把已有的 18 条 Harbor 轨迹逐条计入 §G 的表，H 节的 measure 项都依赖它。
+3. 同时处理下面「待决定」里的问题。
 
 ### 待决定（产品取舍，不是工程量）
 - **`.env.example` 这类模板文件要不要从敏感文件中豁免？** `isSensitivePath`
@@ -80,15 +78,6 @@
 
 ## C · Tool system & execution
 
-- **[codex] 工具输出统一上限，超出部分落盘** *(quick win)*：现在各工具各自截断——`read` 没有总上限
-  （2000 行 × 每行 2000 字符），`grep` 允许 10 万字符，`bash` 3 万字符。在 `AgentLoop.runToolCalls`
-  里统一加一个按 token 计的上限（默认 10K；放在 `onAfterToolCall` 之前，guardrail 反馈不会被截掉），
-  附"原始 token 数 / 总行数"头，全文复用压缩器的 `toolout-<n>.txt` 落盘逻辑写出，结果里给出路径
-  （`core/src/context_manager/history.rs`、`utils/output-truncation/`）。*(S)*
-- **[codex] `edit` 分级模糊匹配** *(quick win)*：`oldString` 精确匹配失败时，按行依次忽略行尾空白、
-  忽略首尾空白、归一化 Unicode 标点和空格后重试（仍然要求唯一匹配），并在结果中注明用了哪一级；
-  还是失败时，指出最相近的行。移植自 `apply-patch/src/seek_sequence.rs`。`replaceAll` 保持精确匹配，
-  工具描述不变。*(S)*
 - **[codex] 后台 shell 进程**：`bash` 增加 `runInBackground`，配套 `bash_output` / `bash_kill`；
   每个会话维护一张进程表（保留首尾输出、有数量上限，中断或关闭会话时全部结束）
   （`core/src/unified_exec/`、`core/src/tools/handlers/shell_spec.rs`）。主要针对 Harbor 上的长时间
@@ -133,10 +122,9 @@
 
 ## E · Context engineering (in-session)
 
-- **[codex] 压缩时原样保留近期用户消息** *(quick win)*：除了首条目标消息，在 token 预算内把最近的真实
-  用户消息原样保留在压缩后的头部，这样即使不变式抽取漏掉了，用户后来的纠正也不会丢。codex 压缩后的
-  历史 = 近期用户消息（≤20K tokens）+ 摘要；压缩请求本身超出窗口时，裁掉最旧的一项再重试
-  （`core/src/compact.rs`）。*(S)*
+- **压缩请求自身超窗时的重试**：压缩请求（head + 被压缩区间）本身超出窗口时，现在会失败并跳过压缩，
+  最后由 loop 的 `context_limit` 停止兜底。codex 的做法是裁掉最旧的一项再重试（`core/src/compact.rs`）。
+  *(S)*
 - **工具结果修剪（dsh 方式）**：压缩触发后，单条工具结果超过 8192 字符的，只保留头 4096 + 尾 1024。
   先用 ablation 度量再合入。*(S)* — **measure**
 - **[codex] 其余状态变化也以追加片段注入**：system prompt 已经按变化段追加，工具列表也已经在模式间
@@ -168,10 +156,6 @@
   上面建任务。
 - **eval 多轨迹回放**：一份 cassette 里有两条以上轨迹时回放不了，所以 `plan-then-implement` 只能
   `runs: 1`，统计力很弱。*(S)*
-- **[codex] 上下文布局快照 + 前缀不变式测试** *(quick win)*：用 `ScriptedProvider` 跑多轮，断言每次
-  请求的 messages 都是在上一次请求后面追加、同一模式下 system 和工具保持一致，再加一份规范化的布局
-  快照。这样提示结构的变化会显示成可审阅的 diff，而不是表现为 cassette 未命中
-  （`core/tests/common/context_snapshot.rs`、`core/tests/suite/prompt_caching.rs`）。*(S)*
 - **[codex] 可选的全量调试包**：只在开启时，写出有序的原始事件和精确的请求 / 响应内容，离线还原每次
   请求"模型实际看到了什么"（`rollout-trace/README.md`）。能方便 Harbor 事后分析和 H 节的测量；
   默认 trace 仍不含正文。*(M)*
