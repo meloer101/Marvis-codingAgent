@@ -3,6 +3,8 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import { z } from 'zod';
 
 import { PathEscapeError, assertInsideWorkspace } from '../permissions/paths.js';
+import { TIER_LABEL, findFuzzyMatch } from './edit-match.js';
+import type { FuzzyMatch } from './edit-match.js';
 import type { ToolSpec } from './types.js';
 import { errorMessage } from './util.js';
 
@@ -56,21 +58,46 @@ export const editTool: ToolSpec<z.infer<typeof schema>> = {
     }
 
     const occurrences = countOccurrences(text, input.oldString);
+    let updated: string;
+    let note = '';
     if (occurrences === 0) {
-      return { content: `oldString not found in ${input.path}.`, isError: true };
-    }
-    if (occurrences > 1 && !input.replaceAll) {
+      // No exact match: retry line by line with looser comparisons. replaceAll
+      // stays exact — a loose match applied everywhere is too easy to get wrong.
+      const fuzzy: FuzzyMatch = input.replaceAll
+        ? { kind: 'none' }
+        : findFuzzyMatch(text, input.oldString);
+      if (fuzzy.kind === 'ambiguous') {
+        return {
+          content:
+            `oldString not found exactly in ${input.path}; ${TIER_LABEL[fuzzy.tier]} it ` +
+            `matches ${fuzzy.count} places. Include more surrounding context to make it unique.`,
+          isError: true,
+        };
+      }
+      if (fuzzy.kind === 'none') {
+        return {
+          content: `oldString not found in ${input.path}.${fuzzy.hint ? ` ${fuzzy.hint}` : ''}`,
+          isError: true,
+        };
+      }
+      const replacement =
+        fuzzy.crlf && !input.newString.includes('\r')
+          ? input.newString.replace(/\n/g, '\r\n')
+          : input.newString;
+      updated = text.slice(0, fuzzy.start) + replacement + text.slice(fuzzy.end);
+      note = ` (matched ${TIER_LABEL[fuzzy.tier]})`;
+    } else if (occurrences > 1 && !input.replaceAll) {
       return {
         content:
           `oldString matches ${occurrences} places in ${input.path}; include more ` +
           `surrounding context to make it unique, or pass replaceAll: true.`,
         isError: true,
       };
+    } else {
+      updated = input.replaceAll
+        ? text.split(input.oldString).join(input.newString)
+        : text.replace(input.oldString, () => input.newString);
     }
-
-    const updated = input.replaceAll
-      ? text.split(input.oldString).join(input.newString)
-      : text.replace(input.oldString, input.newString);
 
     try {
       await writeFile(path, updated, 'utf8');
@@ -80,7 +107,7 @@ export const editTool: ToolSpec<z.infer<typeof schema>> = {
 
     const stats = await stat(path);
     ctx.session.markRead(path, stats.mtimeMs);
-    return { content: `Replaced ${occurrences} occurrence(s) in ${input.path}` };
+    return { content: `Replaced ${Math.max(occurrences, 1)} occurrence(s) in ${input.path}${note}` };
   },
 };
 

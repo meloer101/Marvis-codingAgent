@@ -97,4 +97,74 @@ describe('editTool', () => {
     );
     expect(result.isError).toBe(true);
   });
+
+  describe('when oldString has no exact match', () => {
+    async function editFile(content: string, oldString: string, newString: string, replaceAll?: boolean) {
+      await writeFile(join(cwd, 'a.txt'), content, 'utf8');
+      await readTool.execute({ path: 'a.txt' }, ctx);
+      const result = await editTool.execute({ path: 'a.txt', oldString, newString, replaceAll }, ctx);
+      return { result, after: await readFile(join(cwd, 'a.txt'), 'utf8') };
+    }
+
+    it('matches ignoring trailing whitespace and says so', async () => {
+      const { result, after } = await editFile('a\nfoo();   \nb\n', 'foo();\n', 'bar();\n');
+      expect(result.isError).toBeUndefined();
+      expect(result.content).toContain('ignoring trailing whitespace');
+      expect(after).toBe('a\nbar();\nb\n');
+    });
+
+    it('matches ignoring indentation', async () => {
+      const { result, after } = await editFile(
+        'function f() {\n    return 1;\n}\n',
+        '\treturn 1;\n}',
+        '    return 2;\n}',
+      );
+      expect(result.content).toContain('leading and trailing whitespace');
+      expect(after).toBe('function f() {\n    return 2;\n}\n');
+    });
+
+    it('matches smart quotes and dashes against ASCII', async () => {
+      const { result, after } = await editFile(
+        "const s = 'a - b';\n",
+        'const s = \u2018a \u2013 b\u2019;',
+        "const s = 'c';",
+      );
+      expect(result.content).toContain('Unicode');
+      expect(after).toBe("const s = 'c';\n");
+    });
+
+    it('keeps CRLF line endings when the match came through the loose tier', async () => {
+      const { after } = await editFile('x\r\nold1\r\nold2\r\ny\r\n', 'old1\nold2', 'new1\nnew2');
+      expect(after).toBe('x\r\nnew1\r\nnew2\r\ny\r\n');
+    });
+
+    it('still refuses a loose match that is ambiguous', async () => {
+      const { result, after } = await editFile('  foo\nfoo  \n', 'foo', 'bar');
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/matches 2 places/);
+      expect(after).toBe('  foo\nfoo  \n');
+    });
+
+    it('does not loosen replaceAll', async () => {
+      const { result } = await editFile('foo  \nfoo  \n', 'foo\n', 'bar\n', true);
+      expect(result.isError).toBe(true);
+    });
+
+    it('points at the closest line when nothing matches', async () => {
+      const { result } = await editFile(
+        'const total = items.reduce((a, b) => a + b, 0);\n',
+        'const total = items.reduce((acc, b) => acc + b, 0);',
+        'x',
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('line 1');
+    });
+  });
+
+  it('inserts newString literally, without $-pattern expansion', async () => {
+    await writeFile(join(cwd, 'a.txt'), 'price: X', 'utf8');
+    await readTool.execute({ path: 'a.txt' }, ctx);
+    await editTool.execute({ path: 'a.txt', oldString: 'X', newString: "$& and $'" }, ctx);
+    expect(await readFile(join(cwd, 'a.txt'), 'utf8')).toBe("price: $& and $'");
+  });
 });
