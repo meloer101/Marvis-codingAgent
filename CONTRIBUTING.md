@@ -77,8 +77,8 @@ feat(core): …     fix(cli): …     docs: …     test(evals): …
 ```
 
 Keep each commit one coherent change; if a fix drifts into a second concern,
-split it. The build history and deviations are logged in
-[docs/PLAN.md](docs/PLAN.md).
+split it. Remaining work is tracked in [docs/ROADMAP.md](docs/ROADMAP.md);
+delete an item there once it lands.
 
 ## License
 

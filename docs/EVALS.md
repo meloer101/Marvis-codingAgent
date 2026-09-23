@@ -17,7 +17,7 @@ measure with paired CIs  ←──────────  change the harness (
 
 1. **Error analysis comes first.** Read runs, write down the first error in each
    (later errors are usually consequences), group the notes into failure modes,
-   and count them in [EVAL_FAILURES.md](EVAL_FAILURES.md). Only frequent, real
+   and count them in the failure-mode table in [ROADMAP.md](ROADMAP.md). Only frequent, real
    failure modes get a task or grader. Don't write tests for failures you haven't
    actually seen.
 2. **A good task is one where two experts would give the same verdict.** Every

@@ -69,7 +69,7 @@ balance, no verdict) are left out of the agent's pass rate, because container
 resources alone can move Terminal-Bench scores by several points. The script also
 prints the environment config and the trial directories to read. Each trial's
 `agent/hc-traces/` holds the `hc` trace. Tally what you find in
-[docs/EVAL_FAILURES.md](../../docs/EVAL_FAILURES.md).
+the failure-mode table in [docs/ROADMAP.md](../../docs/ROADMAP.md).
 
 ### Single task (debugging the adapter)
 

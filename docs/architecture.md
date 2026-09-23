@@ -172,7 +172,7 @@ working-style feedback, per-task-type notes) and `<project>/.agent/memory/`
 way skills are: an `<available_memory>` manifest in the prompt, full entries read
 on demand via the `memory` tool. `buffer.ts` batches writes and `store.ts` flushes
 them once at session close. No semantic retrieval, dedup/merge, or sync — by
-choice; the reasoning is in [ROADMAP.md](./ROADMAP.md).
+choice.
 
 ---
 

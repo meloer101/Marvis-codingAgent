@@ -193,7 +193,7 @@ packages/web      浏览器 UI：React 19 · Vite · Tailwind 4 · shadcn · zus
 evals             基准任务与固件
 ```
 
-架构深挖：[docs/architecture.md](docs/architecture.md)。完整构建计划：[docs/PLAN.md](docs/PLAN.md)。
+架构深挖：[docs/architecture.md](docs/architecture.md)。待办：[docs/ROADMAP.md](docs/ROADMAP.md)。
 
 </details>
 

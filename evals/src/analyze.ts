@@ -5,9 +5,9 @@
  * The workflow it serves (Hamel Husain's evals FAQ; Anthropic's "Demystifying
  * evals"): read runs yourself first and note the *first* thing that went wrong
  * in each (open coding), then group the notes into failure modes and count them
- * in docs/EVAL_FAILURES.md (axial coding). The digest is compact enough to also
- * hand to a model for a clustering pass — but a human accepts or rejects every
- * suggested label; the analysis is not outsourced.
+ * in the failure-mode table of docs/ROADMAP.md (axial coding). The digest is
+ * compact enough to also hand to a model for a clustering pass — but a human
+ * accepts or rejects every suggested label; the analysis is not outsourced.
  *
  * Traces are body-free (tool names, input summaries, errors — not model text),
  * so the digest shows what the agent *did*; re-run with `--keep` to inspect the
@@ -139,7 +139,7 @@ export async function analyzeResults(dir: string, opts: AnalyzeOptions = {}): Pr
           '',
           '**First thing that went wrong:** _…_',
           '',
-          '**Failure mode:** _…_ (existing row in docs/EVAL_FAILURES.md, or a new one)',
+          '**Failure mode:** _…_ (existing row in the docs/ROADMAP.md failure table, or a new one)',
         ].join('\n'),
       );
     }
@@ -152,9 +152,9 @@ export async function analyzeResults(dir: string, opts: AnalyzeOptions = {}): Pr
     '',
     'For each run: read the timeline, write the *first* thing that went wrong (later',
     'errors are usually consequences), then name a failure mode. Tally the modes in',
-    '`docs/EVAL_FAILURES.md` and turn the frequent ones into tasks or graders. If the',
-    'failure looks unfair — the grader rejected a valid solution, or the task is',
-    'ambiguous — fix the task, not the agent.',
+    'the failure-mode table of `docs/ROADMAP.md` and turn the frequent ones into',
+    'tasks or graders. If the failure looks unfair — the grader rejected a valid',
+    'solution, or the task is ambiguous — fix the task, not the agent.',
   ].join('\n');
 
   return { markdown: [header, ...sections].join('\n\n---\n\n') + '\n', runs: count };

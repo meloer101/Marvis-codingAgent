@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * DeepSeek endpoint probes — the live checks docs/DEEPSEEK.md §四 §1 asks for
- * before the remaining P0/P1 items can land.
+ * DeepSeek endpoint probes — live checks of the API behaviour the provider
+ * relies on (reasoning_content replay, last-system-wins, tool_choice, caching).
  *
  * Each probe answers one question the docs cannot: what the *endpoint* does,
  * as opposed to what its documentation or DeepSeek's own harness implies. They
@@ -582,7 +582,7 @@ for (const [id, title, fn] of selected) {
 
 console.log(
   failures === 0
-    ? 'all selected probes matched the assumptions in docs/DEEPSEEK.md'
+    ? 'all selected probes matched the expected results'
     : `${failures} probe(s) did not match the assumptions — read the detail above before changing code`,
 );
 process.exit(failures === 0 ? 0 : 1);
