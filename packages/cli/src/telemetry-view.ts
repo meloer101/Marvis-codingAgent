@@ -53,6 +53,7 @@ export function renderTimeline(id: string, events: TraceEvent[]): string {
         if (ev.latencyMs !== undefined) bits.push(fmtDuration(ev.latencyMs));
         bits.push(ev.stopReason);
         if (ev.estimated) bits.push('~est');
+        if (ev.salvagedToolCalls) bits.push(`salvaged ${ev.salvagedToolCalls} tool call(s) from text`);
         lines.push(`  ${at(ev.ts)}model   ${bits.join(' · ')}`);
         break;
       }
@@ -142,7 +143,11 @@ export function renderStats(r: StatsRollup): string {
     `stats  ·  ${r.sessions} session(s)  ·  ${span}`,
     '',
     row('turns', `${r.totalTurns}`, `${r.avgTurnsPerSession.toFixed(1)} avg/session`),
-    row('tool calls', `${r.totalToolCalls}`),
+    row(
+      'tool calls',
+      `${r.totalToolCalls}`,
+      r.totalSalvagedToolCalls > 0 ? `${r.totalSalvagedToolCalls} salvaged from text` : undefined,
+    ),
     row(
       'input tokens',
       fmtTokens(r.totalInputTokens),

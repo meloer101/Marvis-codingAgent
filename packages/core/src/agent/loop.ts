@@ -110,6 +110,7 @@ export interface TraceSink {
     latencyMs?: number;
     ttftMs?: number;
     stopReason: string;
+    salvagedToolCalls?: number;
   }): Promise<void>;
   toolCall(r: {
     turn: number;
@@ -574,6 +575,7 @@ export class AgentLoop {
         ...(response.latencyMs !== undefined ? { latencyMs: response.latencyMs } : {}),
         ...(response.ttftMs !== undefined ? { ttftMs: response.ttftMs } : {}),
         stopReason: response.stopReason,
+        ...(response.salvagedToolCalls ? { salvagedToolCalls: response.salvagedToolCalls } : {}),
       });
 
       const assistantMessage: Message = { role: 'assistant', content: response.content };

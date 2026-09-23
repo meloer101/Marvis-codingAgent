@@ -13,6 +13,7 @@ import type { CapabilityOverrides, ModelCapabilities } from './capabilities.js';
 import { flattenRequestText, heuristicTokenCount } from '../context/tokenizer.js';
 import type { TokenCounter } from '../context/tokenizer.js';
 import { PromptToolParser, renderToolPrompt } from './prompt-tools.js';
+import { DsmlSalvager, salvageBareToolCall } from './dsml-salvage.js';
 import { backoffMs, sleep } from './retry.js';
 import { parseSSE } from './sse.js';
 import { parseLooseJSON } from '../util/json.js';
@@ -159,6 +160,7 @@ export class OpenAICompatProvider implements Provider {
 
     const acc = new ToolCallAccumulator();
     const promptParser = usePromptTools ? new PromptToolParser() : undefined;
+    const salvager = salvagerFor(req, caps, usePromptTools);
     let text = '';
     let thinking = '';
     let finishReason: string | undefined;
@@ -221,8 +223,11 @@ export class OpenAICompatProvider implements Provider {
               yield { type: 'tool_use_end', index: idx, block };
             }
           } else {
-            text += contentDelta;
-            yield { type: 'text_delta', text: contentDelta };
+            const visible = salvager ? salvager.push(contentDelta) : contentDelta;
+            if (visible !== '') {
+              text += visible;
+              yield { type: 'text_delta', text: visible };
+            }
           }
         }
 
@@ -281,7 +286,46 @@ export class OpenAICompatProvider implements Provider {
       nativeBlocks.push(block);
     }
 
-    const toolBlocks = usePromptTools ? promptToolBlocks : nativeBlocks;
+    let toolBlocks = usePromptTools ? promptToolBlocks : nativeBlocks;
+    let salvaged = 0;
+    if (salvager) {
+      const out = salvager.end(nativeBlocks.length > 0);
+      if (out.calls.length === 0) {
+        // Nothing recovered: whatever was held back is ordinary text after all.
+        if (out.text !== '') {
+          text += out.text;
+          yield { type: 'text_delta', text: out.text };
+        }
+      } else {
+        // The markup is gone; any prose that was held with it still shows.
+        text = text.trimEnd();
+        if (out.text !== '') {
+          const piece = text === '' ? out.text : `\n${out.text}`;
+          text += piece;
+          yield { type: 'text_delta', text: piece };
+        }
+        for (const [idx, block] of out.calls.entries()) {
+          yield { type: 'tool_use_start', index: idx, id: block.id, name: block.name };
+          if (block.rawInput) yield { type: 'tool_use_delta', index: idx, argsDelta: block.rawInput };
+          yield { type: 'tool_use_end', index: idx, block };
+        }
+        toolBlocks = out.calls;
+        salvaged = out.calls.length;
+      }
+      // The markup-free variant can only be recognised once the text is final.
+      // What streamed is already on screen; history gets the corrected turn.
+      if (toolBlocks.length === 0 && (finishReason === 'stop' || finishReason === undefined)) {
+        const bare = salvageBareToolCall(text, toolNameSet(req));
+        if (bare) {
+          text = bare.text;
+          toolBlocks = bare.calls;
+          salvaged = bare.calls.length;
+          const block = bare.calls[0]!;
+          yield { type: 'tool_use_start', index: 0, id: block.id, name: block.name };
+          yield { type: 'tool_use_end', index: 0, block };
+        }
+      }
+    }
     assertUsableCompletion(
       finishReason,
       text !== '' || thinking !== '' || toolBlocks.length > 0,
@@ -296,6 +340,7 @@ export class OpenAICompatProvider implements Provider {
       latencyMs: Date.now() - started,
     };
     if (ttftMs !== undefined) response_.ttftMs = ttftMs;
+    if (salvaged > 0) response_.salvagedToolCalls = salvaged;
     response_.usage.costUSD = estimateCostUSD(response_.usage, caps.pricing);
 
     yield { type: 'message_end', response: response_ };
@@ -348,6 +393,28 @@ export class OpenAICompatProvider implements Provider {
       );
     }
 
+    let salvaged = 0;
+    const salvager = salvagerFor(req, caps, usePromptTools);
+    if (salvager) {
+      const shown = salvager.push(text);
+      const out = salvager.end(toolBlocks.length > 0);
+      if (out.calls.length > 0) {
+        text = [shown.trimEnd(), out.text].filter((t) => t !== '').join('\n');
+        toolBlocks = out.calls;
+        salvaged = out.calls.length;
+      } else if (
+        toolBlocks.length === 0 &&
+        (choice?.finish_reason === 'stop' || !choice?.finish_reason)
+      ) {
+        const bare = salvageBareToolCall(text, toolNameSet(req));
+        if (bare) {
+          text = bare.text;
+          toolBlocks = bare.calls;
+          salvaged = bare.calls.length;
+        }
+      }
+    }
+
     assertUsableCompletion(
       choice?.finish_reason,
       text !== '' || thinking !== '' || toolBlocks.length > 0,
@@ -365,6 +432,7 @@ export class OpenAICompatProvider implements Provider {
       stopReason: normalizeStopReason(choice?.finish_reason, toolBlocks.length > 0),
       usage,
       latencyMs: Date.now() - started,
+      ...(salvaged > 0 ? { salvagedToolCalls: salvaged } : {}),
     };
   }
 
@@ -674,6 +742,20 @@ export class ToolCallAccumulator {
     }
     return this.lastIndex === -1 ? this.nextIndex++ : this.lastIndex;
   }
+}
+
+/** A salvager for this request, when the model is prone to text-channel tool calls. */
+function salvagerFor(
+  req: ModelRequest,
+  caps: ModelCapabilities,
+  usePromptTools: boolean,
+): DsmlSalvager | undefined {
+  if (!caps.textToolCallSalvage || usePromptTools || (req.tools?.length ?? 0) === 0) return undefined;
+  return new DsmlSalvager(toolNameSet(req));
+}
+
+function toolNameSet(req: ModelRequest): Set<string> {
+  return new Set((req.tools ?? []).map((t) => t.name));
 }
 
 function buildToolUseBlock(id: string, name: string, args: string): ToolUseBlock {

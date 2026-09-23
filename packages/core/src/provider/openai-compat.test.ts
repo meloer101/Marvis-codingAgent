@@ -859,3 +859,77 @@ describe('vitest sanity', () => {
     expect(vi).toBeDefined();
   });
 });
+
+describe('text-channel tool call salvage', () => {
+  const DSML =
+    '<｜DSML｜invoke name="read"><｜DSML｜parameter name="path" string="true">src/a.ts</｜DSML｜parameter>' +
+    '</｜DSML｜invoke></｜DSML｜tool_calls>';
+  const withTools: ModelRequest = {
+    ...ask,
+    tools: [{ name: 'read', description: 'read a file', inputSchema: { type: 'object' } }],
+  };
+  const chunks = (text: string, size = 7) => {
+    const out: unknown[] = [];
+    for (let i = 0; i < text.length; i += size) out.push(delta({ content: text.slice(i, i + size) }));
+    return out;
+  };
+
+  it('turns streamed DSML into a tool call and counts it', async () => {
+    const p = provider(
+      sseFetch(sseFrames([...chunks(`Reading it.\n${DSML}`), delta({}, 'stop')])),
+      { textToolCallSalvage: true },
+    );
+    const events: StreamEvent[] = [];
+    for await (const ev of p.stream(withTools)) events.push(ev);
+
+    const shown = events.flatMap((e) => (e.type === 'text_delta' ? [e.text] : [])).join('');
+    expect(shown).toBe('Reading it.\n');
+    const end = events.at(-1);
+    if (end?.type !== 'message_end') throw new Error('unreachable');
+    expect(end.response.stopReason).toBe('tool_use');
+    expect(end.response.salvagedToolCalls).toBe(1);
+    expect(end.response.content).toEqual([
+      { type: 'text', text: 'Reading it.' },
+      expect.objectContaining({ type: 'tool_use', name: 'read', input: { path: 'src/a.ts' } }),
+    ]);
+    expect(events.some((e) => e.type === 'tool_use_end' && e.block.name === 'read')).toBe(true);
+  });
+
+  it('leaves DSML alone when salvage is off', async () => {
+    const p = provider(sseFetch(sseFrames([...chunks(DSML), delta({}, 'stop')])));
+    const res = await drainStream(p.stream(withTools));
+    expect(res.content).toEqual([{ type: 'text', text: DSML }]);
+    expect(res.salvagedToolCalls).toBeUndefined();
+  });
+
+  it('recovers a trailing bare toolname{json} once the stream ends', async () => {
+    const p = provider(
+      sseFetch(sseFrames([...chunks('Let me look.\nread{"path": "b.ts"}'), delta({}, 'stop')])),
+      { textToolCallSalvage: true },
+    );
+    const res = await drainStream(p.stream(withTools));
+    expect(res.stopReason).toBe('tool_use');
+    expect(res.content).toEqual([
+      { type: 'text', text: 'Let me look.' },
+      expect.objectContaining({ type: 'tool_use', name: 'read', input: { path: 'b.ts' } }),
+    ]);
+  });
+
+  it('salvages from a non-streaming completion too', async () => {
+    const p = provider(
+      jsonFetch({
+        model: 'test-model',
+        choices: [{ finish_reason: 'stop', message: { content: `ok\n${DSML}` } }],
+        usage: { prompt_tokens: 9, completion_tokens: 2 },
+      }),
+      { streaming: false, textToolCallSalvage: true },
+    );
+    const res = await p.complete(withTools);
+    expect(res.salvagedToolCalls).toBe(1);
+    expect(res.content).toEqual([
+      { type: 'text', text: 'ok' },
+      expect.objectContaining({ type: 'tool_use', name: 'read', input: { path: 'src/a.ts' } }),
+    ]);
+  });
+});
+

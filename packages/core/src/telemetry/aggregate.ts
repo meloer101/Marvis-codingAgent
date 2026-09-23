@@ -24,6 +24,8 @@ export interface TraceSummary {
   toolCalls: number;
   /** Tool calls the permission engine refused. */
   deniedToolCalls: number;
+  /** Tool calls recovered from the text channel (see `provider/dsml-salvage.ts`). */
+  salvagedToolCalls: number;
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens: number;
@@ -50,6 +52,7 @@ export function summarizeTrace(id: string, events: TraceEvent[]): TraceSummary {
     turns: 0,
     toolCalls: 0,
     deniedToolCalls: 0,
+    salvagedToolCalls: 0,
     inputTokens: 0,
     outputTokens: 0,
     cachedInputTokens: 0,
@@ -77,6 +80,7 @@ export function summarizeTrace(id: string, events: TraceEvent[]): TraceSummary {
         if (ev.costUSD !== undefined) s.costUSD += ev.costUSD;
         else s.costPartial = true;
         if (ev.estimated) s.tokensEstimated = true;
+        if (ev.salvagedToolCalls) s.salvagedToolCalls += ev.salvagedToolCalls;
         s.stopReason = ev.stopReason;
         modelCounts.set(ev.model, (modelCounts.get(ev.model) ?? 0) + 1);
         break;
@@ -149,6 +153,7 @@ export interface StatsRollup {
   totalTurns: number;
   totalToolCalls: number;
   totalDeniedToolCalls: number;
+  totalSalvagedToolCalls: number;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCachedInputTokens: number;
@@ -171,6 +176,7 @@ export function rollupStats(summaries: TraceSummary[]): StatsRollup {
     totalTurns: 0,
     totalToolCalls: 0,
     totalDeniedToolCalls: 0,
+    totalSalvagedToolCalls: 0,
     totalInputTokens: 0,
     totalOutputTokens: 0,
     totalCachedInputTokens: 0,
@@ -191,6 +197,7 @@ export function rollupStats(summaries: TraceSummary[]): StatsRollup {
     r.totalTurns += s.turns;
     r.totalToolCalls += s.toolCalls;
     r.totalDeniedToolCalls += s.deniedToolCalls;
+    r.totalSalvagedToolCalls += s.salvagedToolCalls;
     r.totalInputTokens += s.inputTokens;
     r.totalOutputTokens += s.outputTokens;
     r.totalCachedInputTokens += s.cachedInputTokens;

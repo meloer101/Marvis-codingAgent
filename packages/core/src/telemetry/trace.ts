@@ -66,6 +66,8 @@ export type TraceEvent =
       stopReason: string;
       /** True when the token counts are the harness's estimate, not endpoint-reported. */
       estimated?: boolean;
+      /** Tool calls recovered from the text channel (DSML the endpoint didn't parse). */
+      salvagedToolCalls?: number;
     } & UsageFields)
   | {
       type: 'tool_call';
@@ -174,6 +176,7 @@ export class TraceRecorder {
     latencyMs?: number;
     ttftMs?: number;
     stopReason: string;
+    salvagedToolCalls?: number;
   }): Promise<void> {
     await this.append({
       type: 'model_call',
@@ -189,6 +192,7 @@ export class TraceRecorder {
       ...(r.ttftMs !== undefined ? { ttftMs: r.ttftMs } : {}),
       stopReason: r.stopReason,
       ...(r.usage.estimated ? { estimated: true } : {}),
+      ...(r.salvagedToolCalls ? { salvagedToolCalls: r.salvagedToolCalls } : {}),
     });
   }
 

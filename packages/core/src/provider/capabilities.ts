@@ -136,6 +136,12 @@ export interface ModelCapabilities {
    * 400 on an unknown `tool_choice` shape.
    */
   allowedToolsChoice?: boolean;
+  /**
+   * Recover tool calls the model wrote into the text channel: DSML markup the
+   * endpoint failed to parse, or a trailing `toolname{json}` (see
+   * `dsml-salvage.ts`). On for DeepSeek models behind any provider.
+   */
+  textToolCallSalvage?: boolean;
   pricing?: Pricing;
 }
 
@@ -361,6 +367,15 @@ const PROVIDER_DEFAULTS: Record<string, Partial<ModelCapabilities>> = {
   llamacpp: { nativeTools: false, streamUsage: false },
 };
 
+/**
+ * Defaults by model family, whichever provider serves it — DeepSeek's text-channel
+ * tool-call failure follows the model to OpenRouter or a self-hosted vLLM.
+ * Applied after the provider defaults and before the matching rule.
+ */
+const FAMILY_DEFAULTS: ReadonlyArray<{ match: RegExp; caps: Partial<ModelCapabilities> }> = [
+  { match: /deepseek/i, caps: { textToolCallSalvage: true } },
+];
+
 /** User overrides, keyed as `provider/model`, `provider/*`, or `*`. */
 export type CapabilityOverrides = Record<string, Partial<ModelCapabilities>>;
 
@@ -373,6 +388,7 @@ export function resolveCapabilities(
   const merged: ModelCapabilities = {
     ...DEFAULT_CAPABILITIES,
     ...(PROVIDER_DEFAULTS[provider] ?? {}),
+    ...Object.assign({}, ...FAMILY_DEFAULTS.filter((f) => f.match.test(model)).map((f) => f.caps)),
     ...(rule?.caps ?? {}),
     ...(overrides['*'] ?? {}),
     ...(overrides[`${provider}/*`] ?? {}),

@@ -40,6 +40,16 @@ describe('summarizeTrace', () => {
     expect(s.model).toBe('p/m');
   });
 
+  it('counts tool calls salvaged from the text channel, per session and in the rollup', () => {
+    const s = summarizeTrace('s', [
+      modelCall({ salvagedToolCalls: 2 }),
+      modelCall({ turn: 2 }),
+      modelCall({ turn: 3, salvagedToolCalls: 1 }),
+    ]);
+    expect(s.salvagedToolCalls).toBe(3);
+    expect(rollupStats([s, s]).totalSalvagedToolCalls).toBe(6);
+  });
+
   it('folds classifier tokens and cost without counting them as turns', () => {
     const events: TraceEvent[] = [
       modelCall({ ts: 600, costUSD: 0.001 }),

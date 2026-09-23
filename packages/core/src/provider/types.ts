@@ -201,6 +201,11 @@ export interface ModelResponse {
   latencyMs?: number;
   /** Milliseconds to the first content token; the number users actually feel. */
   ttftMs?: number;
+  /**
+   * Tool calls recovered from the text channel because the endpoint returned
+   * them as prose (see `provider/dsml-salvage.ts`). Absent when none were.
+   */
+  salvagedToolCalls?: number;
 }
 
 // ---------------------------------------------------------------------------

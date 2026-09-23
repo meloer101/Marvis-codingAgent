@@ -115,6 +115,13 @@ describe('ProviderRegistry', () => {
 });
 
 describe('resolveCapabilities', () => {
+  it('turns on text-channel tool call salvage for DeepSeek models behind any provider', () => {
+    expect(resolveCapabilities('deepseek', 'deepseek-flash').textToolCallSalvage).toBe(true);
+    expect(resolveCapabilities('openrouter', 'deepseek/deepseek-v4-flash').textToolCallSalvage).toBe(true);
+    expect(resolveCapabilities('vllm', 'deepseek-ai/DeepSeek-V4-Flash').textToolCallSalvage).toBe(true);
+    expect(resolveCapabilities('openai', 'gpt-5').textToolCallSalvage).toBeUndefined();
+  });
+
   it('marks DeepSeek V4 models as supporting a reasoning channel', () => {
     // Thinking is an effort level (low/high/max) on deepseek-v4-pro/-flash
     // rather than a separate reasoning-only model id, unlike the retired

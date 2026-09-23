@@ -77,6 +77,12 @@ provider layer ever sees an endpoint's raw wire format.
   parameter, tool schemas are rendered into the system prompt and calls are parsed
   back out of the token stream (tolerant of truncation, code fences, Python
   literals), so a tool-less local model runs the identical loop.
+- **`dsml-salvage.ts`** — DeepSeek V4 sometimes writes a tool call into the text
+  channel as DSML markup its endpoint failed to parse (long context, many tools).
+  The markup is held back from the stream and, if it names registered tools and
+  no real `tool_calls` came back, turned into tool calls; a trailing bare
+  `toolname{json}` is recovered the same way. Counted as `salvagedToolCalls` in
+  the trace. On for DeepSeek models behind any provider (`textToolCallSalvage`).
 - **`mock.ts`** — a record/replay provider. A live run is captured to a cassette;
   tests and `pnpm eval` replay it deterministically, with symmetric workspace-path
   rewriting so a cassette replays on any machine.

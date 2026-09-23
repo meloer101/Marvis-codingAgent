@@ -37,6 +37,7 @@ describe('renderStats', () => {
     totalTurns: 30,
     totalToolCalls: 64,
     totalDeniedToolCalls: 2,
+    totalSalvagedToolCalls: 0,
     totalInputTokens: 1_200_000,
     totalOutputTokens: 84_000,
     totalCachedInputTokens: 800_000,

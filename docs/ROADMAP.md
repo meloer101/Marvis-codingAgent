@@ -15,9 +15,8 @@
 
 ## 0. 建议顺序
 
-1. **A「DSML / 纯文本工具调用兜底解析」**：`deepseek-flash` 是主力模型，这个故障会让回合直接结束。
-2. **G「失败模式统计」**：先把已有的 18 条 Harbor 轨迹逐条计入 §G 的表，H 节的 measure 项都依赖它。
-3. 同时处理下面「待决定」里的问题。
+1. **G「失败模式统计」**：先把已有的 18 条 Harbor 轨迹逐条计入 §G 的表，H 节的 measure 项都依赖它。
+2. 同时处理下面「待决定」里的问题。
 
 ### 待决定（产品取舍，不是工程量）
 - **`.env.example` 这类模板文件要不要从敏感文件中豁免？** `isSensitivePath`
@@ -33,17 +32,6 @@
 
 ## A · Model / Provider
 
-- **DSML / 纯文本工具调用兜底解析**：DeepSeek V4/V4.1 在长上下文（约 95K 以上）或工具较多（约 40 个）
-  时，偶尔把工具调用以纯文本写进 content，并返回 `finish_reason=stop`、`tool_calls=null`，`hc`
-  会把它当正文显示，然后结束回合。新建 `provider/dsml-salvage.ts`，和 `prompt-tools.ts` 并列：
-  - 流式检测两种文法：`<｜DSML｜invoke name="…">…</｜DSML｜invoke>`（V4 紧凑写法）和
-    `<｜DSML｜ invoke name="…">`（V4.1 带空格）。`parameter name=… string="true"` 按字面量取值，
-    `string="false"` 交给 `parseLooseJSON`。和 `PromptToolParser` 一样，只扣留可能是标记前缀的
-    后缀，正文不闪烁。
-  - 裸格式 `toolname{…json…}` 只在 finish=stop、没有 tool_calls、并且结尾恰好是"已注册工具名 +
-    合法 JSON"时才回收。
-  - 遥测计数 `toolCallSalvaged`；单测样本取自 vLLM #48931、smg #2525。
-  - 配套缓解：尽量少暴露工具（见 C「MCP `tool_search`」），因为这个故障和长上下文、工具多相关。*(M)*
 - **工具形态 A/B**（`tools/edit.ts`、`tools/read.ts`）：(a) 参数改成 snake_case
   `file_path / old_string / new_string / replace_all`（dsh 和 Claude Code 都用这套）；(b) `read`
   输出带行号，offset 从 1 开始。指标：eval 任务和 Harbor 子集上的工具错误率、回合数、diff 大小。
