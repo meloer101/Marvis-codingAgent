@@ -30,6 +30,13 @@ describe('grepWithJs', () => {
     expect(result.content).not.toContain('b.ts');
   });
 
+  it('searches a single file when the path names one', async () => {
+    // Harbor containers have no rg, so the fallback met this with ENOTDIR.
+    const result = await grepWithJs({ pattern: 'return' }, join(cwd, 'src', 'a.ts'));
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toContain('a.ts:2:');
+  });
+
   it('is case-insensitive when asked', async () => {
     const result = await grepWithJs({ pattern: 'FUNCTION', ignoreCase: true }, cwd);
     expect(result.content).toContain('a.ts:1:');

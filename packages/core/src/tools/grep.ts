@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import fg from 'fast-glob';
@@ -145,15 +145,22 @@ export async function grepWithJs(input: Input, searchPath: string): Promise<Tool
     return { content: `Invalid regular expression: ${errorMessage(err)}`, isError: true };
   }
 
-  const found = await fg(input.glob ?? '**/*', {
-    cwd: searchPath,
-    dot: true,
-    onlyFiles: true,
-    absolute: true,
-    ignore: DEFAULT_IGNORE,
-  });
-  const matcher = await gitignoreMatcher(searchPath);
-  const files = matcher ? found.filter((f) => !isGitignored(matcher, f)) : found;
+  // `path` may name a single file; fast-glob needs a directory as its cwd.
+  const isFile = (await stat(searchPath).catch(() => undefined))?.isFile() === true;
+  let files: string[];
+  if (isFile) {
+    files = [searchPath];
+  } else {
+    const found = await fg(input.glob ?? '**/*', {
+      cwd: searchPath,
+      dot: true,
+      onlyFiles: true,
+      absolute: true,
+      ignore: DEFAULT_IGNORE,
+    });
+    const matcher = await gitignoreMatcher(searchPath);
+    files = matcher ? found.filter((f) => !isGitignored(matcher, f)) : found;
+  }
 
   const matches: string[] = [];
   let hitCap = false;
