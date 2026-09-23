@@ -15,8 +15,11 @@
 
 ## 0. 建议顺序
 
-1. **G「失败模式统计」**：先把已有的 18 条 Harbor 轨迹逐条计入 §G 的表，H 节的 measure 项都依赖它。
-2. 同时处理下面「待决定」里的问题。
+1. **H「按"没有进展"触发的 step-back 提示」**：失败模式统计里涉及任务最多的是钻牛角尖（#7），而现有的
+   step-back 提示覆盖不到它。先写一个能复现它的 capability 任务，再做提示。
+2. **重跑 Harbor 18 任务子集**：adapter 现在会带出完整对话，跑完后逐条重读、重做 §G 的失败模式表
+   （现在的表是从文档重建的，4 条失败没有原因）。花钱，见下面「待决定」。
+3. 同时处理下面「待决定」里的问题。
 
 ### 待决定（产品取舍，不是工程量）
 - **`.env.example` 这类模板文件要不要从敏感文件中豁免？** `isSensitivePath`
@@ -25,6 +28,9 @@
   已经存在，只等决定。
 - **主会话要不要开启 `finalSummaryTurn`？** 最后一回合去掉工具、强制给出总结，目前只有子代理开启
   （`subagents/run.ts`）。决定开启的话，要测量效果。*(S)*
+- **什么时候花钱重跑 Harbor？** 18 任务子集上次用 `deepseek-v4-pro` 花了 $4.07、56 分钟（峰时价；谷时约
+  一半，`HC_BENCH_WAIT_OFFPEAK=1`）。需要 Docker 和 DeepSeek 余额。重跑后既能得到逐条可读的轨迹，也能顺带
+  测出上面几项已合入但没测过的 prompt 修复。
 - **能力位覆盖要不要拆回独立的 `capabilities.yaml`？** 目前放在 `.agent/settings.json` 的
   `capabilities` 字段里，拆出来成本很低。
 
@@ -140,8 +146,7 @@
 
 - **跑完 89 个 Harbor 任务**：已跑 18/89（DeepSeek 余额中途耗尽）。跑完之前，所有能力声明都标注
   **"18/89 provisional"**。卡在预算和时间，不是工程问题。*(L)*
-- **失败模式统计**：见下表。下一步是把已有的 18 条 Harbor 轨迹逐条读进表里，让计数是真实的，再在
-  上面建任务。
+- **失败模式统计**：见下表。现在的计数是从文档重建的；下一次 Harbor 运行后逐条重读、重做。
 - **eval 多轨迹回放**：一份 cassette 里有两条以上轨迹时回放不了，所以 `plan-then-implement` 只能
   `runs: 1`，统计力很弱。*(S)*
 - **[codex] 可选的全量调试包**：只在开启时，写出有序的原始事件和精确的请求 / 响应内容，离线还原每次
@@ -156,20 +161,45 @@
 
 ### 失败模式统计
 
-决定下一步做什么的依据，方法见 [EVALS.md](EVALS.md)。**怎么记：** 跑 `pnpm eval --analyze <results>`
-（或读 `evals/harbor/summarize.py` 列出的 Harbor trace），每条运行只记*第一个*出错的地方，计入已有
-的行或新开一行；按**不同的轨迹**计数，同一份 cassette 回放三次只算一条。修好并测过的行直接删除。
+决定下一步做什么的依据，方法见 [EVALS.md](EVALS.md)。**怎么记：** 跑 `pnpm eval --analyze <results>`，
+或读 Harbor trial 的 `agent/hc-sessions/`（完整对话；`hc-traces/` 只有计时和 token，没有正文）。每条
+运行只记*第一个*出错的地方，计入已有的行或新开一行；按**不同的轨迹**计数，同一份 cassette 回放三次只
+算一条。后面才出现的错误记在"之后"一列，不计数。修好并测过的行直接删除。
 
 状态：`observed` → `task/grader exists` → `fix landed` → `fix measured`（成对 CI 不含 0）或
 `fix unproven`。
 
-| # | 失败模式 | 第一个错误的样子 | 计数 | 证据 | eval 信号 | 状态 |
+**证据来源与局限（2026-09-23 统计）：** Harbor 的原始轨迹（`evals/harbor/.jobs/`，gitignore）已经不在
+磁盘上，所以下表不是逐条重读的结果，而是从 git 历史里两份当时基于 trace 写的分析重建的：
+`docs/harbor.md`（`9c5f788`，逐任务结果）和 `docs/eval-findings.md`（`acd23a3`，按 trace 的诊断）。
+共 29 条轨迹，都是 `deepseek-v4-pro`、本地 Docker（Rosetta），2026-09-08/09：基线 18 条，
+turn-budget nudge 重跑 9 条，`largest-eigenval` 加"简单优先"后再跑 1 条，`db-wal-recovery` 额外 1 条。
+其中 13 条通过且没有记录到问题，3 条不是 agent 的问题（见表后），**4 条失败没有记录原因**
+（`cobol-modernization` 基线、`gcode-to-text` ×2、`chess-best-move` nudge 重跑）。每个任务只跑了
+1 次，计数只能看方向。
+
+| # | 失败模式 | 第一个错误的样子 | 计数（第一个错误） | 之后（不计数） | eval 信号 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2 | `.env.example` 被当成密钥 → 过度拒绝 | 对 `.env.example` 的 `read`/`edit`/`write` → `deny: Refusing to access sensitive file` | 引擎探针（确定性）；真实通过率未测 | `isSensitivePath` 匹配所有以 `.env` 开头的文件名，这是有意的（README 安全一节列了 `.env*`） | 任务 `edit-env-example-ok`（capability） | 任务已有，等 §0 的决定 |
-| 3 | 简单问题上过度工程 | 能直接算的地方写了一个通用求解器（`largest-eigenval`） | 未从 trace 逐条统计 | Harbor 18/89 | grader `diff-size`；还缺一个由 trace 派生的小 capability 任务 | fix landed, unproven |
-| 4 | 交付物投入过晚 | 第一次写真正的输出之前，做了很多轮探索或 scratch 工作 | 未统计 | Harbor 18/89 | grader `first-touch` | fix landed, unproven |
-| 5 | Scratch 文件蔓延 | 工作区里留下辅助和调试文件 | 未统计 | Harbor 18/89 | grader `scratch-sprawl` | fix landed, unproven |
-| 6 | 回合预算 nudge 伤害迭代 / 优化类任务 | 需要反复尝试的任务过早收尾 | 净 +2/−1 | Harbor 18/89 | nudge 开关做好后用 `--ablation`；需要一个优化类 capability 任务 | observed |
+| 7 | 钻牛角尖：一条错的路越走越深，命令都成功，只是方向错 | `break-filter-js-from-html` 手写一个又一个 XSS 变体；`db-wal-recovery` 翻 `/proc`、Linux capabilities、手工模拟 WAL 格式；`chess-best-move` 去下载棋子图片 | **3**（3 个任务，基线） | — | 还没有；需要一个"方向错但命令都成功"的 capability 任务 | observed。nudge 重跑时 3 个里有 2 个转为通过（break-filter、db-wal），chess 仍失败。现有 step-back 提示（`stallNote`）只在连续 3 轮工具调用**全部失败**时触发，**不覆盖**这种形态，见 H 节 |
+| 3 | 简单问题上过度工程 | 该用一行 numpy 的地方去写 C 扩展、ctypes 调 LAPACK（`largest-eigenval`） | **3**（都是 `largest-eigenval`：基线、nudge、nudge + "简单优先"） | — | grader `diff-size`；还缺一个由这条 trace 派生的小 capability 任务 | fix landed（"先试简单方案"规则，在上述运行之后合入）, unproven |
+| 8 | 做完了不停，跑到回合上限 | 任务已经能通过，仍然继续打磨、反复验证直到 40 轮 | **2**（`large-scale-text-editing`、`cancel-async-tasks` 基线，都通过） | — | 回合数；没有专门的 grader | fix landed（turn-budget nudge），方向性证据：40→18、40→9 轮（各 1 次） |
+| 4 | 交付物投入过晚 | 第一次写真正的输出之前，做了很多轮探索或 scratch 工作 | **1**（`count-dataset-tokens`：`answer.txt` 第 37/40 轮才第一次写） | 1（`largest-eigenval`：`eigen.py` 第 35/40 轮才第一次改） | grader `first-touch` | fix landed, unproven |
+| 6 | 回合预算 nudge 伤害迭代 / 优化类任务 | 优化类任务在 nudge 下"锁定"已选的复杂方案，不再回退 | **1** 次翻转（`largest-eigenval` 通过→失败；与 #3 是同一条轨迹） | — | nudge 开关做好后用 `--ablation`；需要一个优化类 capability 任务 | observed；整体净 +2/−1 |
+| 2 | `.env.example` 被当成密钥 → 过度拒绝 | 对 `.env.example` 的 `read`/`edit`/`write` → `deny: Refusing to access sensitive file` | 0（Harbor 里没出现；引擎探针可确定性复现） | — | 任务 `edit-env-example-ok`（capability） | 任务已有，等 §0 的决定 |
+| 9 | 盲目重试：同一条失败命令换个参数再跑 | — | 0 | 2（`cancel-async-tasks` 第 31/32/35 轮三个 `grep` 变体；`largest-eigenval` 第 38/39 轮重复失败的 `gcc`/`python`） | 工具错误数 | fix landed（step-back 提示）, unproven |
+| 5 | Scratch 文件蔓延 | 工作区里留下辅助和调试文件 | 0 | 1（`largest-eigenval`：`bench.py` … `bench9.py`、`debug_inv.py`） | grader `scratch-sprawl` | fix landed, unproven |
+| 10 | 快到上限时纠结细枝末节 | — | 0 | 1（`count-dataset-tokens` 最后 3 轮纠结 `answer.txt` 末尾要不要换行） | — | observed |
+
+不是 agent 行为的问题（不计入上表）：`filter-js-from-html` 是 harness bug（请求超时未捕获导致进程崩溃，
+已修复）；`adaptive-rejection-sampler` 和 `db-wal-recovery` 的一次重跑是 Harbor 的 agent 墙钟超时
+（Rosetta 下变慢）。
+
+**这次统计的结论：**
+- 按涉及的任务数，最主要的失败是**钻牛角尖**（#7，3 个任务）和**做完不停**（#8，2 个任务）。#3 计数也是 3，
+  但全部来自同一个任务。
+- #7 在这之前没有单独的行，也没有 eval 信号；现有的 step-back 提示对它不起作用。
+- 证据很薄：4 条失败原因缺失，每个任务只跑 1 次，诊断来自摘要而不是逐条重读。adapter 现在会带出完整
+  对话（`agent/hc-sessions/`），下一次 Harbor 运行后应该逐条重读、重做这张表。
 
 ## H · Agentic behavior quality
 
@@ -177,6 +207,10 @@
 缺的是**测量**：本地 fixture 复现不了多次尝试 / 优化类的失败，需要真实 Harbor 重跑或专门的 eval 任务。
 计数见上面的失败模式表。
 
+- **按"没有进展"触发的 step-back 提示**：失败模式 #7（钻牛角尖，3 个任务）的命令大多是成功的，而现有的
+  `stallNote` 只在连续 3 轮工具调用全部失败时触发，所以从来不会提醒。新增一个进展信号，例如连续 M 轮没有
+  改动任何与任务相关的文件、或反复在同一类探索命令上打转时，注入"当前方向没有收敛，最简单能通过的做法是
+  什么"。放在开关后面，先写一个"方向错但命令都成功"的 capability 任务来测。*(M)* — **measure**
 - **回合预算 nudge 按任务形态调节**：现在是 60% / 80% / 最后一回合三级 nudge
   （`AgentLoop.turnBudgetNote`）。剩余：根据任务形态信号（比如 todo 里的重复迭代模式）有条件地减弱或
   关闭 nudge；先给 nudge 加开关，再做 ablation。*(M)* — **measure**

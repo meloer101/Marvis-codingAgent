@@ -64,6 +64,10 @@ _LOCAL_BUNDLE = _REPO_ROOT / "dist-bundle" / "hc.mjs"
 _RESULT_PATH = EnvironmentPaths.agent_dir / "hc-result.json"
 _LOG_PATH = EnvironmentPaths.agent_dir / "hc.log"
 _TRACE_COPY = EnvironmentPaths.agent_dir / "hc-traces"
+# The trace holds timings and byte counts but no message text; the session log
+# is the full conversation (plus offloaded tool output), which is what reading
+# a trial for its first error needs.
+_SESSION_COPY = EnvironmentPaths.agent_dir / "hc-sessions"
 
 _MIN_NODE_MAJOR = 20
 _NODE_MAJOR = 22
@@ -258,9 +262,10 @@ class HcAgent(BaseInstalledAgent):
         result_path = shlex.quote(str(_RESULT_PATH))
         log_path = shlex.quote(str(_LOG_PATH))
         trace_copy = shlex.quote(str(_TRACE_COPY))
+        session_copy = shlex.quote(str(_SESSION_COPY))
 
-        # `hc` writes .agent/{sessions,traces} into its cwd; capture cwd so the
-        # trace can be lifted out for post-mortem `hc trace` inspection.
+        # `hc` writes .agent/{sessions,traces} into its cwd; capture cwd so both
+        # can be lifted out for post-mortem reading (`hc trace`, the transcript).
         command = (
             'HC_CWD="$(pwd)"; '
             f"hc agent {prompt} --model {model} --mode {mode} "
@@ -269,6 +274,7 @@ class HcAgent(BaseInstalledAgent):
             f"</dev/null >{result_path} 2>{log_path}; "
             "HC_RC=$?; "
             f'cp -r "$HC_CWD/.agent/traces" {trace_copy} 2>/dev/null || true; '
+            f'cp -r "$HC_CWD/.agent/sessions" {session_copy} 2>/dev/null || true; '
             f"cat {result_path} 2>/dev/null || true; "
             "exit $HC_RC"
         )

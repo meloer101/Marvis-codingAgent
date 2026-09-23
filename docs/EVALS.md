@@ -110,7 +110,7 @@ evals/harbor/run-subset.sh && python3 evals/harbor/summarize.py
 - **Changes to prompt, tools, or loop behaviour:** put the change behind a switch,
   run `--ablation` or `--live --suite capability`, and decide on the paired CI,
   not on the means. Run the held-out suites once before landing.
-- **Weekly:** read 10–20 transcripts (`--analyze --all-runs`, Harbor traces) and
+- **Weekly:** read 10–20 transcripts (`--analyze --all-runs`, Harbor `agent/hc-sessions/`) and
   update the tallies.
 - **Every 2–4 weeks:** re-cluster failure modes and retire or add tasks.
 - **Promotion:** a capability task at pass^5 ≥ 0.9 on two consecutive measurements
