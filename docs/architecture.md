@@ -141,7 +141,9 @@ flowchart TD
 - **`compactor.ts`** — past a window fraction (default 92%) the oldest turns are
   summarized by a cheap model into a *structured* digest (task state, decisions,
   files touched, open questions, snippets); the first user message is kept
-  verbatim. A **never-drop safety pass** extracts user prohibitions and
+  verbatim, and so are the user's later messages from the compacted span (newest
+  first, up to 20k tokens), so a correction the digest glossed over survives.
+  A **never-drop safety pass** extracts user prohibitions and
   denied-permission boundaries from history and re-injects any the summarizer
   dropped — compaction cannot silently lose a "don't touch X" or a refused scope.
   The same module prunes bulky `tool_result` bodies and **offloads** them to

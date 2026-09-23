@@ -22,6 +22,7 @@ import { textOf } from '../provider/types.js';
 import { errorMessage } from '../tools/util.js';
 import { flattenRequestText, heuristicTokenCount } from './tokenizer.js';
 import { ToolOutputStore } from './tool-output.js';
+import { truncateHeadTail } from './truncate.js';
 
 /** Separates the verbatim original goal from the digest inside the merged head. */
 export const COMPACTION_MARKER = '\n\n---\n[此前对话已压缩 · compacted]\n';
@@ -29,6 +30,17 @@ export const COMPACTION_MARKER = '\n\n---\n[此前对话已压缩 · compacted]\
 export const DEFAULT_KEEP_TURNS = 3;
 export const DEFAULT_MIN_COMPACT_TOKENS = 2000;
 export const DEFAULT_DIGEST_TOKEN_BUDGET = 1800;
+
+/**
+ * Follows the digest inside the merged head: the user's own messages from the
+ * compacted span, verbatim, so a correction the digest glossed over survives.
+ */
+export const RECENT_USER_MARKER = '\n\n---\n[压缩前的用户消息（原文） · recent user messages, verbatim]\n';
+const USER_MESSAGE_SEPARATOR = '\n\n· · ·\n\n';
+/** Token budget for the verbatim user messages (codex keeps up to 20k). */
+export const DEFAULT_KEEP_USER_MESSAGES_TOKENS = 20_000;
+/** Below this much budget left, a message that doesn't fit is dropped rather than cut. */
+const MIN_USER_MESSAGE_SLICE_TOKENS = 200;
 
 /** Recent tool-output tokens kept verbatim when pruning before a full summary. */
 export const DEFAULT_PRUNE_PROTECT_TOKENS = 40_000;
@@ -94,26 +106,95 @@ export function splitForCompaction(
   return { middle, tail: tailGroups.flat(), keptTurns: tailGroups.length };
 }
 
-/** Pull the verbatim goal and any prior digest back out of a (possibly already compacted) head. */
-export function parseGoalAndPriorDigest(head: Message): { goal: string; priorDigest?: string } {
+/**
+ * Pull the verbatim goal, any prior digest, and any user messages an earlier
+ * compaction kept verbatim back out of a (possibly already compacted) head.
+ */
+export function parseGoalAndPriorDigest(head: Message): {
+  goal: string;
+  priorDigest?: string;
+  recentUserMessages?: string[];
+} {
   const text = textOf(head.content);
   const i = text.indexOf(COMPACTION_MARKER);
   if (i === -1) return { goal: text };
-  return { goal: text.slice(0, i), priorDigest: text.slice(i + COMPACTION_MARKER.length) };
+  const rest = text.slice(i + COMPACTION_MARKER.length);
+  // lastIndexOf: the section is always appended last, and a digest that echoed
+  // the marker must not be mistaken for it.
+  const j = rest.lastIndexOf(RECENT_USER_MARKER);
+  if (j === -1) return { goal: text.slice(0, i), priorDigest: rest };
+  return {
+    goal: text.slice(0, i),
+    priorDigest: rest.slice(0, j),
+    recentUserMessages: rest.slice(j + RECENT_USER_MARKER.length).split(USER_MESSAGE_SEPARATOR),
+  };
 }
 
 /**
- * Assemble the compacted history: one user message holding the verbatim goal
- * plus the fresh digest, then the kept tail. Merging into the head (rather than
- * inserting a new message) keeps roles alternating in the common case where the
- * tail starts with an assistant message.
+ * Assemble the compacted history: one user message holding the verbatim goal,
+ * the fresh digest and the kept user messages, then the kept tail. Merging into
+ * the head (rather than inserting a new message) keeps roles alternating in the
+ * common case where the tail starts with an assistant message.
  */
-export function compactMessages(goal: string, digest: string, tail: readonly Message[]): Message[] {
+export function compactMessages(
+  goal: string,
+  digest: string,
+  tail: readonly Message[],
+  recentUserMessages: readonly string[] = [],
+): Message[] {
+  const kept =
+    recentUserMessages.length > 0
+      ? `${RECENT_USER_MARKER}${recentUserMessages.join(USER_MESSAGE_SEPARATOR)}`
+      : '';
   const mergedHead: Message = {
     role: 'user',
-    content: [{ type: 'text', text: `${goal.trimEnd()}${COMPACTION_MARKER}${digest.trim()}` }],
+    content: [
+      { type: 'text', text: `${goal.trimEnd()}${COMPACTION_MARKER}${digest.trim()}${kept}` },
+    ],
   };
   return [mergedHead, ...tail];
+}
+
+/**
+ * The user's own prompts about to be compacted away (plus any an earlier
+ * compaction kept), newest first until `budgetTokens` is spent, returned in
+ * chronological order. The message that crosses the budget is cut to fit
+ * rather than dropped, unless too little budget is left to be worth it.
+ */
+export function selectRecentUserMessages(
+  prior: readonly string[],
+  middle: readonly Message[],
+  budgetTokens: number,
+): string[] {
+  const candidates = [...prior];
+  for (const m of middle) {
+    if (m.role !== 'user' || m.content.some((b) => b.type === 'tool_result')) continue;
+    const text = textOf(m.content).trim();
+    if (text !== '') candidates.push(text);
+  }
+  const kept: string[] = [];
+  let left = budgetTokens;
+  for (let i = candidates.length - 1; i >= 0 && left > 0; i--) {
+    const text = candidates[i]!;
+    const tokens = heuristicTokenCount(text);
+    if (tokens <= left) {
+      kept.push(text);
+      left -= tokens;
+      continue;
+    }
+    if (left >= MIN_USER_MESSAGE_SLICE_TOKENS) {
+      const keepChars = Math.floor((left * text.length) / tokens);
+      kept.push(
+        truncateHeadTail(text, {
+          maxChars: 0,
+          headChars: Math.floor(keepChars / 2),
+          tailChars: Math.floor(keepChars / 2),
+        }).text,
+      );
+    }
+    break;
+  }
+  return kept.reverse();
 }
 
 // ---------------------------------------------------------------------------
@@ -440,6 +521,11 @@ export interface CompactorOptions {
    * shared store so pruning and the loop's output cap number files together.
    */
   offloadStore?: ToolOutputStore;
+  /**
+   * Token budget for the user messages kept verbatim after the digest. Default
+   * `DEFAULT_KEEP_USER_MESSAGES_TOKENS`; 0 keeps none.
+   */
+  keepUserMessagesTokens?: number;
   /** Called with a one-line reason whenever compaction is skipped (empty middle, failed call). */
   onSkip?(reason: string): void;
 }
@@ -456,6 +542,7 @@ export function createCompactor(opts: CompactorOptions): NonNullable<AgentHooks[
   const minCompactTokens = opts.minCompactTokens ?? DEFAULT_MIN_COMPACT_TOKENS;
   const budget = opts.digestTokenBudget ?? DEFAULT_DIGEST_TOKEN_BUDGET;
   const pruneBefore = opts.pruneBeforeSummary !== false;
+  const keepUserTokens = opts.keepUserMessagesTokens ?? DEFAULT_KEEP_USER_MESSAGES_TOKENS;
   // One store for the compactor's lifetime: numbering must carry across
   // compactions, or the second one overwrites the files the first pointed at.
   const offloadStore =
@@ -505,7 +592,7 @@ export function createCompactor(opts: CompactorOptions): NonNullable<AgentHooks[
       return undefined;
     }
 
-    const { goal, priorDigest } = parseGoalAndPriorDigest(head);
+    const { goal, priorDigest, recentUserMessages } = parseGoalAndPriorDigest(head);
     const warm = opts.warmPrefix === true && ctx.system !== undefined;
 
     try {
@@ -553,7 +640,12 @@ export function createCompactor(opts: CompactorOptions): NonNullable<AgentHooks[
         return undefined;
       }
       return {
-        messages: compactMessages(goal, digest, split.tail),
+        messages: compactMessages(
+          goal,
+          digest,
+          split.tail,
+          selectRecentUserMessages(recentUserMessages ?? [], split.middle, keepUserTokens),
+        ),
         usage: res.usage,
         keptTurns: split.keptTurns,
       };

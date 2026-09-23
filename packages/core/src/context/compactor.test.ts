@@ -15,6 +15,7 @@ import {
   extractCompactionInvariants,
   parseGoalAndPriorDigest,
   pruneToolOutputs,
+  selectRecentUserMessages,
   splitForCompaction,
 } from './compactor.js';
 import { heuristicTokenCount } from './tokenizer.js';
@@ -532,3 +533,69 @@ describe('applyToolOutputOffload', () => {
     expect(result.content).not.toMatch(/→/);
   });
 });
+
+describe('recent user messages kept verbatim', () => {
+  const pressure = { usedTokens: 1, windowTokens: 1, ratio: 1 };
+  const headOf = (msgs: Message[]) => (msgs[0]!.content[0] as { text: string }).text;
+
+  /** Goal, then `before` tool turns, a user correction, then `after` tool turns. */
+  function withCorrection(correction: string, before: number, after: number): Message[] {
+    const msgs = history(before);
+    msgs.push(goal(correction));
+    for (let i = before + 1; i <= before + after; i++) msgs.push(...toolTurn(i));
+    return msgs;
+  }
+
+  it('keeps a user message from the compacted span even when the digest drops it', async () => {
+    const provider = new ScriptedProvider([{ text: 'digest without the correction' }]);
+    const onCompact = createCompactor({ provider, model: 'm', conventions: 'c', minCompactTokens: 0 });
+
+    const result = await onCompact(withCorrection('use tabs, not spaces', 3, 5), pressure, ctx);
+
+    const head = headOf(result!.messages);
+    expect(head).toContain('use tabs, not spaces');
+    const parsed = parseGoalAndPriorDigest(result!.messages[0]!);
+    expect(parsed.goal).toBe('fix the parser bug');
+    expect(parsed.priorDigest).toBe('digest without the correction');
+    expect(parsed.recentUserMessages).toEqual(['use tabs, not spaces']);
+  });
+
+  it('carries kept messages through a second compaction', async () => {
+    const provider = new ScriptedProvider([{ text: 'digest one' }, { text: 'digest two' }]);
+    const onCompact = createCompactor({ provider, model: 'm', conventions: 'c', minCompactTokens: 0 });
+
+    const first = await onCompact(withCorrection('first correction', 3, 5), pressure, ctx);
+    const next = [...first!.messages, goal('second correction')];
+    for (let i = 20; i < 25; i++) next.push(...toolTurn(i));
+    const second = await onCompact(next, pressure, ctx);
+
+    const parsed = parseGoalAndPriorDigest(second!.messages[0]!);
+    expect(parsed.priorDigest).toBe('digest two');
+    expect(parsed.recentUserMessages).toEqual(['first correction', 'second correction']);
+  });
+
+  it('adds no section when the compacted span has no user prompts', async () => {
+    const provider = new ScriptedProvider([{ text: 'digest' }]);
+    const onCompact = createCompactor({ provider, model: 'm', conventions: 'c', minCompactTokens: 0 });
+    const result = await onCompact(history(10), pressure, ctx);
+    expect(parseGoalAndPriorDigest(result!.messages[0]!).recentUserMessages).toBeUndefined();
+  });
+
+  it('keeps the newest within budget, cutting the one that crosses it', () => {
+    const big = 'old '.repeat(4_000);
+    const kept = selectRecentUserMessages(
+      ['oldest'],
+      [goal(big), ...toolTurn(1), goal('newest')],
+      500,
+    );
+    expect(kept).toHaveLength(2);
+    expect(kept[1]).toBe('newest');
+    expect(kept[0]).toMatch(/characters .*omitted/);
+    expect(heuristicTokenCount(kept.join(''))).toBeLessThan(600);
+  });
+
+  it('keeps none when the budget is 0', () => {
+    expect(selectRecentUserMessages(['a'], [goal('b')], 0)).toEqual([]);
+  });
+});
+
