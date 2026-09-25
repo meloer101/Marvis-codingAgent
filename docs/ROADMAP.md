@@ -9,17 +9,18 @@
 > codex 文件（路径相对 codex 仓库，省略 `codex-rs/` 前缀）。标 **measure** 的条目要用
 > `pnpm eval --ablation` 或真实 Harbor 运行证明效果后才算完成。尺寸：S / M / L。
 >
-> Last consolidated: 2026-09-23.
+> Last consolidated: 2026-09-25.
 
 ---
 
 ## 0. 建议顺序
 
-1. **H「完成前对照验收要求核验」（Stop gate 的使用方）**：9-23 Harbor 运行里最多的失败（#12，3 条）就是
-   "只验证了自己做的东西就宣布完成"。
-2. **D「`yolo` 下的硬拒绝」**：18 条轨迹里 17 条被拒过，占全部工具调用的 11%。先做下面「待决定」里的取舍。
+1. **H「完成前对照验收要求核验」（Stop gate 的使用方）**：9 月下旬 Terminal-Bench 全量运行里，18 个 agent 失败有
+   8 个（#12）是"验证不到位就宣布完成"。
+2. **D「`yolo` 下的硬拒绝」**：70 条有效轨迹里 68 条被拒过，占全部工具调用的 10%。先做下面「待决定」里的取舍。
 3. **I「harness 的 `.agent/` 不放进任务工作目录」**：agent 会去翻自己的日志，4 条轨迹受影响。
-4. **H「按"没有进展"触发的 step-back 提示」**：9 月那次最多的失败（#7）。9-23 没出现在第一个错误里，但仍在。
+4. **G「Harbor 的 `max_turns` 40 是不是太紧」**：3 个大任务到第 40 轮还没做完（#14）。便宜的实验，见 G 节。
+5. **H「按"没有进展"触发的 step-back 提示」**：9 月上旬最多的失败（#7）。9 月下旬没出现在第一个错误里，但仍在。
 
 ### 待决定（产品取舍，不是工程量）
 - **`.env.example` 这类模板文件要不要从敏感文件中豁免？** `isSensitivePath`
@@ -30,7 +31,7 @@
   （`subagents/run.ts`）。决定开启的话，要测量效果。*(S)*
 - **`yolo` 模式下还要不要硬拒绝内联代码、`$(...)`、heredoc 和写 `/tmp`？** 这些硬拒绝最初是为了防止
   `Bash(python:*)` 这类放行规则被 `python -c` 绕过。但在 `yolo` 下本来就没有要防的放行规则，agent 把代码
-  写进文件再运行，效果完全一样，所以这些拒绝只增加回合、没有带来安全性（9-23：17/18 条轨迹、11% 的工具
+  写进文件再运行，效果完全一样，所以这些拒绝只增加回合、没有带来安全性（9 月下旬全量：68/70 条轨迹、10% 的工具
   调用）。建议：`yolo` 下放行这几类，`ask` / `auto` 保持现状；写 `/tmp` 可以在所有模式放行。递归删除工作区
   内的目录（如 agent 自己建的 `scratch/`）也被拒，和"结束前清理"的规则冲突。
 - **能力位覆盖要不要拆回独立的 `capabilities.yaml`？** 目前放在 `.agent/settings.json` 的
@@ -99,8 +100,8 @@
 ## D · Permissions, safety & sandboxing
 
 - **`yolo` 下的硬拒绝**：内联代码（`python -c` / `node -e`）、`$(...)`、无法解析的 heredoc、管道到 `sh`、
-  `write` 写工作区外（包括 `/tmp`）、递归删除工作区内的目录，在 `yolo` 下也一律拒绝。9-23 Harbor：18 条
-  轨迹里 17 条被拒过，共 52 次，占全部工具调用的 11.3%，几乎每次都要多花一轮。放宽到什么程度见 §0「待决定」；
+  `write` 写工作区外（包括 `/tmp`）、递归删除工作区内的目录，在 `yolo` 下也一律拒绝。9 月下旬 Harbor
+  全量：70 条有效轨迹里 68 条被拒过，共 209 次，占全部工具调用的 10.1%，几乎每次都要多花一轮。放宽到什么程度见 §0「待决定」；
   改动放在 `permissions/bash-ast.ts` 的硬拒绝规则和 `permissions/engine.ts` 的模式判断。*(S)*
 - **只读 shell 白名单继续扩充**：`READ_ONLY_BASH_COMMANDS` 现在是默认模式下的承重墙，要谨慎、按需地
   扩充。实测里还缺 `sort`（有 `-o` 会写文件，需要排除）和 `for` 循环这类 shell 结构。另外
@@ -150,9 +151,15 @@
 
 ## G · Observability & evaluation
 
-- **跑完 89 个 Harbor 任务**：只跑过 18 任务子集（9 月 `deepseek-v4-pro` 11/18；9-23 `deepseek-flash`
-  12/18，各 1 次）。跑完之前，所有能力声明都标注 **"18/89 provisional"**。卡在预算和时间，不是工程问题；
-  flash 跑 18 个约 $0.4，全量约 $2。*(L)*
+- **补齐 Terminal-Bench 全量的 18 个作废任务**：9 月下旬 `deepseek-flash` 全量运行有效 71/89、通过 53
+  （75%），其余 18 个作废（欠费 8、Mac 睡眠 3、基础设施 7，名单见 §G 失败模式统计）。欠费和睡眠的 11 个补跑约
+  ¥2；基础设施的 7 个多半要换 x86 / 云端沙箱（`--env daytona/modal`）才跑得起来。能力声明写"71/89 有效、
+  各跑 1 次"。另外，每个任务只跑了 1 次，要看稳定性得多跑几次（全量一次约 ¥12）。
+  *(M)*
+- **Harbor 的 `max_turns` 放宽实验**：adapter 默认 `--max-turns 40`，而 Terminal-Bench 只限墙钟。9 月下旬
+  有 3 个大任务（MIPS 解释器、MIPS 上的 Doom、细胞分割）到第 40 轮还在修 bug（#14）。用 `--ak max_turns=100`
+  重跑这几个任务，看是回合上限卡住了还是本来就做不出来；同时留意更多回合会不会让其他任务"做完不停"（#8）。
+  *(S)* — **measure**
 - **失败模式统计**：见下表。每次 Harbor 运行后用 `evals/harbor/digest.py` 逐条读、更新计数。
 - **eval 多轨迹回放**：一份 cassette 里有两条以上轨迹时回放不了，所以 `plan-then-implement` 只能
   `runs: 1`，统计力很弱。*(S)*
@@ -178,38 +185,43 @@
 `fix unproven`。
 
 **两次运行：**
-- **9-23**：`deepseek-flash`，18 任务子集各跑 1 次，本地 Docker（Apple M4 + Rosetta，
-  `--agent-timeout-multiplier 2`），**12/18 通过**，0 个基础设施错误，花费约 $0.4。逐条读了完整对话。
-  6 个失败**全部是 agent 自己宣布完成后停下（`end_turn`）**，没有一条跑到 40 轮上限。轨迹在
-  `evals/harbor/.jobs/2026-09-23__11-37-38/`（gitignore，只在本机）。
-- **9-08/09**：`deepseek-v4-pro`，29 条轨迹（基线 18 条 + nudge 重跑等），原始轨迹已丢失，计数是从当时的
-  两份分析文档重建的（`docs/harbor.md` @ `9c5f788`、`docs/eval-findings.md` @ `acd23a3`），4 条失败没有
-  记录原因。
+- **9-23/24 全量**：`deepseek-flash`，Terminal-Bench 2.0 全部 89 个任务各跑 1 次（先跑 18 任务子集，再跑其余
+  71 个；第二批多了一个 `grep` 修复，其他版本相同），本地 Docker（Apple M4 + Rosetta，
+  `--agent-timeout-multiplier 2`）。**有效 71 个，通过 53 个 = 75%**。另外 18 个不计入：DeepSeek 余额耗尽
+  8 个，Mac 睡眠 8 小时期间被判超时 3 个（`install-windows-3-11`、`rstan-to-pystan`、`mteb-leaderboard`），
+  基础设施错误 7 个（环境启动超时 4、adapter 安装时 `apt-get` 失败 2、判分超时 1）。留出集 13/13 通过（另有
+  2 个作废），其余任务 40/58。花费约 ¥12.4（$1.7）。18 个 agent 失败逐条读了完整对话（留出集没有失败）。
+  轨迹在 `evals/harbor/.jobs/2026-09-23__11-37-38/` 和 `…/2026-09-24__15-53-27/`（gitignore，只在本机）。
+- **9-08/09**：`deepseek-v4-pro`，18 任务子集，29 条轨迹（基线 18 条 + nudge 重跑等），原始轨迹已丢失，计数
+  是从当时的两份分析文档重建的（`docs/harbor.md` @ `9c5f788`、`docs/eval-findings.md` @ `acd23a3`），4 条
+  失败没有记录原因。
 
 两次模型不同，通过率不能直接比；每个任务都只跑 1 次，计数只能看方向。
 
-| # | 失败模式 | 第一个错误的样子 | 9-23 计数 | 9 月计数 | 之后（9-23，不计数） | eval 信号 | 状态 |
+| # | 失败模式 | 第一个错误的样子 | 9 月下旬计数 | 9 月上旬计数 | 之后（不计数） | eval 信号 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 12 | 只验证了自己做的东西就宣布完成，没对照题目的验收要求 | `large-scale-text-editing`：输出和 expected 逐字节一致，但脚本缺了题目明写的 `:wq`/`:x` 结尾；`filter-js-from-html`：只用自己的一个干净文档测"不改动"，实际误改了 12 个干净文件里的 5 个；`adaptive-rejection-sampler`：自己的 18 个用例全过，但 `ars()` 的参数形式和调用方不符 | **3** | 0 | — | 还没有；可以从这 3 条派生 capability 任务 | observed。对应 H「Stop gate 的真正使用方」 |
-| 3 | 简单问题上过度工程 | 不先交一个 numpy 版，而是去 scipy、LAPACK、装 gcc、手写 C 内核（`largest-eigenval`，最后速度还差一点没过线） | **1** | 3（同一任务） | `eigen.py` 第 28/39 轮才第一次写（#4） | grader `diff-size`；还缺 capability 任务 | fix landed（"先试简单方案"规则）, **9-23 在同一任务上重现，属于反证** |
-| 11 | 探查时破坏了不可再生的输入 | 第 2 轮直接 `sqlite3 main.db ".tables"`，SQLite 因 WAL 头部无效把被加密的 WAL 删了，唯一的证据没了（`db-wal-recovery`） | **1** | 0 | 之后 20 轮在 `/proc`、块设备、harness 自己的日志里找（#7） | — | observed |
-| 13 | 笃定地给出"没有答案"的错误结论 | 30 多轮几何分析后，把"打印出来的是什么文字"答成"根本没有文字"（`gcode-to-text`，正确答案是一个 flag） | **1** | 0 | 12 个 scratch 脚本（结束前已清理） | — | observed |
-| 7 | 钻牛角尖：一条错的路越走越深，命令都成功，只是方向错 | 手写一个又一个 XSS 变体；翻 `/proc`、手工模拟 WAL；下载棋子图片 | 0 | 3 | 1（db-wal，见 #11） | 还没有 | observed。现有 step-back 提示（`stallNote`）只在连续 3 轮工具调用**全部失败**时触发，覆盖不到，见 H 节 |
-| 8 | 做完了不停，跑到回合上限 | 任务已经能通过，仍继续打磨直到 40 轮 | 0 | 2 | — | 回合数 | fix landed（turn-budget nudge）；9-23 没有一条跑到上限，但换了模型 |
+| 12 | 验证不到位就宣布完成：只验证了自己做的东西，或者根本没能运行交付物 | 输出对了但漏了题目明写的 `:wq` 结尾（`large-scale-text-editing`）；只用一个干净文档测"不误改"（`filter-js-from-html`）；接口和调用方不符（`adaptive-rejection-sampler`）；环境里没有 SPARQL 引擎，"手工核对"后交了一个有语法错误的查询（`sparql-university`）；在自己切的验证集上 0.6243、刚过 0.62 的线就停，实际 0.617（`train-fasttext`）；Tm 算的区域和判分不一致（`dna-assembly`）；自测没覆盖到的走法（`regex-chess`，44/45）和矩阵行（`model-extraction-relu-logits`） | **8** | 0 | — | 还没有；可以从这些轨迹派生 capability 任务 | observed。对应 H「Stop gate 的真正使用方」 |
+| 13 | 笃定地给出错误的结论或解释 | 把"打印出来的是什么文字"答成"根本没有文字"（`gcode-to-text`）；光谱 x 轴在 1648–47183、明显不是 cm⁻¹，却用"G/2D 比值对得上"圆过去（`raman-fitting`）；认定题目示例"只是示意"，按自己推测的加载基址输出，匹配 0%（`extract-elf`） | **3** | 0 | `extract-elf` 去 grep `/opt/hc/hc.mjs` 找"参考答案" | — | observed |
+| 14 | 40 轮上限内做不完的大任务 | 写 MIPS 解释器、为 MIPS 编译 Doom、细胞分割，到第 40 轮还在修 bug，交付物停在坏掉的状态（`make-mips-interpreter`、`make-doom-for-mips`、`sam-cell-seg`） | **3** | 0 | — | — | observed。40 是 adapter 的默认 `max_turns`，Terminal-Bench 本身只限墙钟，见 G 节 |
+| 15 | 重任务在 Rosetta 下超出墙钟（环境限制，不是 agent 行为） | 装依赖 24 分钟、跑 OCR 19 分钟（`caffe-cifar-10`、`extract-moves-from-video`） | **2** | 0 | — | — | 换 x86 / 云端沙箱后再看 |
+| 3 | 简单问题上过度工程 | 不先交一个 numpy 版，而是去 scipy、LAPACK、装 gcc、手写 C 内核（`largest-eigenval`，最后速度还差一点没过线） | **1** | 3（同一任务） | `eigen.py` 第 28/39 轮才第一次写（#4） | grader `diff-size`；还缺 capability 任务 | fix landed（"先试简单方案"规则），**9 月下旬在同一任务上重现，属于反证** |
+| 11 | 探查时破坏了不可再生的输入 | 第 2 轮直接 `sqlite3 main.db ".tables"`，SQLite 因 WAL 头部无效把被加密的 WAL 删了（`db-wal-recovery`） | **1** | 0 | 之后 20 轮在 `/proc`、块设备、harness 自己的日志里找（#7） | — | observed |
+| 7 | 钻牛角尖：一条错的路越走越深，命令都成功，只是方向错 | 手写一个又一个 XSS 变体；翻 `/proc`、手工模拟 WAL；下载棋子图片 | 0 | 3 | 1（`db-wal-recovery`） | 还没有 | observed。现有 step-back 提示（`stallNote`）只在连续 3 轮工具调用**全部失败**时触发，覆盖不到，见 H 节 |
+| 8 | 做完了不停，跑到回合上限 | 任务已经能通过，仍继续打磨直到 40 轮 | 0 | 2 | — | 回合数 | fix landed（turn-budget nudge）；9 月下旬到 40 轮的 3 条都是没做完（#14），不是做完不停 |
 | 4 | 交付物投入过晚 | 第一次写真正的输出之前，做了很多轮探索或 scratch 工作 | 0 | 1 | 1（`largest-eigenval`） | grader `first-touch` | fix landed, unproven |
 | 6 | 回合预算 nudge 伤害迭代 / 优化类任务 | 优化类任务在 nudge 下锁定已选的复杂方案 | 0 | 1 次翻转 | — | 需要 nudge 开关和优化类 capability 任务 | observed |
 | 2 | `.env.example` 被当成密钥 → 过度拒绝 | 对 `.env.example` 的读写被拒 | 0 | 0 | — | 任务 `edit-env-example-ok` | 任务已有，等 §0 的决定 |
 | 9 | 盲目重试同一条失败命令 | — | 0 | 0 | 0 | 工具错误数 | fix landed（step-back 提示）, unproven |
-| 5 | Scratch 文件蔓延 | 工作区里留下辅助和调试文件 | 0 | 0 | 多条都建了多个 scratch 文件，但**结束前都清理了**；有 3 条的清理被权限引擎拒绝（见下表） | grader `scratch-sprawl` | fix landed；"结束前清理"在 9-23 生效，"复用同一个文件"没有 |
+| 5 | Scratch 文件蔓延 | 工作区里留下辅助和调试文件 | 0 | 0 | 多条都建了多个 scratch 文件，但**结束前基本都清理了**；有几条的清理被权限引擎拒绝（见下表） | grader `scratch-sprawl` | fix landed；"结束前清理"生效，"复用同一个文件"没有 |
 | 10 | 快到上限时纠结细枝末节 | — | 0 | 0 | 0 | — | observed |
 
-**摩擦（不直接导致失败，但每条都在浪费回合），9-23：**
+**摩擦（不直接导致失败，但每条都在浪费回合），9 月下旬全量的 70 条有效轨迹：**
 
 | 摩擦 | 涉及轨迹 | 次数 | 说明 |
 | --- | --- | --- | --- |
-| `yolo` 模式下权限引擎硬拒绝合法命令 | **17/18** | 52 次，占全部 460 次工具调用的 11.3% | `python -c` 23 次（13 条）、`$(...)` 8 次、`write` 写 `/tmp` 7 次、heredoc 解析不了 6 次、递归删除工作区内的目录 4 次（包括 agent 自己的 `/app/scratch`）、管道到 `sh` 3 次。每次基本都要多花一轮改写成"先写文件再运行"。见 D 节 |
-| harness 自己的 `.agent/` 写在任务工作目录里 | 4/18 | — | agent `ls /app` 就看到它，然后去翻自己的 session 日志、`/opt/hc`、`/logs/agent`；`db-wal-recovery` 在这上面花了 10 轮。见 I 节 |
-| `grep` 工具的 `path` 指向单个文件时报 `ENOTDIR` | 1/18 | 2 次 | 容器里没有 `rg`，JS fallback 把文件路径当目录用。**已修复** |
+| `yolo` 模式下权限引擎硬拒绝合法命令 | **68/70** | 209 次，占全部 2075 次工具调用的 10.1% | `python -c` 91 次（48 条）、heredoc 解析不了 35 次（28 条）、`$(...)` 36 次（23 条）、`write` 写工作区外（`/tmp`）28 次（22 条）、管道到 `sh` 10 次、递归删除工作区内的目录 6 次（包括 agent 自己的 `scratch/`）。每次基本都要多花一轮改写。见 D 节 |
+| 翻 harness 自己的文件（`.agent/`、`/opt/hc`、`/logs/agent`） | 12/70 | — | `hc` 把 `.agent/` 写在任务目录里，agent 一 `ls` 就看到；有的去翻自己的日志，有的去 grep `hc.mjs` 找"参考答案"。见 I 节 |
+| `grep` 工具的 `path` 指向单个文件时报 `ENOTDIR` | 1（第一批） | 2 次 | 容器里没有 `rg`，JS fallback 把文件路径当目录用。**已修复**，第二批没有再出现 |
 
 ## H · Agentic behavior quality
 
@@ -226,17 +238,17 @@
   关闭 nudge；先给 nudge 加开关，再做 ablation。*(M)* — **measure**
 - **接近预算上限时的收尾文案**：加上明确的"停止打磨、交付当前状态"文案，并考虑超过 90% 后单独进入
   强制收尾模式，针对"纠结细枝末节"的症状。*(S–M)*
-- **"简单优先"没有起作用**：9-23 的 `largest-eigenval` 又一次先去装 gcc、写 C 内核，没有先交 numpy 版本
+- **"简单优先"没有起作用**：9 月下旬的 `largest-eigenval` 又一次先去装 gcc、写 C 内核，没有先交 numpy 版本
   （表中 #3）。只靠 prompt 规则不够；可以考虑结构化做法，例如在优化类任务上要求先有一个能通过正确性测试
   的基线交付物，再允许优化。先从这条轨迹派生一个 capability 任务。*(M)* — **measure**
-- **"尽早动交付物"和 scratch 约定**：9-23 的轨迹里，"结束前清理 scratch 文件"基本都做到了，"复用同一个
+- **"尽早动交付物"和 scratch 约定**：9 月下旬的轨迹里，"结束前清理 scratch 文件"基本都做到了，"复用同一个
   scratch 文件"没有（`gcode-to-text` 建了 12 个）；`largest-eigenval` 仍是第 28/39 轮才第一次写交付物（表中
   #4、#5）。*(S–M)* — **measure**
 - **Stop gate 的真正使用方：完成前对照验收要求核验**：`onBeforeStop` hook 和续跑上限都有了
   （`agent/hooks.ts`、`agent/loop.ts`），缺一个在模型宣布完成前核验验收标准的实现（参考 hermes-agent 的
-  `verification_stop`），也可以由 B 节的命令 hooks 提供。9-23 的 6 个失败全部是 agent 自己宣布完成，其中
-  3 个（表中 #12）是只验证了自己做的东西：输出对了但漏了题目明写的格式要求、只用一个样例测"不误改"、
-  接口和调用方不符。一个可行的形态：第一次 `end_turn` 时，把用户原始任务里的每条要求列成清单，让模型逐条
+  `verification_stop`），也可以由 B 节的命令 hooks 提供。9 月下旬全量的 18 个 agent 失败里有 8 个（表中 #12）
+  是验证不到位就宣布完成：漏了题目明写的格式要求、只用一个样例测"不误改"、接口和调用方不符、环境里没有
+  执行工具就"手工核对"、在自己切的验证集上刚过线就停。一个可行的形态：第一次 `end_turn` 时，把用户原始任务里的每条要求列成清单，让模型逐条
   给出证据后再结束。先从这 3 条派生 capability 任务来测。*(M)* — **measure**
 - **动手前先备份不可再生的输入**：`db-wal-recovery`（表中 #11）第 2 轮就用 `sqlite3` 打开数据库，导致被
   加密的 WAL 被删除，之后无法恢复。在 `<working_style>` 里加一条：对恢复、取证类任务，先复制原始文件再用
@@ -248,7 +260,7 @@
 
 - **harness 的 `.agent/` 不放进任务工作目录**：`hc` 在 cwd 下写 `.agent/{sessions,traces}`。在 Harbor 容器里
   cwd 就是任务目录 `/app`，agent 一 `ls` 就看到它，于是去翻自己的 session 日志、`/opt/hc`、`/logs/agent`
-  （9-23：4/18 条，`db-wal-recovery` 在上面花了 10 轮）；判分脚本也可能看到这些多出来的文件。可选做法：
+  （9 月下旬全量：12/70 条，`db-wal-recovery` 在上面花了 10 轮，`extract-elf` 去 grep `hc.mjs` 找"参考答案"）；判分脚本也可能看到这些多出来的文件。可选做法：
   cwd 不是项目根（没有 `.git` 等标记）时写到 `~/.agent/projects/<hash>/`，或者加一个 `--state-dir`
   让 adapter 指到 `/logs/agent` 下。*(S)*
 
