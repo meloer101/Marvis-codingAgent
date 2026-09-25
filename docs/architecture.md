@@ -195,17 +195,24 @@ choice.
 six modes: `ask`, `plan`, `acceptEdits`, `readOnly`, `yolo`, `auto`.
 
 - **Bash via AST.** Commands are parsed with `shell-quote` into an AST, not
-  regex-matched; compound commands (`&&`, `|`, `;`, subshells) are judged segment
-  by segment, and a command-substitution prefilter hard-denies `$(…)`. Inline eval
-  flags for `node`/`python`/`perl`/`ruby` are unconditionally denied (they escape
-  any `Bash(node:*)` allowance).
+  regex-matched; compound commands (`&&`, `|`, `;`, newlines) are judged segment
+  by segment. Two kinds of refusal: *destructive* (`rm -rf` of `/`, `~`, the
+  workspace root or anything outside it; `.ssh`; `chmod 777 /`; piping into a
+  shell) holds in every mode, and is also searched for in the raw text of
+  commands that don't parse; *unreviewable* (`$(…)`, heredocs, inline eval flags
+  for `node`/`python`/`perl`/`ruby`, which would escape a `Bash(node:*)`
+  allowance) is refused in every mode but `yolo`. `yolo` reviews nothing, and the
+  same code written to a file runs anyway, so there it only checks `Bash` deny
+  rules and sensitive paths against the raw text.
 - **Path cage.** Paths are `realpath`-resolved and must stay inside the workspace
-  (blocks symlink and `../` escape); a denylist blocks `.env*`, `.git/config`,
+  (blocks symlink and `../` escape) — or, for the file tools, inside the system
+  temp dir, which the OS sandbox already lets shell commands write, so scratch
+  files need not land in the workspace; a denylist blocks `.env*`, `.git/config`,
   private keys, credentials. Protected paths (`.git`, editor/config dirs, rc
   files) are asked in `ask`/`acceptEdits`, classified in `auto`, denied in
   `plan`/`readOnly`, and allowed in `yolo`.
 - **OS sandbox.** On macOS a `sandbox-exec` profile confines child processes to
-  workspace writes — the layer that catches what textual review misses (e.g. a
+  workspace and temp-dir writes — the layer that catches what textual review misses (e.g. a
   legitimate tool doing `echo x > /outside`).
 - **Non-interactive safety.** With no one to answer, an `ask` verdict
   deterministically *denies* rather than hanging — the precondition for scripting.

@@ -58,8 +58,20 @@ describe('writeTool', () => {
   });
 
   it('refuses to write outside the workspace', async () => {
-    const result = await writeTool.execute({ path: '../pwned.txt', content: 'nope' }, ctx);
+    const result = await writeTool.execute({ path: '/usr/local/hc-pwned.txt', content: 'nope' }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/escapes the workspace/);
+  });
+
+  it('writes a scratch file in the system temp dir, outside the workspace', async () => {
+    const scratch = await mkdtemp(join(tmpdir(), 'hc-scratch-'));
+    try {
+      const target = join(scratch, 'check.py');
+      const result = await writeTool.execute({ path: target, content: 'print(1)\n' }, ctx);
+      expect(result.isError).toBeUndefined();
+      expect(await readFile(target, 'utf8')).toBe('print(1)\n');
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
   });
 });

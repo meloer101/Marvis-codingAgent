@@ -112,10 +112,10 @@ marvis auto-mode reset --yes         # 删除 ~/.agent/settings.json 里的 auto
 
 Marvis 面向真实代码库设计，其安全边界如下：
 
-- **默认 `ask` 模式**将每次 `write`、`edit`、`webfetch` 和会改动环境的 `bash` 置于你的批准之下；只读工具和只读 shell 命令（`ls`、`cat`、`grep`、`git diff` 等，带写重定向就不算）免询问，复合命令里只读的那一段也可以和已放行的命令一起通过——`npm test 2>&1 | tail` 只需要 `Bash(npm:*)`。`auto` 模式把审查交给分类器；`yolo` 模式会取消这些提示。
+- **默认 `ask` 模式**将每次 `write`、`edit`、`webfetch` 和会改动环境的 `bash` 置于你的批准之下；只读工具和只读 shell 命令（`ls`、`cat`、`grep`、`git diff` 等，带写重定向就不算）免询问，复合命令里只读的那一段也可以和已放行的命令一起通过——`npm test 2>&1 | tail` 只需要 `Bash(npm:*)`。`auto` 模式把审查交给分类器；`yolo` 模式会取消这些提示，也不再拒绝无法审查的写法（`python -c`、`$(...)`、heredoc）——`yolo` 本就不审查，同样的代码写进文件照样能跑。破坏性命令（`rm -rf` 工作区根目录、`~` 或工作区外的路径，碰 `.ssh`，管道到 shell）在任何模式下都拒绝。
 - **`auto` 配置只认用户级 `~/.agent/settings.json`**：仓库里的 `.agent/settings.json` 不能把自己设成 auto，也不能改分类器规则。用 `marvis auto-mode config` 查看展开后的规则，`marvis auto-mode defaults` 查看内置清单。
 - **密钥受保护**：`.env*`、`*.pem`、`id_rsa`、`credentials*`、`secrets.json`、`.git/config` 受保护——文件工具如此，`bash` 也一样（`cat .env` 在任何模式下都会被拒，只有点名该文件的规则能放行），所以"只读"不等于"可以读密钥"。API key 与子进程隔离，且仅在一处读取、出错前脱敏。
-- **OS 写沙箱在 macOS 生效**（`sandbox-exec`）：shell 命令的写操作被物理限制在工作区内。Linux/Windows 上依靠命令审查名单加 `ask` 审批，因此在这些平台上，对不信任的代码请保持 `ask` 模式。
+- **OS 写沙箱在 macOS 生效**（`sandbox-exec`）：shell 命令的写操作被物理限制在工作区和系统临时目录内；文件工具同样可以读写临时目录，放 scratch 文件不必落在工作区里。Linux/Windows 上依靠命令审查名单加 `ask` 审批，因此在这些平台上，对不信任的代码请保持 `ask` 模式。
 - **`bash` 可联网、可读取你有权读取的文件**，闸门是审批；`webfetch` 额外将请求限制在公网地址，且不自行跟随跨主机跳转。
 
 ## 工作原理

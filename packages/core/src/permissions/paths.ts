@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export class PathEscapeError extends Error {
@@ -16,23 +17,58 @@ export function isInsideWorkspace(workspaceRoot: string, target: string): boolea
   return target === root || target.startsWith(root + sep);
 }
 
+export interface WorkspacePathOptions {
+  /**
+   * Also accept a path inside the system temp directory (`os.tmpdir()`, and
+   * `/tmp`). The `bash` sandbox already lets commands write there; the file
+   * tools opt in so the agent can keep scratch files out of the workspace
+   * instead of having to leave them in it.
+   */
+  allowScratch?: boolean;
+}
+
+let scratchRootsPromise: Promise<string[]> | undefined;
+
+/** The temp directories scratch files may live in, symlinks resolved (`/tmp` is `/private/tmp` on macOS). */
+export function scratchRoots(): Promise<string[]> {
+  scratchRootsPromise ??= Promise.all(
+    [tmpdir(), '/tmp'].map((p) => realpath(p).catch(() => undefined)),
+  ).then((roots) => [...new Set(roots.filter((r): r is string => r !== undefined && r !== '/'))]);
+  return scratchRootsPromise;
+}
+
+/** Whether `target` (absolute, or relative to `cwd`) resolves inside a scratch root. */
+export async function isInScratch(target: string, cwd = process.cwd()): Promise<boolean> {
+  const resolved = await realpathExistingOrJoin(isAbsolute(target) ? resolve(target) : resolve(cwd, target));
+  return (await scratchRoots()).some((root) => isInsideWorkspace(root, resolved));
+}
+
 /**
  * Resolve `target` against the workspace, following symlinks. Files that do not
  * exist yet are resolved via the nearest existing ancestor so `../` and
  * symlink hops cannot sneak a create outside the cage.
  */
-export async function resolveInWorkspace(workspaceRoot: string, target: string): Promise<string> {
+export async function resolveInWorkspace(
+  workspaceRoot: string,
+  target: string,
+  opts: WorkspacePathOptions = {},
+): Promise<string> {
   const root = await realpath(workspaceRoot);
   const abs = isAbsolute(target) ? resolve(target) : resolve(root, target);
   const resolved = await realpathExistingOrJoin(abs);
-  if (!isInsideWorkspace(root, resolved)) {
-    throw new PathEscapeError(target);
+  if (isInsideWorkspace(root, resolved)) return resolved;
+  if (opts.allowScratch && (await scratchRoots()).some((r) => isInsideWorkspace(r, resolved))) {
+    return resolved;
   }
-  return resolved;
+  throw new PathEscapeError(target);
 }
 
-export async function assertInsideWorkspace(workspaceRoot: string, target: string): Promise<string> {
-  return resolveInWorkspace(workspaceRoot, target);
+export async function assertInsideWorkspace(
+  workspaceRoot: string,
+  target: string,
+  opts: WorkspacePathOptions = {},
+): Promise<string> {
+  return resolveInWorkspace(workspaceRoot, target, opts);
 }
 
 export async function relativeToWorkspace(workspaceRoot: string, target: string): Promise<string> {

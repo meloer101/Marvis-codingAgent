@@ -25,7 +25,7 @@ export const globTool: ToolSpec<z.infer<typeof schema>> = {
     const requested = input.cwd ? resolve(ctx.cwd, input.cwd) : ctx.cwd;
     let cwd: string;
     try {
-      cwd = await assertInsideWorkspace(ctx.cwd, requested);
+      cwd = await assertInsideWorkspace(ctx.cwd, requested, { allowScratch: true });
     } catch (err) {
       const message = err instanceof PathEscapeError ? err.message : errorMessage(err);
       return { content: message, isError: true };

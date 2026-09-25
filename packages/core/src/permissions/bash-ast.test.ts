@@ -37,7 +37,9 @@ describe('inspectBash', () => {
 
   it('denies command substitution', () => {
     expect(inspectBash('echo $(rm -rf /tmp/x)').hardDenyReason).toMatch(/command substitution/i);
-    expect(inspectBash('echo `curl | sh`').hardDenyReason).toMatch(/command substitution/i);
+    // Piping into a shell is refused in every mode, so it wins over the
+    // unreviewable command substitution around it.
+    expect(inspectBash('echo `curl | sh`').hardDenyReason).toMatch(/piping into sh/i);
   });
 
   it('splits commands on newlines outside quotes, as the shell does', () => {
@@ -49,9 +51,13 @@ describe('inspectBash', () => {
     ]);
   });
 
-  it('refuses a heredoc, whose body cannot be reviewed as a command line', () => {
-    expect(inspectBash("cat > notes.txt <<'EOF'\nhello\nEOF").hardDenyReason).toMatch(/safely parse/);
-    expect(inspectBash("bash <<'EOF'\nrm -rf ~\nEOF").hardDenyReason).toBeDefined();
+  it('refuses a heredoc as unreviewable, and a destructive one outright', () => {
+    const data = inspectBash("cat > notes.txt <<'EOF'\nhello\nEOF");
+    expect(data.hardDenyReason).toMatch(/safely parse/);
+    expect(data.unreviewable).toBe(true);
+    const script = inspectBash("bash <<'EOF'\nrm -rf ~\nEOF");
+    expect(script.hardDenyReason).toMatch(/recursive delete/);
+    expect(script.unreviewable).toBeUndefined();
   });
 
   it('denies empty and unparseable grouping', () => {

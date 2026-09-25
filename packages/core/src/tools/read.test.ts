@@ -51,7 +51,9 @@ describe('readTool', () => {
   });
 
   it('refuses to read a path outside the workspace', async () => {
-    const result = await readTool.execute({ path: '../secret' }, ctx);
+    // Not `../secret`: this workspace sits in the temp dir, which the file
+    // tools accept as scratch space.
+    const result = await readTool.execute({ path: '/etc/hosts' }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/escapes the workspace/);
   });

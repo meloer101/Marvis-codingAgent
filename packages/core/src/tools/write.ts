@@ -23,7 +23,7 @@ export const writeTool: ToolSpec<z.infer<typeof schema>> = {
   async execute(input, ctx) {
     let path: string;
     try {
-      path = await assertInsideWorkspace(ctx.cwd, input.path);
+      path = await assertInsideWorkspace(ctx.cwd, input.path, { allowScratch: true });
     } catch (err) {
       const message = err instanceof PathEscapeError ? err.message : errorMessage(err);
       return { content: message, isError: true };

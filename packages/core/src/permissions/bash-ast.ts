@@ -13,8 +13,8 @@ const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']);
  * behind these flags is a different language entirely. Shell-parsing a
  * Python or JS string with `shell-quote` doesn't review it — it produces
  * tokens that only coincidentally look like a shell command — so these are
- * hard-denied outright rather than given a false sense of having been
- * checked.
+ * refused as unreviewable rather than given a false sense of having been
+ * checked. `yolo`, which reviews nothing, lets them through (`engine.ts`).
  */
 const INLINE_EVAL_FLAGS: Record<string, string[]> = {
   python: ['-c'],
@@ -27,33 +27,55 @@ const INLINE_EVAL_FLAGS: Record<string, string[]> = {
 export interface BashInspection {
   segments: string[][];
   hardDenyReason?: string;
+  /**
+   * Set with `hardDenyReason` when the refusal is only that the command could
+   * not be *reviewed* — command substitution, a shape `shell-quote` cannot
+   * parse (heredocs, subshells), inline interpreter code — as opposed to it
+   * being destructive. A mode that reviews nothing (`yolo`) has no reason to
+   * refuse these; destructive refusals hold in every mode.
+   */
+  unreviewable?: boolean;
   /** `>` / `>>` in the command — even `echo hi > file` is a write. */
   hasWriteRedirect?: boolean;
 }
 
+export interface InspectOptions {
+  /**
+   * The workspace root. An absolute path strictly inside it is not a
+   * catastrophic `rm -rf` target (the agent cleaning up its own scratch dir);
+   * the root itself still is. Without it every absolute path outside `/tmp` is.
+   */
+  workspaceRoot?: string;
+}
+
 type Token = ParseEntry;
 
-export function inspectBash(command: string): BashInspection {
+export function inspectBash(command: string, opts: InspectOptions = {}): BashInspection {
   const trimmed = command.trim();
   if (!trimmed) {
     return { segments: [], hardDenyReason: 'Empty command is not allowed' };
   }
 
+  // Past this point a command we cannot parse is refused as unreviewable, so
+  // first make sure nothing destructive hides inside it.
+  const unreviewable = (reason: string): BashInspection =>
+    destructiveInRawText(command, opts) ?? { segments: [], hardDenyReason: reason, unreviewable: true };
+
   if (/\$\(/.test(command) || command.includes('`')) {
-    return { segments: [], hardDenyReason: 'Command substitution is not allowed' };
+    return unreviewable('Command substitution is not allowed');
   }
 
   // A heredoc body is data for the command reading it — or a script, when
   // that command is a shell — and neither can be reviewed as a command line.
   if (/<<(?!<)/.test(command)) {
-    return { segments: [], hardDenyReason: 'Unable to safely parse this command' };
+    return unreviewable('Unable to safely parse this command');
   }
 
   let tokens: Token[];
   try {
     tokens = parse(separateLines(command)) as Token[];
   } catch {
-    return { segments: [], hardDenyReason: 'Unable to safely parse this command' };
+    return unreviewable('Unable to safely parse this command');
   }
 
   if (tokens.length === 0) {
@@ -66,22 +88,30 @@ export function inspectBash(command: string): BashInspection {
 
   const segments = splitSegments(tokens);
   if (segments.length === 0) {
-    return { segments: [], hardDenyReason: 'Unable to safely parse this command' };
+    return unreviewable('Unable to safely parse this command');
   }
 
-  const reason =
+  // Refusals that hold in every mode — destructive commands, and piping into a
+  // shell — outrank the unreviewable ones, so a command that is both is never
+  // let through by a mode that relaxes the latter.
+  const destructive =
     redirectToSsh(tokens) ??
     pipeToShell(segments) ??
-    segments.map(hardDenySegment).find((r) => r !== undefined);
+    segments.map((argv) => destructiveSegment(argv, opts)).find((r) => r !== undefined);
+  const inline = destructive ? undefined : segments.map(inlineEvalSegment).find((r) => r !== undefined);
 
   const extra: string[][] = [];
   let hasWriteRedirect = tokensHaveWriteRedirect(tokens);
   for (const argv of segments) {
     const inner = nestedShellCommand(argv);
     if (inner) {
-      const nested = inspectBash(inner);
-      if (nested.hardDenyReason) {
-        return { segments, hardDenyReason: nested.hardDenyReason };
+      const nested = inspectBash(inner, opts);
+      if (nested.hardDenyReason && !destructive) {
+        return {
+          segments,
+          hardDenyReason: nested.hardDenyReason,
+          ...(nested.unreviewable ? { unreviewable: true } : {}),
+        };
       }
       extra.push(...nested.segments);
       if (nested.hasWriteRedirect) hasWriteRedirect = true;
@@ -90,7 +120,8 @@ export function inspectBash(command: string): BashInspection {
 
   return {
     segments: extra.length > 0 ? [...segments, ...extra] : segments,
-    ...(reason ? { hardDenyReason: reason } : {}),
+    ...(destructive ? { hardDenyReason: destructive } : {}),
+    ...(inline ? { hardDenyReason: inline, unreviewable: true } : {}),
     ...(hasWriteRedirect ? { hasWriteRedirect: true } : {}),
   };
 }
@@ -128,6 +159,24 @@ function separateLines(command: string): string {
     out += c === '\n' ? ' ; ' : c;
   }
   return out;
+}
+
+/**
+ * The every-mode checks, run over the raw text of a command that could not be
+ * parsed. Split on the shell's command separators and on the substitution and
+ * quoting characters, each piece is treated as an argv — rough, but it only
+ * has to find `rm -rf /`-shaped and `.ssh`-touching words, and erring toward a
+ * refusal is the safe direction.
+ */
+function destructiveInRawText(command: string, opts: InspectOptions): BashInspection | undefined {
+  const piped = /\|\s*(?:sudo\s+)?(?:\S*\/)?(sh|bash|zsh|dash|ksh)\b/.exec(command);
+  if (piped) return { segments: [], hardDenyReason: `Piping into ${piped[1]} is not allowed` };
+  for (const piece of command.split(/[;&|\n]|\$\(|`/)) {
+    const argv = piece.split(/[\s()"']+/).filter((w) => w !== '');
+    const reason = destructiveSegment(argv, opts);
+    if (reason) return { segments: [], hardDenyReason: reason };
+  }
+  return undefined;
 }
 
 function tokensHaveWriteRedirect(tokens: Token[]): boolean {
@@ -202,7 +251,7 @@ function pipeToShell(segments: string[][]): string | undefined {
   return undefined;
 }
 
-function hardDenySegment(argv: string[]): string | undefined {
+function destructiveSegment(argv: string[], opts: InspectOptions): string | undefined {
   if (argv.length === 0) return undefined;
   const cmd = baseCmd(argv[0] ?? '');
 
@@ -212,19 +261,24 @@ function hardDenySegment(argv: string[]): string | undefined {
     }
   }
 
-  if (cmd === 'rm' && hasRecursiveForce(argv) && argv.slice(1).some(isCatastrophicRmTarget)) {
-    return `Refusing recursive delete of ${argv.slice(1).filter(isCatastrophicRmTarget).join(', ')}`;
+  const catastrophic = (a: string): boolean => isCatastrophicRmTarget(a, opts.workspaceRoot);
+  if (cmd === 'rm' && hasRecursiveForce(argv) && argv.slice(1).some(catastrophic)) {
+    return `Refusing recursive delete of ${argv.slice(1).filter(catastrophic).join(', ')}`;
   }
 
   if (cmd === 'chmod' && argv.includes('777') && argv.some((a) => a === '/' || a === '/*')) {
     return 'chmod 777 / is not allowed';
   }
 
+  return undefined;
+}
+
+function inlineEvalSegment(argv: string[]): string | undefined {
+  const cmd = baseCmd(argv[0] ?? '');
   const evalFlags = INLINE_EVAL_FLAGS[cmd];
   if (evalFlags && argv.some((a) => evalFlags.includes(a))) {
     return `Running inline code via ${cmd} is not allowed — write it to a file and run that instead.`;
   }
-
   return undefined;
 }
 
@@ -242,8 +296,14 @@ function hasRecursiveForce(argv: string[]): boolean {
   return (joined.includes('r') || joined.includes('R')) && joined.includes('f');
 }
 
-function isCatastrophicRmTarget(arg: string): boolean {
+function isCatastrophicRmTarget(arg: string, workspaceRoot?: string): boolean {
   if (arg.startsWith('-')) return false;
+  if (workspaceRoot && arg.startsWith('/')) {
+    // Strictly inside the workspace is the agent's own business; the root
+    // itself, or a path that `..`s back out, is not.
+    const root = posix.resolve(workspaceRoot);
+    if (posix.resolve(arg).startsWith(`${root}/`)) return false;
+  }
   const home = homedir();
   if (arg === '/' || arg === '/*' || arg === '~' || arg === '$HOME' || arg === home) return true;
   if (arg === '~/' || arg === `${home}/`) return true;

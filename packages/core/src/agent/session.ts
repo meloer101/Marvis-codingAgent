@@ -301,7 +301,7 @@ export async function rebuildSessionState(
     const rawPath = (input as { path?: unknown }).path;
     if (typeof rawPath !== 'string') continue;
     try {
-      const path = await assertInsideWorkspace(cwd, rawPath);
+      const path = await assertInsideWorkspace(cwd, rawPath, { allowScratch: true });
       const stats = await stat(path);
       session.markRead(path, stats.mtimeMs);
     } catch {

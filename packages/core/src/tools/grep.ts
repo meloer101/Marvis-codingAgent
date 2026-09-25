@@ -62,7 +62,7 @@ export const grepTool: ToolSpec<Input> = {
     const requested = input.path ? resolve(ctx.cwd, input.path) : ctx.cwd;
     let searchPath: string;
     try {
-      searchPath = await assertInsideWorkspace(ctx.cwd, requested);
+      searchPath = await assertInsideWorkspace(ctx.cwd, requested, { allowScratch: true });
     } catch (err) {
       const message = err instanceof PathEscapeError ? err.message : errorMessage(err);
       return { content: message, isError: true };

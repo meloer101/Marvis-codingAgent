@@ -5,6 +5,7 @@ import { ruleMatchesBash, ruleMatchesMcp, ruleMatchesPath, ruleMatchesWebFetch }
 import { parseRule } from './parse.js';
 import {
   PathEscapeError,
+  isInScratch,
   isProtectedPath,
   isSensitivePath,
   sensitiveBashArgs,
@@ -199,8 +200,9 @@ export class PermissionEngine {
   private async evaluateBash(input: unknown): Promise<PermissionVerdict> {
     const rec = asRecord(input);
     const command = typeof rec.command === 'string' ? rec.command : '';
-    const inspected = inspectBash(command);
+    const inspected = inspectBash(command, { workspaceRoot: this.workspaceRoot });
     if (inspected.hardDenyReason) {
+      if (inspected.unreviewable && this.mode === 'yolo') return this.evaluateUnreviewedInYolo(command);
       return { decision: 'deny', reason: inspected.hardDenyReason };
     }
 
@@ -270,6 +272,34 @@ export class PermissionEngine {
     return this.modeDefault('bash', false);
   }
 
+  /**
+   * `yolo` for a command that could not be parsed into segments: inline
+   * interpreter code, `$(...)`, a heredoc. The refusal in other modes exists
+   * because the command can't be reviewed; `yolo` reviews nothing, and the same
+   * code written to a file and run is allowed anyway, so refusing costs a turn
+   * and buys no safety — in the Terminal-Bench run it was 10% of all tool calls.
+   * What still applies is what the user configured: a `Bash` deny rule, matched
+   * on the raw text since there are no segments, and the sensitive-file stance.
+   * Destructive commands never reach here (`inspectBash` refuses them first).
+   */
+  private evaluateUnreviewedInYolo(command: string): PermissionVerdict {
+    for (const rule of this.deny) {
+      if (rule.tool !== 'bash') continue;
+      if (rule.pattern === undefined || mentionsCommand(command, rule.pattern)) {
+        return { decision: 'deny', reason: `Blocked by deny rule ${rule.raw}` };
+      }
+    }
+    // Only words that look like paths: `load_credentials()` in inline code is
+    // not a file, `.env` and `config/credentials.json` are.
+    const sensitive = (command.match(/[\w.~/-]+/g) ?? []).find(
+      (word) => /[./]/.test(word) && isSensitivePath(word),
+    );
+    if (sensitive) {
+      return { decision: 'deny', reason: `Refusing to access sensitive file ${sensitive}` };
+    }
+    return { decision: 'allow' };
+  }
+
   private async evaluatePathTool(tool: string, req: EvaluateRequest): Promise<PermissionVerdict> {
     const target = pathFromInput(tool, req.input);
 
@@ -278,10 +308,9 @@ export class PermissionEngine {
       try {
         rel = await relativeToWorkspace(this.workspaceRoot, target);
       } catch (err) {
-        if (err instanceof PathEscapeError) {
-          return { decision: 'deny', reason: err.message };
-        }
-        throw err;
+        if (!(err instanceof PathEscapeError)) throw err;
+        if (await isInScratch(target, this.workspaceRoot)) return this.evaluateScratchPath(tool, target, req);
+        return { decision: 'deny', reason: err.message };
       }
     }
 
@@ -325,6 +354,19 @@ export class PermissionEngine {
     }
 
     return this.modeDefault(tool, req.readOnly || READ_ONLY_TOOLS.has(tool), rel, protectedWrite);
+  }
+
+  /**
+   * A file tool on a path in the system temp dir. Rules are written against
+   * workspace-relative paths, so none of them apply; the sensitive-file stance
+   * does, and otherwise the mode decides exactly as for a workspace path —
+   * `ask` asks, `plan` and `readOnly` refuse writes, `yolo` allows.
+   */
+  private evaluateScratchPath(tool: string, target: string, req: EvaluateRequest): PermissionVerdict {
+    if (isSensitivePath(target)) {
+      return { decision: 'deny', reason: `Refusing to access sensitive file ${target}` };
+    }
+    return this.modeDefault(tool, req.readOnly || READ_ONLY_TOOLS.has(tool));
   }
 
   private effectiveAllow(): PermissionRule[] {
@@ -386,6 +428,19 @@ export class PermissionEngine {
         return { decision: 'ask', reason: `${tool} requires approval in ask mode` };
     }
   }
+}
+
+/**
+ * Whether `command` invokes the command a `Bash(<pattern>)` rule names, judged
+ * on raw text: the pattern's command words (before any `:*` or `*`) appearing
+ * as whole words. Over-matches on purpose — it only ever turns an allow into a
+ * deny.
+ */
+function mentionsCommand(command: string, pattern: string): boolean {
+  const prefix = pattern.replace(/:\*$/, '').replace(/\*+$/, '').trim();
+  if (prefix === '') return true;
+  const words = prefix.split(/\s+/).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return new RegExp(`(^|[^\\w./-])${words.join('\\s+')}($|[^\\w./-])`).test(command);
 }
 
 function autoModeDefault(tool: string, readOnly: boolean, protectedWrite: boolean): PermissionVerdict {

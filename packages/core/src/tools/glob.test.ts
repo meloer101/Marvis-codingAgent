@@ -40,7 +40,7 @@ describe('globTool', () => {
   });
 
   it('refuses to search from a cwd outside the workspace', async () => {
-    const result = await globTool.execute({ pattern: '*', cwd: '..' }, ctx);
+    const result = await globTool.execute({ pattern: '*', cwd: '/usr' }, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/escapes the workspace/);
   });
