@@ -71,9 +71,9 @@ failures (the environment didn't start, the provider was unreachable or out of
 balance, no verdict) are left out of the agent's pass rate, because container
 resources alone can move Terminal-Bench scores by several points. The script also
 prints the environment config and the trial directories to read. Each trial's
-`agent/hc-traces/` holds the `hc` trace (timings, tokens, tool names — no text)
-and `agent/hc-sessions/` the full conversation, which is what you read for the
-first thing that went wrong. Tally what you find in the failure-mode table in
+`agent/hc-state/traces/` holds the `hc` trace (timings, tokens, tool names — no
+text) and `agent/hc-state/sessions/` the full conversation, which is what you
+read for the first thing that went wrong. Tally what you find in the failure-mode table in
 [docs/ROADMAP.md](../../docs/ROADMAP.md).
 
 `.jobs/` is gitignored and is the only copy of the trajectories: archive it
@@ -119,10 +119,12 @@ Each trial dir (`<jobs>/<timestamp>/<task>__<id>/`) has:
   `compaction` / `stop` and a `ts` (epoch ms), e.g.
   `jq -c 'select(.type=="tool_end" and .is_error)' hc.log`. Pass
   `--no-progress` to turn it off.
-- `agent/hc-traces/` — hc's `.agent/traces/*.jsonl`, inspectable with
-  `hc trace <id> --cwd <that dir's parent>`.
-- `agent/hc-sessions/` — hc's `.agent/sessions/`: `<id>.jsonl` is the full
-  conversation, `<id>/toolout-*.txt` the tool output that was capped or pruned.
+- `agent/hc-state/` — hc's state directory (the adapter sets `HC_STATE_DIR` to
+  it, so nothing of hc's is written into the task directory):
+  `sessions/<id>.jsonl` is the full conversation, `sessions/<id>/toolout-*.txt`
+  the tool output that was capped or pruned, `traces/<id>.jsonl` the trace
+  (`HC_STATE_DIR=<that dir> hc trace <id>`). Runs from before 2026-09-25 have
+  `agent/hc-sessions/` and `agent/hc-traces/` instead.
 
 `result.json` at the job root has the pass rate + token/cost rollup (token/cost
 come from the adapter's `populate_context_post_run`).

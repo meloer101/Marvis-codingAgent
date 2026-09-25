@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import matter from 'gray-matter';
 import { stringify as yamlStringify } from 'yaml';
 
-import { AGENT_DIR, findProjectRoot } from '../config/settings.js';
+import { AGENT_DIR, resolveProjectMemoryDir } from '../config/settings.js';
 import { MAX_MEMORY_FILE_BYTES } from '../context/memory.js';
 import {
   isMemoryType,
@@ -380,9 +380,8 @@ export async function discoverMemory(
   opts: DiscoverMemoryOptions = {},
 ): Promise<DiscoveredMemory> {
   const home = opts.homeDir ?? homedir();
-  const projectRoot = await findProjectRoot(cwd);
   const roots: { dir: string; scope: MemoryScope; source: MemorySource }[] = [
-    { dir: join(projectRoot, AGENT_DIR, MEMORY_DIR), scope: 'project', source: 'project' },
+    { dir: await resolveProjectMemoryDir(cwd, opts.homeDir), scope: 'project', source: 'project' },
     { dir: join(home, AGENT_DIR, MEMORY_DIR), scope: 'global', source: 'global' },
     {
       dir: opts.builtinDir ?? builtinMemoryDir(),

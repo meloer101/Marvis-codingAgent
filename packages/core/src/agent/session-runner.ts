@@ -21,7 +21,13 @@ import { join, resolve } from 'node:path';
 
 import { resolveBudgets } from '../config/budgets.js';
 import type { ResolvedBudgets } from '../config/budgets.js';
-import { AGENT_DIR, findProjectRoot, writeUserSettings } from '../config/settings.js';
+import {
+  AGENT_DIR,
+  findProjectRoot,
+  resolveProjectMemoryDir,
+  resolveStateDir,
+  writeUserSettings,
+} from '../config/settings.js';
 import type { AutoModeConfig, Settings } from '../config/settings.js';
 import { createCompactor } from '../context/compactor.js';
 import { loadProjectMemory } from '../context/memory.js';
@@ -431,7 +437,7 @@ export class AgentSession {
     }
     const memoryBuffer = new MemoryWriteBuffer({
       global: join(config.homeDir ?? homedir(), AGENT_DIR, 'memory'),
-      project: join(projectRoot, AGENT_DIR, 'memory'),
+      project: await resolveProjectMemoryDir(cwd, config.homeDir),
       ...(memoryEnabled ? { builtin: config.builtinMemoryDir ?? builtinMemoryDir() } : {}),
     });
 
@@ -479,7 +485,8 @@ export class AgentSession {
       }
     }
 
-    const agentDir = config.agentDir ?? join(projectRoot, AGENT_DIR);
+    const agentDir =
+      config.agentDir ?? (await resolveStateDir(cwd, config.homeDir ? { homeDir: config.homeDir } : {}));
     const recorder =
       config.recorder === false ? undefined : new SessionRecorder(agentDir, config.resumeId);
     const traceOn = config.trace !== false && settings.telemetry?.enabled !== false;

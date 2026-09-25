@@ -16,9 +16,8 @@
 ## 0. 建议顺序
 
 1. **H「测量"完成前核验"」**：已经实现，差一次实测（需要 DeepSeek 余额，capability 任务约几毛钱）。
-2. **I「harness 的 `.agent/` 不放进任务工作目录」**：agent 会去翻自己的日志，12/70 条轨迹受影响。
-3. **G「Harbor 的 `max_turns` 40 是不是太紧」**：3 个大任务到第 40 轮还没做完（#14）。便宜的实验，见 G 节。
-4. **H「按"没有进展"触发的 step-back 提示」**：9 月上旬最多的失败（#7）。9 月下旬没出现在第一个错误里，但仍在。
+2. **G「Harbor 的 `max_turns` 40 是不是太紧」**：3 个大任务到第 40 轮还没做完（#14）。便宜的实验，见 G 节。
+3. **H「按"没有进展"触发的 step-back 提示」**：9 月上旬最多的失败（#7）。9 月下旬没出现在第一个错误里，但仍在。
 
 ### 待决定（产品取舍，不是工程量）
 - **`.env.example` 这类模板文件要不要从敏感文件中豁免？** `isSensitivePath`
@@ -27,6 +26,10 @@
   已经存在，只等决定。
 - **主会话要不要开启 `finalSummaryTurn`？** 最后一回合去掉工具、强制给出总结，目前只有子代理开启
   （`subagents/run.ts`）。决定开启的话，要测量效果。*(S)*
+- **项目里的会话和 trace 要不要也移出仓库？** 现在只有"不是项目的目录"写到 `~/.agent/projects/`；在项目里仍写
+  `<项目根>/.agent/{sessions,traces}`。本仓库的 `.gitignore` 忽略了它们，但别人的仓库不一定，`git add -A` 会把
+  会话日志（含工具输出）提交进去。Claude Code 和 codex 都把这类状态放在 home 下。改的话要让 `--resume`、`hc trace`、
+  `hc stats`、TUI 和 web 的会话列表同时读新旧两个位置。*(S–M)*
 - **能力位覆盖要不要拆回独立的 `capabilities.yaml`？** 目前放在 `.agent/settings.json` 的
   `capabilities` 字段里，拆出来成本很低。
 
@@ -212,7 +215,7 @@
 | 摩擦 | 涉及轨迹 | 次数 | 说明 |
 | --- | --- | --- | --- |
 | `yolo` 模式下权限引擎硬拒绝合法命令 | **68/70** | 209 次，占全部 2075 次工具调用的 10.1% | `python -c` 91 次（48 条）、heredoc 解析不了 35 次（28 条）、`$(...)` 36 次（23 条）、`write` 写工作区外（`/tmp`）28 次（22 条）、管道到 `sh` 10 次、递归删除工作区内的目录 6 次（包括 agent 自己的 `scratch/`）。每次基本都要多花一轮改写。**9-25 已放宽**：`yolo` 下放行内联代码、`$(...)`、heredoc；文件工具可以读写系统临时目录；删除工作区内的目录不再被拒。管道到 shell 和其他破坏性命令仍在所有模式拒绝。下次 Harbor 运行时验证 |
-| 翻 harness 自己的文件（`.agent/`、`/opt/hc`、`/logs/agent`） | 12/70 | — | `hc` 把 `.agent/` 写在任务目录里，agent 一 `ls` 就看到；有的去翻自己的日志，有的去 grep `hc.mjs` 找"参考答案"。见 I 节 |
+| 翻 harness 自己的文件（`.agent/`、`/opt/hc`、`/logs/agent`） | 12/70 | — | `hc` 把 `.agent/` 写在任务目录里，agent 一 `ls` 就看到；有的去翻自己的日志，有的去 grep `hc.mjs` 找"参考答案"。**9-25 已修**：不是项目的目录改写到 `~/.agent/projects/`，Harbor adapter 用 `HC_STATE_DIR` 把状态直接写进日志目录。下次 Harbor 运行时验证 |
 | `grep` 工具的 `path` 指向单个文件时报 `ENOTDIR` | 1（第一批） | 2 次 | 容器里没有 `rg`，JS fallback 把文件路径当目录用。**已修复**，第二批没有再出现 |
 
 ## H · Agentic behavior quality
@@ -248,12 +251,6 @@
   频率，再决定要不要默认追加一条 ephemeral 提示重发。*(S)*
 
 ## I · Operational hardening
-
-- **harness 的 `.agent/` 不放进任务工作目录**：`hc` 在 cwd 下写 `.agent/{sessions,traces}`。在 Harbor 容器里
-  cwd 就是任务目录 `/app`，agent 一 `ls` 就看到它，于是去翻自己的 session 日志、`/opt/hc`、`/logs/agent`
-  （9 月下旬全量：12/70 条，`db-wal-recovery` 在上面花了 10 轮，`extract-elf` 去 grep `hc.mjs` 找"参考答案"）；判分脚本也可能看到这些多出来的文件。可选做法：
-  cwd 不是项目根（没有 `.git` 等标记）时写到 `~/.agent/projects/<hash>/`，或者加一个 `--state-dir`
-  让 adapter 指到 `/logs/agent` 下。*(S)*
 
 - **[codex] 持久化每回合的上下文记录**：会话日志现在只存消息。codex 还持久化回合上下文、world-state
   快照和压缩标记，resume / fork 时能精确还原模型可见的布局和设置（`rollout/src/policy.rs`、

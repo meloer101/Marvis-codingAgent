@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  AGENT_DIR,
+  resolveStateDir,
   ProviderRegistry,
   VERSION,
   buildSessionConfig,
@@ -69,7 +69,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   // `--mock` sessions record into a throwaway dir (removed on close) so a demo
   // never touches the project's real `.agent/` — see `mockConfigFactory`.
   const mockDir = opts.mock && !opts.buildConfig ? await mkdtemp(join(tmpdir(), 'hc-web-mock-')) : undefined;
-  const agentDir = mockDir ?? join(projectRoot, AGENT_DIR);
+  const agentDir = mockDir ?? (await resolveStateDir(cwd));
 
   const buildConfig = resolveConfigFactory(opts, mockDir);
 

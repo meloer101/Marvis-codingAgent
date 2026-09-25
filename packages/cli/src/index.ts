@@ -11,6 +11,8 @@ import { Command } from 'commander';
 
 import {
   AGENT_DIR,
+  resolveProjectMemoryDir,
+  resolveStateDir,
   BUILTIN_PROVIDERS,
   NoModelConfiguredError,
   ProviderError,
@@ -22,7 +24,6 @@ import {
   discoverAgents,
   discoverSkills,
   FileOAuthStore,
-  findProjectRoot,
   MemoryWriteBuffer,
   listTraceIds,
   loadMcpConfig,
@@ -543,7 +544,7 @@ function parseMemoryScope(raw: string | undefined): MemoryScope | undefined {
 async function memoryBufferFor(cwd: string): Promise<MemoryWriteBuffer> {
   return new MemoryWriteBuffer({
     global: join(homedir(), AGENT_DIR, 'memory'),
-    project: join(await findProjectRoot(cwd), AGENT_DIR, 'memory'),
+    project: await resolveProjectMemoryDir(cwd),
     builtin: builtinMemoryDir(),
   });
 }
@@ -639,7 +640,7 @@ program
   .option('--cwd <dir>', 'workspace root to resolve .agent/traces against', process.cwd())
   .option('--json', 'emit the raw trace events as JSON instead of a timeline')
   .action(async (id: string | undefined, opts: { cwd: string; json?: boolean }) => {
-    const agentDir = join(await findProjectRoot(resolvePath(opts.cwd)), AGENT_DIR);
+    const agentDir = await resolveStateDir(resolvePath(opts.cwd));
     let resolvedId = id;
     if (!resolvedId) {
       const [newest] = await listTraceIds(agentDir);
@@ -666,7 +667,7 @@ program
   .option('--since <date>', 'only sessions started on or after this date (ISO, e.g. 2026-09-01)')
   .option('--json', 'emit the rollup as JSON')
   .action(async (opts: { cwd: string; since?: string; json?: boolean }) => {
-    const agentDir = join(await findProjectRoot(resolvePath(opts.cwd)), AGENT_DIR);
+    const agentDir = await resolveStateDir(resolvePath(opts.cwd));
     let sinceMs = 0;
     if (opts.since !== undefined) {
       sinceMs = Date.parse(opts.since);

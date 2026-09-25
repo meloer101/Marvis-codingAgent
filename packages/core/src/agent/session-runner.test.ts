@@ -134,6 +134,26 @@ describe('AgentSession', () => {
   });
 });
 
+describe('AgentSession state directory', () => {
+  it('leaves no .agent/ in a directory that is not a project', async () => {
+    const cwd = await tempDir();
+    const home = await tempDir();
+    const provider = new ScriptedProvider([{ text: 'ok' }]);
+    const { session } = await createSession({
+      cwd,
+      homeDir: home,
+      model: sessionModel(provider),
+      recorder: true,
+      trace: true,
+    });
+    await session.runTurn('hi');
+    await session.close();
+    await expect(access(join(cwd, '.agent'))).rejects.toThrow();
+    const projects = join(home, '.agent', 'projects');
+    await expect(access(projects)).resolves.toBeUndefined();
+  });
+});
+
 describe('AgentSession verify before stop', () => {
   const turns = () => [
     { toolCalls: [{ name: 'write', input: { path: 'a.txt', content: 'x' } }] },

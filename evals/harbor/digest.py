@@ -8,8 +8,9 @@ note the *first* thing that went wrong, and tally it in the failure-mode table
 of docs/ROADMAP.md. Failing trials only by default; `--all` includes passes
 (worth reading too — a pass that ran to the turn limit is still a failure mode).
 
-Reads `<trial>/agent/hc-sessions/<id>.jsonl` (the full conversation, copied out
-by hc_agent.py) and the trial's `result.json`. Each assistant turn becomes one
+Reads the trial's session log — `<trial>/agent/hc-state/sessions/<id>.jsonl`, or
+`agent/hc-sessions/` for runs from before hc_agent.py pointed `HC_STATE_DIR` at
+the log dir — and the trial's `result.json`. Each assistant turn becomes one
 block: what it said, the tool calls it made, and a one-line view of each result,
 with errors and denials marked. Stdlib only.
 """
@@ -45,8 +46,11 @@ def input_summary(name: str, args: object) -> str:
 
 
 def session_file(trial_dir: Path) -> Path | None:
-    files = sorted((trial_dir / "agent" / "hc-sessions").glob("*.jsonl"))
-    return files[-1] if files else None
+    for sub in ("hc-state/sessions", "hc-sessions"):
+        files = sorted((trial_dir / "agent" / sub).glob("*.jsonl"))
+        if files:
+            return files[-1]
+    return None
 
 
 def timeline(session: Path) -> list[str]:

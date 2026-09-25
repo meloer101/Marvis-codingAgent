@@ -10,9 +10,10 @@
  * The merge strategy is fixed here so those additions inherit it.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 import { DEFAULT_ALLOW_RULES } from '../permissions/defaults.js';
 import type { PermissionConfig } from '../permissions/types.js';
@@ -275,6 +276,11 @@ export async function clearUserAutoMode(opts?: { homeDir?: string }): Promise<st
  * back to `cwd`, so the tool works in a directory that is not a repository.
  */
 export async function findProjectRoot(cwd = process.cwd()): Promise<string> {
+  return (await findMarkedProjectRoot(cwd)) ?? resolve(cwd);
+}
+
+/** Nearest ancestor holding a `.agent` or `.git` directory, or `undefined` when there is none. */
+export async function findMarkedProjectRoot(cwd = process.cwd()): Promise<string | undefined> {
   const { stat } = await import('node:fs/promises');
   let dir = resolve(cwd);
 
@@ -288,7 +294,52 @@ export async function findProjectRoot(cwd = process.cwd()): Promise<string> {
       }
     }
     const parent = dirname(dir);
-    if (parent === dir) return resolve(cwd);
+    if (parent === dir) return undefined;
     dir = parent;
   }
+}
+
+/**
+ * Names the directory runtime state goes to — session logs, traces, offloaded
+ * tool output — overriding where it would otherwise go. For harnesses that run
+ * `hc` inside someone else's workspace (Harbor points it at its log dir), where
+ * a `.agent/` in the task directory is something the agent finds, reads, and
+ * can commit.
+ */
+export const STATE_DIR_ENV = 'HC_STATE_DIR';
+
+/**
+ * Where `hc` keeps what it knows about a directory that is not a project (no
+ * `.git`, no `.agent` above it): `~/.agent/projects/<name>-<hash>/`, so running
+ * in an arbitrary directory doesn't leave a `.agent/` behind in it.
+ */
+export async function looseDirHome(cwd: string, homeDir = homedir()): Promise<string> {
+  const real = await realpath(cwd).catch(() => resolve(cwd));
+  const hash = createHash('sha256').update(real).digest('hex').slice(0, 10);
+  const name = (basename(real) || 'root').replace(/[^\w.-]+/g, '_');
+  return join(homeDir, AGENT_DIR, 'projects', `${name}-${hash}`);
+}
+
+/**
+ * The directory session logs and traces are written under: `$HC_STATE_DIR` when
+ * set; `<projectRoot>/.agent` inside a project; otherwise `looseDirHome`.
+ */
+export async function resolveStateDir(
+  cwd = process.cwd(),
+  opts: { env?: NodeJS.ProcessEnv; homeDir?: string } = {},
+): Promise<string> {
+  const override = (opts.env ?? process.env)[STATE_DIR_ENV];
+  if (override) return resolve(cwd, override);
+  const root = await findMarkedProjectRoot(cwd);
+  return root ? join(root, AGENT_DIR) : looseDirHome(cwd, opts.homeDir);
+}
+
+/**
+ * Where project-scoped memory lives: `<projectRoot>/.agent/memory` inside a
+ * project, otherwise under `looseDirHome` — never a fresh `.agent/` in a
+ * directory that is not a project.
+ */
+export async function resolveProjectMemoryDir(cwd = process.cwd(), homeDir?: string): Promise<string> {
+  const root = await findMarkedProjectRoot(cwd);
+  return join(root ? join(root, AGENT_DIR) : await looseDirHome(cwd, homeDir), 'memory');
 }

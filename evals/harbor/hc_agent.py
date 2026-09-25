@@ -63,11 +63,13 @@ _LOCAL_BUNDLE = _REPO_ROOT / "dist-bundle" / "hc.mjs"
 # (host `self.logs_dir` mirrors container `/logs/agent`).
 _RESULT_PATH = EnvironmentPaths.agent_dir / "hc-result.json"
 _LOG_PATH = EnvironmentPaths.agent_dir / "hc.log"
-_TRACE_COPY = EnvironmentPaths.agent_dir / "hc-traces"
-# The trace holds timings and byte counts but no message text; the session log
-# is the full conversation (plus offloaded tool output), which is what reading
-# a trial for its first error needs.
-_SESSION_COPY = EnvironmentPaths.agent_dir / "hc-sessions"
+# Where hc keeps its session logs and traces (`HC_STATE_DIR`): straight into
+# the mounted agent log dir, so nothing of hc's lands in the task directory —
+# where the agent would find it, read it, and in a git task commit it — and
+# nothing has to be copied out afterwards. `sessions/` holds the full
+# conversation, which is what reading a trial for its first error needs;
+# `traces/` holds timings and token counts.
+_STATE_DIR = EnvironmentPaths.agent_dir / "hc-state"
 
 _MIN_NODE_MAJOR = 20
 _NODE_MAJOR = 22
@@ -261,20 +263,14 @@ class HcAgent(BaseInstalledAgent):
         mode = shlex.quote(self._hc_mode)
         result_path = shlex.quote(str(_RESULT_PATH))
         log_path = shlex.quote(str(_LOG_PATH))
-        trace_copy = shlex.quote(str(_TRACE_COPY))
-        session_copy = shlex.quote(str(_SESSION_COPY))
+        env.setdefault("HC_STATE_DIR", str(_STATE_DIR))
 
-        # `hc` writes .agent/{sessions,traces} into its cwd; capture cwd so both
-        # can be lifted out for post-mortem reading (`hc trace`, the transcript).
         command = (
-            'HC_CWD="$(pwd)"; '
             f"hc agent {prompt} --model {model} --mode {mode} "
             f"--output-format json --no-mcp --no-skills --no-subagents "
             f"--max-turns {self._max_turns} "
             f"</dev/null >{result_path} 2>{log_path}; "
             "HC_RC=$?; "
-            f'cp -r "$HC_CWD/.agent/traces" {trace_copy} 2>/dev/null || true; '
-            f'cp -r "$HC_CWD/.agent/sessions" {session_copy} 2>/dev/null || true; '
             f"cat {result_path} 2>/dev/null || true; "
             "exit $HC_RC"
         )

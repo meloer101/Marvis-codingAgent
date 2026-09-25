@@ -292,6 +292,13 @@ Code's shapes so ecosystem MCP servers and skills drop in unchanged:
   traces/<id>.jsonl    telemetry
 ```
 
+That is the layout inside a project (a directory with `.git` or `.agent` above
+it). Run in a directory that is not one, `hc` keeps `sessions/`, `traces/` and
+`memory/` under `~/.agent/projects/<name>-<hash>/` instead, so it leaves no
+`.agent/` behind; `HC_STATE_DIR` sends `sessions/` and `traces/` anywhere — the
+Harbor adapter points it at the trial's log dir, so an agent working in a task
+directory never finds (or commits) the harness's own logs there.
+
 Settings layer built-in defaults → `~/.agent/settings.json` →
 `.agent/settings.json`. Credentials come only from the environment
 (`DEEPSEEK_API_KEY`, `HC_<PROVIDER>_API_KEY`, …), read in one place and redacted
