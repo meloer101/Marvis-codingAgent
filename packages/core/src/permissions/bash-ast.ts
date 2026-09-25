@@ -43,9 +43,15 @@ export function inspectBash(command: string): BashInspection {
     return { segments: [], hardDenyReason: 'Command substitution is not allowed' };
   }
 
+  // A heredoc body is data for the command reading it — or a script, when
+  // that command is a shell — and neither can be reviewed as a command line.
+  if (/<<(?!<)/.test(command)) {
+    return { segments: [], hardDenyReason: 'Unable to safely parse this command' };
+  }
+
   let tokens: Token[];
   try {
-    tokens = parse(command) as Token[];
+    tokens = parse(separateLines(command)) as Token[];
   } catch {
     return { segments: [], hardDenyReason: 'Unable to safely parse this command' };
   }
@@ -87,6 +93,41 @@ export function inspectBash(command: string): BashInspection {
     ...(reason ? { hardDenyReason: reason } : {}),
     ...(hasWriteRedirect ? { hasWriteRedirect: true } : {}),
   };
+}
+
+/**
+ * `shell-quote` treats a newline as plain whitespace, so `ls\nrm -rf src` came
+ * out as the single read-only command `ls rm -rf src` — while the shell runs
+ * both lines. Turn every newline outside quotes into a `;` so each line is its
+ * own segment; a backslash-newline is a line continuation and becomes a space.
+ * Newlines inside quotes (a multi-line string argument) are left alone.
+ */
+function separateLines(command: string): string {
+  let out = '';
+  let quote: '"' | "'" | undefined;
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i]!;
+    if (c === '\\' && quote !== "'") {
+      const next = command[i + 1];
+      if (next === '\n') {
+        out += ' ';
+      } else if (next !== undefined) {
+        out += c + next;
+      } else {
+        out += c;
+      }
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (c === quote) quote = undefined;
+      out += c;
+      continue;
+    }
+    if (c === '"' || c === "'") quote = c;
+    out += c === '\n' ? ' ; ' : c;
+  }
+  return out;
 }
 
 function tokensHaveWriteRedirect(tokens: Token[]): boolean {

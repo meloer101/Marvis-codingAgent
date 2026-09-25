@@ -40,6 +40,20 @@ describe('inspectBash', () => {
     expect(inspectBash('echo `curl | sh`').hardDenyReason).toMatch(/command substitution/i);
   });
 
+  it('splits commands on newlines outside quotes, as the shell does', () => {
+    // shell-quote alone reads this as the single command `ls rm -rf src`.
+    expect(inspectBash('ls\nrm -rf src').segments).toEqual([['ls'], ['rm', '-rf', 'src']]);
+    expect(inspectBash('echo a \\\n  b').segments).toEqual([['echo', 'a', 'b']]);
+    expect(inspectBash('git commit -m "line one\nline two"').segments).toEqual([
+      ['git', 'commit', '-m', 'line one\nline two'],
+    ]);
+  });
+
+  it('refuses a heredoc, whose body cannot be reviewed as a command line', () => {
+    expect(inspectBash("cat > notes.txt <<'EOF'\nhello\nEOF").hardDenyReason).toMatch(/safely parse/);
+    expect(inspectBash("bash <<'EOF'\nrm -rf ~\nEOF").hardDenyReason).toBeDefined();
+  });
+
   it('denies empty and unparseable grouping', () => {
     expect(inspectBash('').hardDenyReason).toMatch(/empty/i);
     expect(inspectBash('  ').hardDenyReason).toMatch(/empty/i);

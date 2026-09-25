@@ -267,6 +267,17 @@ describe('PermissionEngine', () => {
     if (v.decision === 'deny') expect(v.reason).toMatch(/unknown tool/i);
   });
 
+  it('does not let a read-only first line carry a write on the next one', async () => {
+    for (const mode of ['ask', 'plan', 'readOnly'] as const) {
+      const v = await engine({ mode }).evaluate({
+        toolName: 'bash',
+        input: { command: 'ls\nrm -rf src' },
+        readOnly: false,
+      });
+      expect(v.decision, mode).not.toBe('allow');
+    }
+  });
+
   describe('MCP tools', () => {
     it('an unlisted mcp tool is asked in ask mode', async () => {
       const v = await engine().evaluate({ toolName: 'mcp__gh__create_issue', input: {}, readOnly: false });
