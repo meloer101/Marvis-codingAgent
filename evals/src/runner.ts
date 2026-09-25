@@ -32,6 +32,7 @@ export interface RunConfig {
   subagents?: boolean;
   promptTools?: boolean;
   systemPromptUpdate?: 'rewrite' | 'in-history';
+  verifyBeforeStop?: boolean;
   /** Distinguishes trace ids / result buckets across ablation arms. */
   label?: string;
 }
@@ -120,6 +121,7 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
         ...(cfg.subagents ? { subagents: true } : {}),
         ...(cfg.promptTools ? { promptTools: true } : {}),
         ...(cfg.systemPromptUpdate ? { systemPromptUpdate: cfg.systemPromptUpdate } : {}),
+        ...(cfg.verifyBeforeStop ? { verifyBeforeStop: true } : {}),
         ...(task.spec.allow ? { allow: task.spec.allow } : {}),
         ...(task.spec.deny ? { deny: task.spec.deny } : {}),
         ...(task.spec.maxTurns ? { maxTurns: task.spec.maxTurns } : {}),

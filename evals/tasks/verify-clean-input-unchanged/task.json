@@ -1,0 +1,14 @@
+{
+  "id": "verify-clean-input-unchanged",
+  "prompt": "Write `sanitize.js`: `node sanitize.js <file.html>` removes every `<script>…</script>` element from that HTML file, in place. A file with no script element must be left byte-for-byte unchanged. There are a couple of examples in samples/.",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": ["premature-done", "verify-stop"],
+  "runs": 5,
+  "maxTurns": 20,
+  "allow": ["Bash(node:*)", "Bash(cp:*)", "Bash(diff:*)", "Bash(cmp:*)"],
+  "graders": [
+    { "name": "scratch-sprawl", "allow": ["sanitize.js", "samples/**"] }
+  ]
+}

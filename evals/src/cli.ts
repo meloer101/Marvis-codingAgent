@@ -20,6 +20,8 @@
  *                          prompt-tools  — prompt-encoded vs. native tool calling
  *                          system-update — mid-session prompt change: in-history delta
  *                                          vs. rewriting the head (plan-shaped tasks only)
+ *                          verify-stop   — one check-against-the-task pass before a run
+ *                                          that changed something ends, vs. none
  *                        Every ablation arm hits the real endpoint (a changed tool set
  *                        or window can't replay a cassette), so it needs a key in .env.
  *   --update-baseline    write the current numbers to baseline.json
@@ -41,12 +43,13 @@ import type { RunConfig, TaskResult } from './runner.js';
 import { SUITES, evalsRoot, loadTasks } from './tasks.js';
 import type { Suite } from './tasks.js';
 
-type AblationDim = 'compaction' | 'subagents' | 'prompt-tools' | 'system-update';
+type AblationDim = 'compaction' | 'subagents' | 'prompt-tools' | 'system-update' | 'verify-stop';
 const ABLATION_DIMS: readonly AblationDim[] = [
   'compaction',
   'subagents',
   'prompt-tools',
   'system-update',
+  'verify-stop',
 ];
 
 interface Flags {
@@ -299,6 +302,16 @@ function ablationSpec(kind: AblationDim): AblationSpec {
         arms: { on: 'in-history delta', off: 'rewrite head' },
         onCfg: { systemPromptUpdate: 'in-history' },
         offCfg: { systemPromptUpdate: 'rewrite' },
+      };
+    case 'verify-stop':
+      // One pass back over the task's stated requirements before a run that
+      // changed something ends. Its signal is on tasks where the obvious
+      // self-check misses a stated requirement (the `verify-*` capability
+      // tasks); on the regression tasks it should cost a turn and change nothing.
+      return {
+        arms: { on: 'verify before stop', off: 'no verify pass' },
+        onCfg: { verifyBeforeStop: true },
+        offCfg: {},
       };
   }
 }

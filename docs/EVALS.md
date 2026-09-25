@@ -22,7 +22,8 @@ measure with paired CIs  ←──────────  change the harness (
    actually seen.
 2. **A good task is one where two experts would give the same verdict.** Every
    task ships a reference solution the assert accepts and a check that the
-   untouched fixture fails. If a task passes 0% of the time even with many trials,
+   untouched fixture fails: put the solution in `reference/` (laid over the
+   fixture) and `src/tasks.test.ts` checks both. If a task passes 0% of the time even with many trials,
    suspect the task before the agent.
 3. **Grade the outcome, not the path.** `assert.mjs` checks the workspace. Graders
    add binary behaviour checks. Nothing checks a specific tool-call sequence.
@@ -99,6 +100,7 @@ pnpm eval                                         # regression replay + gate (ev
 pnpm eval --live --suite capability --runs 5      # capability measurement (real model, costs money)
 pnpm eval --ablation <dim>                        # paired A/B of a harness switch
 pnpm eval --task plan-then-implement --ablation system-update   # the prompt-update A/B
+pnpm eval --suite capability --ablation verify-stop --runs 5    # the verify-before-stop A/B
 pnpm eval --analyze latest                        # transcript digest of failing runs → analysis.md
 pnpm eval --analyze latest --all-runs             # include passing runs (weekly reading)
 evals/harbor/run-subset.sh && python3 evals/harbor/summarize.py

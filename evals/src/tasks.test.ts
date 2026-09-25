@@ -1,5 +1,11 @@
+import { existsSync } from 'node:fs';
+import { cp, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
+import { runAssertion } from './harness.js';
 import { loadTasks } from './tasks.js';
 
 describe('loadTasks', () => {
@@ -39,3 +45,25 @@ describe('loadTasks', () => {
     expect(explicit.map((t) => t.spec.id)).toEqual(['fix-null-deref']);
   });
 });
+
+describe('task validity', async () => {
+  // A task whose reference solution fails is unpassable; one whose untouched
+  // fixture passes rewards doing nothing (EVALS.md, "a good task").
+  const withReference = (await loadTasks()).filter((t) =>
+    existsSync(join(dirname(t.fixtureDir), 'reference')),
+  );
+
+  it.each(withReference.map((t) => [t.spec.id, t] as const))('%s: fixture fails, reference passes', async (_id, task) => {
+    const work = await mkdtemp(join(tmpdir(), 'hc-task-'));
+    try {
+      await cp(task.fixtureDir, work, { recursive: true });
+      expect(runAssertion(task.assertPath, work).passed, 'bare fixture').toBe(false);
+      await cp(join(dirname(task.fixtureDir), 'reference'), work, { recursive: true });
+      const withRef = runAssertion(task.assertPath, work);
+      expect(withRef.passed, withRef.output).toBe(true);
+    } finally {
+      await rm(work, { recursive: true, force: true });
+    }
+  });
+});
+

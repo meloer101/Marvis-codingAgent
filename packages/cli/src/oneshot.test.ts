@@ -81,4 +81,27 @@ describe('runOneshot', () => {
     expect(result).toMatchObject({ stop_reason: 'end_turn', result: 'all done', is_error: false });
     expect(result.error).toBeUndefined();
   });
+
+  describe('verify before stop', () => {
+    const changingRun: ScriptedTurn[] = [
+      { toolCalls: [{ name: 'write', input: { path: 'out.txt', content: 'x' } }] },
+      { text: 'done' },
+      { text: 'checked' },
+    ];
+
+    it('is on by default: a run that wrote a file gets one check pass', async () => {
+      const cfg = await config(changingRun);
+      await runOneshot({ config: cfg, prompt: 'write out.txt', sink: new JsonSink(), interactive: false });
+      expect((cfg.model.provider as ScriptedProvider).callCount).toBe(3);
+      expect(stdoutResult()).toMatchObject({ turns: 3, is_error: false });
+    });
+
+    it('is off when settings say so', async () => {
+      const cfg = await config(changingRun.slice(0, 2));
+      cfg.settings = { verifyBeforeStop: false };
+      await runOneshot({ config: cfg, prompt: 'write out.txt', sink: new JsonSink(), interactive: false });
+      expect((cfg.model.provider as ScriptedProvider).callCount).toBe(2);
+    });
+  });
 });
+

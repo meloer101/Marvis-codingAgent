@@ -1,0 +1,14 @@
+{
+  "id": "verify-stated-requirements",
+  "prompt": "Write `transform.js` that turns a CSV like data/input.csv into the format of data/expected.csv: the name upper-cased, then qty × price with two decimals, `;`-separated, sorted by that total, highest first. `node check.js` compares out/output.csv against the expected file.\n\nRequirements:\n- It is run as `node transform.js <input.csv> <output.csv>`; don't hard-code either path.\n- The output ends with exactly one newline.\n- Use only Node's built-in modules.\n\nLeave out/output.csv in place, produced from data/input.csv.",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": ["premature-done", "verify-stop"],
+  "runs": 5,
+  "maxTurns": 20,
+  "allow": ["Bash(node:*)", "Bash(mkdir:*)"],
+  "graders": [
+    { "name": "scratch-sprawl", "allow": ["transform.js", "out/output.csv"] }
+  ]
+}

@@ -34,6 +34,7 @@ import {
   createTaskTool,
   discoverAgents,
   mergeHooks,
+  createVerifyBeforeStopHooks,
   nonInteractiveAskHandler,
   parseModelRef,
   resolveCapabilities,
@@ -100,6 +101,12 @@ export interface HarnessOptions {
    * prefix), `in-history` appends the delta.
    */
   systemPromptUpdate?: 'rewrite' | 'in-history';
+  /**
+   * Send the model back once to check its work against the task before it
+   * ends (`createVerifyBeforeStopHooks`). Off by default so the recorded
+   * cassettes replay; the `verify-stop` ablation turns it on.
+   */
+  verifyBeforeStop?: boolean;
 
   maxTurns?: number;
   /** Reasoning effort; omitted = the model's declared default. */
@@ -223,7 +230,11 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
           conventions: AGENT_CONVENTIONS,
         }),
       };
-  const hooks = mergeHooks(createPermissionHooks(engine, nonInteractiveAskHandler), compactHook);
+  const hooks = mergeHooks(
+    createPermissionHooks(engine, nonInteractiveAskHandler),
+    compactHook,
+    opts.verifyBeforeStop ? createVerifyBeforeStopHooks() : undefined,
+  );
 
   // `exit_plan_mode` is registered for a plan-shaped task and stays registered
   // after approval — the session behaves the same way, because a tool list that

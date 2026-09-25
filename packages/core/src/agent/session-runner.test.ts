@@ -134,6 +134,28 @@ describe('AgentSession', () => {
   });
 });
 
+describe('AgentSession verify before stop', () => {
+  const turns = () => [
+    { toolCalls: [{ name: 'write', input: { path: 'a.txt', content: 'x' } }] },
+    { text: 'done' },
+    { text: 'checked' },
+  ];
+
+  it('is off by default in a session', async () => {
+    const provider = new ScriptedProvider(turns());
+    const { session } = await createSession({ model: sessionModel(provider) });
+    await session.runTurn('write a.txt');
+    expect(provider.callCount).toBe(2);
+  });
+
+  it('sends a run that changed something back once when enabled', async () => {
+    const provider = new ScriptedProvider(turns());
+    const { session } = await createSession({ model: sessionModel(provider), verifyBeforeStop: true });
+    await session.runTurn('write a.txt');
+    expect(provider.callCount).toBe(3);
+  });
+});
+
 describe('AgentSession auto mode', () => {
   it('falls back to ask when auto is disabled, and setMode cannot enable it', async () => {
     const { session, notices } = await createSession({

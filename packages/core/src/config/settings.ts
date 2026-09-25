@@ -63,6 +63,13 @@ export interface Settings extends RouterSettings {
    * `false` to disable for a project/user.
    */
   toolGuardrails?: boolean;
+  /**
+   * Before a run that changed files or ran commands ends, send the model back
+   * once to check the result against the task's stated requirements
+   * (`agent/verify-stop.ts`). Default on for one-shot `hc agent` runs, off in
+   * interactive sessions, where a person reviews the result.
+   */
+  verifyBeforeStop?: boolean;
   /** Per-session telemetry trace under `.agent/traces`. Default enabled; `--no-trace` overrides per run. */
   telemetry?: { enabled?: boolean };
   /** TUI presentation hints. `theme` is a v1 stub: dark is the default, auto/light land later. */

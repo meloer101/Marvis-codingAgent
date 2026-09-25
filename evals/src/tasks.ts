@@ -5,6 +5,9 @@
  *   fixture/       files copied verbatim into a fresh workspace before the run
  *   assert.mjs     run with cwd = the post-run workspace; exit 0 = pass
  *   cassette.jsonl recorded model exchanges (committed; replayed in CI) — regression suite only
+ *   reference/     optional: files that, laid over the fixture, make assert.mjs pass —
+ *                  a reference solution; tasks.test.ts checks it passes and the bare
+ *                  fixture fails, so a task can't be unpassable or pass by doing nothing
  *
  * Suites (after Anthropic's "Demystifying evals for AI agents"):
  *   regression  should stay ~100%; replayed from cassettes and gated on the baseline

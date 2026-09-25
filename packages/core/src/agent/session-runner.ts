@@ -78,6 +78,7 @@ import type { AgentEvent, AgentLoopOptions, AgentRunResult } from './loop.js';
 import { mergeHooks } from './hooks.js';
 import type { AgentHooks } from './hooks.js';
 import { createToolGuardrailHooks } from './guardrails.js';
+import { createVerifyBeforeStopHooks } from './verify-stop.js';
 import type { ActiveSkill, AgentControl } from './control.js';
 import {
   SessionRecorder,
@@ -190,6 +191,12 @@ export interface AgentSessionConfig {
   projectMemory?: { text: string; sources: string[] } | null;
   /** Escape hatch for ablations / tests; merged last into each `AgentLoop`. */
   loopOverrides?: Partial<AgentLoopOptions>;
+  /**
+   * Send the model back once to check its work against the task before a run
+   * that changed something ends. Defaults to `settings.verifyBeforeStop`, then
+   * off; the one-shot CLI turns it on.
+   */
+  verifyBeforeStop?: boolean;
 
   // Injected seams ----------------------------------------------------------
   /** Permission `ask` handler. Defaults to `nonInteractiveAskHandler` (deny). */
@@ -599,10 +606,15 @@ export class AgentSession {
           ]),
         })
       : undefined;
+    const verifyHook =
+      (config.verifyBeforeStop ?? settings.verifyBeforeStop) === true
+        ? createVerifyBeforeStopHooks()
+        : undefined;
     const hooks = mergeHooks(
       createPermissionHooks(engine, askHandler, autoHookHolder.current),
       guardrailHook,
       compactHook,
+      verifyHook,
     );
 
     const budgetOverrides: Partial<AgentLoopOptions> = {

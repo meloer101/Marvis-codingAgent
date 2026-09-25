@@ -40,6 +40,9 @@ export async function runOneshot(opts: OneshotOptions): Promise<void> {
     let result: AgentRunResult;
     try {
       session = await AgentSession.create({
+        // No one reviews a one-shot run's result before it is used, so the
+        // verify-before-stop pass is on unless settings say otherwise.
+        verifyBeforeStop: opts.config.settings.verifyBeforeStop ?? true,
         ...opts.config,
         ...(askHandler ? { askHandler } : {}),
         ...(prompter

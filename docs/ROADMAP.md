@@ -15,8 +15,7 @@
 
 ## 0. 建议顺序
 
-1. **H「完成前对照验收要求核验」（Stop gate 的使用方）**：9 月下旬 Terminal-Bench 全量运行里，18 个 agent 失败有
-   8 个（#12）是"验证不到位就宣布完成"。
+1. **H「测量"完成前核验"」**：已经实现，差一次实测（需要 DeepSeek 余额，capability 任务约几毛钱）。
 2. **I「harness 的 `.agent/` 不放进任务工作目录」**：agent 会去翻自己的日志，12/70 条轨迹受影响。
 3. **G「Harbor 的 `max_turns` 40 是不是太紧」**：3 个大任务到第 40 轮还没做完（#14）。便宜的实验，见 G 节。
 4. **H「按"没有进展"触发的 step-back 提示」**：9 月上旬最多的失败（#7）。9 月下旬没出现在第一个错误里，但仍在。
@@ -62,7 +61,7 @@
   （PreToolUse / PostToolUse / UserPromptSubmit / Stop / SessionStart / PreCompact；stdin 传 JSON，
   退出码 2 表示阻断，stdout 返回 `permissionDecision` / `updatedInput` / `additionalContext`），
   映射到现有的 `AgentHooks`。要有 `stop_hook_active` 防死循环；hook 输出超过 2.5K tokens 时落盘
-  （`hooks/`、`core/src/hook_runtime.rs`）。它也可以作为 H「Stop gate」由用户配置的实现。*(M)*
+  （`hooks/`、`core/src/hook_runtime.rs`）。`Stop` hook 也能让用户在内置的完成前核验（`agent/verify-stop.ts`）之外，接上自己的验收脚本。*(M)*
 - **[codex] 流式输出期间提前派发工具调用**：每个 `tool_use` 块一完成，就开始执行已经放行的调用，
   流结束后按模型发出的顺序收集结果，并用读写锁区分能并行和不能并行的工具
   （`core/src/session/turn.rs`、`core/src/tools/parallel.rs`）。只影响延迟，采纳前先测量。*(M)*
@@ -193,7 +192,7 @@
 
 | # | 失败模式 | 第一个错误的样子 | 9 月下旬计数 | 9 月上旬计数 | 之后（不计数） | eval 信号 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 12 | 验证不到位就宣布完成：只验证了自己做的东西，或者根本没能运行交付物 | 输出对了但漏了题目明写的 `:wq` 结尾（`large-scale-text-editing`）；只用一个干净文档测"不误改"（`filter-js-from-html`）；接口和调用方不符（`adaptive-rejection-sampler`）；环境里没有 SPARQL 引擎，"手工核对"后交了一个有语法错误的查询（`sparql-university`）；在自己切的验证集上 0.6243、刚过 0.62 的线就停，实际 0.617（`train-fasttext`）；Tm 算的区域和判分不一致（`dna-assembly`）；自测没覆盖到的走法（`regex-chess`，44/45）和矩阵行（`model-extraction-relu-logits`） | **8** | 0 | — | 还没有；可以从这些轨迹派生 capability 任务 | observed。对应 H「Stop gate 的真正使用方」 |
+| 12 | 验证不到位就宣布完成：只验证了自己做的东西，或者根本没能运行交付物 | 输出对了但漏了题目明写的 `:wq` 结尾（`large-scale-text-editing`）；只用一个干净文档测"不误改"（`filter-js-from-html`）；接口和调用方不符（`adaptive-rejection-sampler`）；环境里没有 SPARQL 引擎，"手工核对"后交了一个有语法错误的查询（`sparql-university`）；在自己切的验证集上 0.6243、刚过 0.62 的线就停，实际 0.617（`train-fasttext`）；Tm 算的区域和判分不一致（`dna-assembly`）；自测没覆盖到的走法（`regex-chess`，44/45）和矩阵行（`model-extraction-relu-logits`） | **8** | 0 | — | capability 任务 `verify-stated-requirements`、`verify-clean-input-unchanged`；`--ablation verify-stop` | fix landed（9-25，`agent/verify-stop.ts`）, unproven |
 | 13 | 笃定地给出错误的结论或解释 | 把"打印出来的是什么文字"答成"根本没有文字"（`gcode-to-text`）；光谱 x 轴在 1648–47183、明显不是 cm⁻¹，却用"G/2D 比值对得上"圆过去（`raman-fitting`）；认定题目示例"只是示意"，按自己推测的加载基址输出，匹配 0%（`extract-elf`） | **3** | 0 | `extract-elf` 去 grep `/opt/hc/hc.mjs` 找"参考答案" | — | observed |
 | 14 | 40 轮上限内做不完的大任务 | 写 MIPS 解释器、为 MIPS 编译 Doom、细胞分割，到第 40 轮还在修 bug，交付物停在坏掉的状态（`make-mips-interpreter`、`make-doom-for-mips`、`sam-cell-seg`） | **3** | 0 | — | — | observed。40 是 adapter 的默认 `max_turns`，Terminal-Bench 本身只限墙钟，见 G 节 |
 | 15 | 重任务在 Rosetta 下超出墙钟（环境限制，不是 agent 行为） | 装依赖 24 分钟、跑 OCR 19 分钟（`caffe-cifar-10`、`extract-moves-from-video`） | **2** | 0 | — | — | 换 x86 / 云端沙箱后再看 |
@@ -237,12 +236,11 @@
 - **"尽早动交付物"和 scratch 约定**：9 月下旬的轨迹里，"结束前清理 scratch 文件"基本都做到了，"复用同一个
   scratch 文件"没有（`gcode-to-text` 建了 12 个）；`largest-eigenval` 仍是第 28/39 轮才第一次写交付物（表中
   #4、#5）。*(S–M)* — **measure**
-- **Stop gate 的真正使用方：完成前对照验收要求核验**：`onBeforeStop` hook 和续跑上限都有了
-  （`agent/hooks.ts`、`agent/loop.ts`），缺一个在模型宣布完成前核验验收标准的实现（参考 hermes-agent 的
-  `verification_stop`），也可以由 B 节的命令 hooks 提供。9 月下旬全量的 18 个 agent 失败里有 8 个（表中 #12）
-  是验证不到位就宣布完成：漏了题目明写的格式要求、只用一个样例测"不误改"、接口和调用方不符、环境里没有
-  执行工具就"手工核对"、在自己切的验证集上刚过线就停。一个可行的形态：第一次 `end_turn` 时，把用户原始任务里的每条要求列成清单，让模型逐条
-  给出证据后再结束。先从这 3 条派生 capability 任务来测。*(M)* — **measure**
+- **测量"完成前核验"**：`agent/verify-stop.ts` 已实现（9-25）：本轮动过 `write`/`edit`/`bash` 的任务在第一次
+  宣布完成时，被送回去逐条对照用户原文的要求给出证据，每个任务最多一次。一次性的 `hc agent` 默认开启，交互式
+  会话默认关闭（设置 `verifyBeforeStop`）。还没测：用 `pnpm eval --suite capability --ablation verify-stop
+  --runs 5` 在两个从 #12 派生的任务（`verify-stated-requirements`、`verify-clean-input-unchanged`）上做成对
+  比较，再在下次 Harbor 运行里看 #12 的计数和多出来的回合成本。*(S)* — **measure**
 - **动手前先备份不可再生的输入**：`db-wal-recovery`（表中 #11）第 2 轮就用 `sqlite3` 打开数据库，导致被
   加密的 WAL 被删除，之后无法恢复。在 `<working_style>` 里加一条：对恢复、取证类任务，先复制原始文件再用
   可能修改它的工具去探查。*(S)* — **measure**
