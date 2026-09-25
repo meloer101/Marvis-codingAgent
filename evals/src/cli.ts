@@ -30,7 +30,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { loadSettings } from '@harness-code/core';
@@ -188,6 +188,13 @@ async function main(): Promise<void> {
   if (flags.ablation) {
     await runAblation(flags.ablation, tasks, base, model, resultsDir);
     return;
+  }
+
+  if (flags.record) {
+    // The recorder appends, and replay serves the first recording whose key
+    // matches — so an old trajectory left in the file shadows the new one from
+    // the first request on (they share it). Re-recording replaces.
+    for (const t of tasks) await rm(t.cassettePath, { force: true });
   }
 
   const results: TaskResult[] = [];
