@@ -62,4 +62,14 @@ describe('wrapCommand', () => {
     expect(result.args[1]).toContain('/workspace');
     expect(result.args.slice(2)).toEqual(['/bin/sh', '-c', 'echo hi']);
   });
+
+  it('allows writes under the workspace and temp dirs by their resolved paths too', async () => {
+    const { writableRoots } = await import('./macos-sandbox.js');
+    const { realpathSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const roots = writableRoots(tmpdir());
+    expect(roots).toContain(tmpdir());
+    expect(roots).toContain(realpathSync(tmpdir()));
+  });
 });
+

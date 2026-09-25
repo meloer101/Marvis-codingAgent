@@ -15,7 +15,7 @@
  * that's always been there.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 const SANDBOX_EXEC_PATH = '/usr/bin/sandbox-exec';
@@ -70,6 +70,27 @@ export function wrapCommand(
   available: boolean = isSandboxExecAvailable(),
 ): WrappedCommand {
   if (!available) return { cmd: '/bin/sh', args: [...shellArgs] };
-  const profile = buildSandboxProfile(workspaceRoot, [tmpdir()]);
+  const [root, ...extra] = writableRoots(workspaceRoot);
+  const profile = buildSandboxProfile(root!, extra);
   return { cmd: SANDBOX_EXEC_PATH, args: ['-p', profile, '/bin/sh', ...shellArgs] };
+}
+
+/**
+ * The paths writes are allowed under, each also by its resolved path. Seatbelt
+ * matches `subpath` against the real path, and on macOS both `tmpdir()`
+ * (`/var/folders/…`) and `/tmp` are symlinks into `/private` — so an allow
+ * clause naming them as given matched nothing, and every write in a workspace
+ * under the temp dir (every eval run) or to the temp dir itself was refused.
+ */
+export function writableRoots(workspaceRoot: string): string[] {
+  const roots = new Set<string>();
+  for (const p of [workspaceRoot, tmpdir(), '/tmp']) {
+    roots.add(p);
+    try {
+      roots.add(realpathSync(p));
+    } catch {
+      // A root that doesn't exist can't be written to anyway.
+    }
+  }
+  return [...roots];
 }

@@ -1,10 +1,11 @@
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SessionState } from '../agent/session.js';
+import { isSandboxExecAvailable } from '../permissions/macos-sandbox.js';
 import { bashTool } from './bash.js';
 import type { ToolContext } from './types.js';
 
@@ -85,4 +86,31 @@ describe('bashTool', () => {
       else process.env.OPENAI_API_KEY = prev;
     }
   });
+
+  describe('OS sandbox and symlinked paths', () => {
+    it('writes in a workspace given by its unresolved temp-dir path, and to the temp dir', async () => {
+      // No realpath here: this is the /var/folders/… path the eval harness
+      // passes. Seatbelt matches real paths, so an unresolved allow clause
+      // used to refuse every write.
+      const raw = await mkdtemp(join(tmpdir(), 'hc-bash-raw-'));
+      try {
+        const ctxRaw: ToolContext = { cwd: raw, session: new SessionState() };
+        const inWorkspace = await bashTool.execute({ command: 'mkdir -p out && echo x > out/o.txt && cat out/o.txt' }, ctxRaw);
+        expect(inWorkspace.isError, inWorkspace.content).toBeUndefined();
+        const probe = join(tmpdir(), `hc-bash-probe-${process.pid}.txt`);
+        const inTmp = await bashTool.execute({ command: `echo t > ${probe} && cat ${probe} && rm ${probe}` }, ctxRaw);
+        expect(inTmp.isError, inTmp.content).toBeUndefined();
+      } finally {
+        await rm(raw, { recursive: true, force: true });
+      }
+    });
+
+    it.runIf(isSandboxExecAvailable())('still refuses a write outside the workspace and the temp dir', async () => {
+      const outside = join(homedir(), `.hc-sandbox-probe-${process.pid}`);
+      const result = await bashTool.execute({ command: `echo x > ${outside}` }, ctx);
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/not permitted/i);
+    });
+  });
 });
+
