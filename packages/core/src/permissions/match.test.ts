@@ -30,6 +30,27 @@ describe('matchBashPattern', () => {
   });
 });
 
+describe('matchBashPattern with paths and globs', () => {
+  it('matches arguments that contain slashes', () => {
+    expect(matchBashPattern(['node', 'transform.js', 'data/input.csv', 'out/output.csv'], 'node:*')).toBe(true);
+    expect(matchBashPattern(['git', 'diff', 'src/a.ts'], 'git diff:*')).toBe(true);
+    expect(matchBashPattern(['npm', 'run', 'test', '--', 'src/'], 'npm run test:*')).toBe(true);
+  });
+
+  it('ends a prefix on a word boundary', () => {
+    expect(matchBashPattern(['node'], 'node:*')).toBe(true);
+    expect(matchBashPattern(['nodemon', 'app.js'], 'node:*')).toBe(false);
+    expect(matchBashPattern(['git', 'status-foo'], 'git status:*')).toBe(false);
+  });
+
+  it('lets a bare * match any characters, slashes included', () => {
+    expect(matchBashPattern(['npm', 'run', 'build', '--prefix', 'packages/web'], 'npm run *')).toBe(true);
+    expect(matchBashPattern(['npm', 'test'], 'npm test')).toBe(true);
+    expect(matchBashPattern(['npm', 'test', 'x'], 'npm test')).toBe(false);
+    expect(matchBashPattern(['echo', 'a.b'], 'echo a?b')).toBe(false);
+  });
+});
+
 describe('ruleMatchesPath', () => {
   it('bare Read matches any workspace-relative path', () => {
     const rule = parseRule('Read');

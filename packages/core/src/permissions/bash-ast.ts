@@ -182,7 +182,8 @@ function destructiveInRawText(command: string, opts: InspectOptions): BashInspec
 function tokensHaveWriteRedirect(tokens: Token[]): boolean {
   return tokens.some((t, i) => {
     if (typeof t !== 'object' || t === null || !('op' in t)) return false;
-    if (t.op === '>' || t.op === '>>') return true;
+    // `2>/dev/null` discards output; it writes nothing.
+    if (t.op === '>' || t.op === '>>') return tokens[i + 1] !== '/dev/null';
     // `>&word` writes stdout+stderr to the file `word`; only `>&2` / `>&-`
     // (fd duplication / close) leave the filesystem alone.
     if (t.op === '>&') {

@@ -49,12 +49,25 @@ export function matchPathGlob(relPath: string, pattern: string): boolean {
 
 /**
  * Match a parsed argv against a Bash(specifier) pattern.
- * `git status:*` is Claude Code prefix-glob: `git status` plus optional extra args.
+ *
+ * `git status:*` is Claude Code's prefix form: the command `git status`, alone
+ * or followed by any arguments. The prefix ends on a word boundary, so
+ * `Bash(node:*)` covers `node x.js` but not `nodemon`. Any other `*` matches
+ * any run of characters. These are command lines, not paths: a `*` here must
+ * match `/` — with path-glob semantics `Bash(node:*)` silently failed to cover
+ * `node transform.js data/input.csv`.
  */
 export function matchBashPattern(argv: string[], pattern: string): boolean {
   const joined = argv.join(' ');
-  const glob = pattern.endsWith(':*') ? `${pattern.slice(0, -2)}*` : pattern;
-  return globToRegExp(glob).test(joined);
+  if (pattern.endsWith(':*')) {
+    const prefix = pattern.slice(0, -2).trim();
+    return joined === prefix || joined.startsWith(`${prefix} `);
+  }
+  const re = pattern
+    .split('*')
+    .map((part) => escapeRegex(part))
+    .join('.*');
+  return new RegExp(`^${re}$`).test(joined);
 }
 
 export function ruleMatchesTool(rule: PermissionRule, toolName: string): boolean {

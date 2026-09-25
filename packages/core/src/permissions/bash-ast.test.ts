@@ -42,6 +42,12 @@ describe('inspectBash', () => {
     expect(inspectBash('echo `curl | sh`').hardDenyReason).toMatch(/piping into sh/i);
   });
 
+  it('does not count a redirect to /dev/null as a write', () => {
+    expect(inspectBash('ls -la samples/ 2>/dev/null').hasWriteRedirect).toBeUndefined();
+    expect(inspectBash('grep -r x . > /dev/null').hasWriteRedirect).toBeUndefined();
+    expect(inspectBash('ls > listing.txt').hasWriteRedirect).toBe(true);
+  });
+
   it('splits commands on newlines outside quotes, as the shell does', () => {
     // shell-quote alone reads this as the single command `ls rm -rf src`.
     expect(inspectBash('ls\nrm -rf src').segments).toEqual([['ls'], ['rm', '-rf', 'src']]);
