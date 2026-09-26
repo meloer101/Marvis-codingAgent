@@ -158,6 +158,10 @@
 - **失败模式统计**：见下表。每次 Harbor 运行后用 `evals/harbor/digest.py` 逐条读、更新计数。
 - **eval 多轨迹回放**：一份 cassette 里有两条以上轨迹时回放不了，所以 `plan-then-implement` 只能
   `runs: 1`，统计力很弱。*(S)*
+- **eval 里单次请求出错不该中断整批运行**：一次 `ProviderError`（比如 Mac 睡眠导致流式超时）会让整个
+  `pnpm eval` / `--ablation` 直接退出，已经跑完的运行也拿不到报告。应该把这次运行记为出错（不计入通过率，
+  像 Harbor 的 infra 一样单独列出），然后继续跑其余的。长时间的 live 运行还要防睡眠：在电池上合盖时
+  `caffeinate` 也挡不住。*(S)*
 - **[codex] 可选的全量调试包**：只在开启时，写出有序的原始事件和精确的请求 / 响应内容，离线还原每次
   请求"模型实际看到了什么"（`rollout-trace/README.md`）。能方便 Harbor 事后分析和 H 节的测量；
   默认 trace 仍不含正文。*(M)*
