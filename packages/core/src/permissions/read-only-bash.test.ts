@@ -10,6 +10,43 @@ function check(command: string): boolean {
 }
 
 describe('isReadOnlyBashCommand', () => {
+  it('allows the byte-inspection and comparison tools agents verify with', () => {
+    for (const cmd of [
+      'od -c out.csv',
+      'xxd out.csv',
+      'xxd -l 64 -s 16 a.bin',
+      'hexdump -C a.bin',
+      'cmp a b',
+      'diff -u a b',
+      'sort -n data.txt',
+      'uniq -c sorted.txt',
+      'cut -d, -f1 a.csv',
+      'jq .name package.json',
+      'sha256sum a.tar',
+      'date +%s',
+      '[ -f a.txt ]',
+      'tail -c 20 out.csv | od -c',
+    ]) {
+      expect(check(cmd), cmd).toBe(true);
+    }
+  });
+
+  it('refuses the argument forms of those tools that write or change state', () => {
+    for (const cmd of [
+      'sort -o sorted.txt data.txt',
+      'sort --output=sorted.txt data.txt',
+      'xxd -r dump.hex out.bin',
+      'xxd in.bin out.hex',
+      'uniq in.txt out.txt',
+      'date -s "2020-01-01"',
+      'env rm -rf x',
+      'cd .git && cat config',
+    ]) {
+      expect(check(cmd), cmd).toBe(false);
+    }
+  });
+
+
   it('allows the listed read-only utilities', () => {
     for (const cmd of [
       'ls',

@@ -26,6 +26,38 @@ export const READ_ONLY_BASH_COMMANDS = new Set([
   'rg',
   'grep',
   'find',
+  // Inspecting bytes, comparing, and transforming stdout — the checks an agent
+  // runs while verifying its own work (2026-09 evals refused `od`, `xxd`, `cmp`).
+  'od',
+  'hexdump',
+  'xxd',
+  'cmp',
+  'diff',
+  'sort',
+  'uniq',
+  'cut',
+  'tr',
+  'nl',
+  'column',
+  'jq',
+  'printf',
+  'seq',
+  'basename',
+  'dirname',
+  'realpath',
+  'sha256sum',
+  'sha1sum',
+  'md5sum',
+  'shasum',
+  'md5',
+  'uname',
+  'whoami',
+  'id',
+  'date',
+  'true',
+  'false',
+  'test',
+  '[',
 ]);
 
 const FIND_WRITE_FLAGS = new Set([
@@ -45,13 +77,39 @@ const GIT_READONLY_SUB = new Set(['status', 'log', 'diff', 'show', 'rev-parse'])
 /**
  * Flags that turn an otherwise read-only binary into a writer or an exec:
  * `rg --pre` runs a program per file, `tree -o` / `-R` write files,
- * `file -C` compiles a magic file.
+ * `file -C` compiles a magic file, `sort -o` writes its output to a file,
+ * `xxd -r` reverts a dump into a binary, `date -s` sets the clock.
  */
 const UNSAFE_ARG: Record<string, (arg: string) => boolean> = {
   rg: (a) => a === '--pre' || a.startsWith('--pre='),
   tree: (a) => /^-[^-]*[oR]/.test(a),
   file: (a) => a === '--compile' || /^-[^-]*C/.test(a),
+  sort: (a) => a === '--output' || a.startsWith('--output=') || /^-[^-]*o/.test(a),
+  xxd: (a) => a === '-r' || a === '-revert' || /^-[^-]*r/.test(a),
+  date: (a) => a === '--set' || a.startsWith('--set=') || /^-[^-]*s/.test(a),
 };
+
+/**
+ * Commands whose second file operand is where they write: `xxd in out`,
+ * `uniq in out`. Read-only only with at most one. Options that take a value
+ * are listed so their value isn't counted as an operand.
+ */
+const OUTPUT_OPERAND: Record<string, ReadonlySet<string>> = {
+  xxd: new Set(['-c', '-g', '-l', '-o', '-s', '-n', '-cols', '-groupsize', '-len', '-seek', '-offset', '-name']),
+  uniq: new Set(['-f', '-s', '-w', '--skip-fields', '--skip-chars', '--check-chars']),
+};
+
+function operandCount(args: readonly string[], valued: ReadonlySet<string>): number {
+  let n = 0;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '-') n++;
+    else if (a.startsWith('-')) {
+      if (valued.has(a)) i++;
+    } else n++;
+  }
+  return n;
+}
 
 export function isReadOnlyBashCommand(
   segments: string[][],
@@ -74,7 +132,9 @@ function isReadOnlySegment(argv: string[]): boolean {
   if (cmd === 'find') return argv.every((a) => !FIND_WRITE_FLAGS.has(a));
   if (!READ_ONLY_BASH_COMMANDS.has(cmd)) return false;
   const unsafe = UNSAFE_ARG[cmd];
-  return unsafe === undefined || !argv.slice(1).some(unsafe);
+  if (unsafe !== undefined && argv.slice(1).some(unsafe)) return false;
+  const valued = OUTPUT_OPERAND[cmd];
+  return valued === undefined || operandCount(argv.slice(1), valued) <= 1;
 }
 
 function isReadOnlyGit(argv: string[]): boolean {
