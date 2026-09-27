@@ -67,8 +67,8 @@ export interface Settings extends RouterSettings {
   /**
    * Before a run that changed files or ran commands ends, send the model back
    * once to check the result against the task's stated requirements
-   * (`agent/verify-stop.ts`). Default on for one-shot `hc agent` runs, off in
-   * interactive sessions, where a person reviews the result.
+   * (`agent/verify-stop.ts`). Default off: a paired eval (2026-09-27) showed
+   * its cost (4–8 extra turns) but no gain yet on the tasks it was measured on.
    */
   verifyBeforeStop?: boolean;
   /** Per-session telemetry trace under `.agent/traces`. Default enabled; `--no-trace` overrides per run. */

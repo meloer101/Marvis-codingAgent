@@ -89,18 +89,18 @@ describe('runOneshot', () => {
       { text: 'checked' },
     ];
 
-    it('is on by default: a run that wrote a file gets one check pass', async () => {
+    it('is off by default', async () => {
+      const cfg = await config(changingRun.slice(0, 2));
+      await runOneshot({ config: cfg, prompt: 'write out.txt', sink: new JsonSink(), interactive: false });
+      expect((cfg.model.provider as ScriptedProvider).callCount).toBe(2);
+    });
+
+    it('sends a run that wrote a file back once when settings turn it on', async () => {
       const cfg = await config(changingRun);
+      cfg.settings = { verifyBeforeStop: true };
       await runOneshot({ config: cfg, prompt: 'write out.txt', sink: new JsonSink(), interactive: false });
       expect((cfg.model.provider as ScriptedProvider).callCount).toBe(3);
       expect(stdoutResult()).toMatchObject({ turns: 3, is_error: false });
-    });
-
-    it('is off when settings say so', async () => {
-      const cfg = await config(changingRun.slice(0, 2));
-      cfg.settings = { verifyBeforeStop: false };
-      await runOneshot({ config: cfg, prompt: 'write out.txt', sink: new JsonSink(), interactive: false });
-      expect((cfg.model.provider as ScriptedProvider).callCount).toBe(2);
     });
   });
 });

@@ -200,7 +200,7 @@ export interface AgentSessionConfig {
   /**
    * Send the model back once to check its work against the task before a run
    * that changed something ends. Defaults to `settings.verifyBeforeStop`, then
-   * off; the one-shot CLI turns it on.
+   * off.
    */
   verifyBeforeStop?: boolean;
 
