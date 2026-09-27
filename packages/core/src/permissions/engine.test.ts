@@ -291,12 +291,37 @@ describe('PermissionEngine', () => {
       expect((await bash(e, 'node -e "console.log(1)"')).decision).toBe('allow');
     });
 
-    it('stay refused in every other mode', async () => {
-      for (const mode of ['ask', 'acceptEdits', 'auto', 'plan'] as const) {
+    it('go to the person in ask and acceptEdits, with the reason and a way around it', async () => {
+      for (const mode of ['ask', 'acceptEdits'] as const) {
+        const v = await bash(engine({ mode }), 'python3 -c "print(1)"');
+        expect(v.decision, mode).toBe('ask');
+        if (v.decision === 'ask') {
+          expect(v.reason).toMatch(/inline python3 code/);
+          expect(v.reason).toMatch(/Writing the code to a file/);
+        }
+      }
+      const h = await bash(engine({ mode: 'ask' }), heredoc);
+      if (h.decision !== 'ask') throw new Error(`expected ask, got ${h.decision}`);
+      expect(h.reason).toMatch(/heredoc/);
+    });
+
+    it('go to the classifier in auto mode', async () => {
+      expect((await bash(engine({ mode: 'auto' }), 'echo "$(date)"')).decision).toBe('classify');
+    });
+
+    it('stay refused in plan and readOnly, with the original reason', async () => {
+      for (const mode of ['plan', 'readOnly'] as const) {
         const v = await bash(engine({ mode }), 'python3 -c "print(1)"');
         expect(v.decision, mode).toBe('deny');
+        if (v.decision === 'deny') expect(v.reason).toMatch(/inline code via python3/);
       }
-      expect((await bash(engine({ mode: 'ask' }), heredoc)).decision).toBe('deny');
+    });
+
+    it('are refused outright in any mode when they touch a sensitive file', async () => {
+      for (const mode of ['ask', 'auto'] as const) {
+        const v = await bash(engine({ mode }), 'python3 -c "print(open(\'.env\').read())"');
+        expect(v.decision, mode).toBe('deny');
+      }
     });
 
     it('still honour Bash deny rules and the sensitive-file stance in yolo', async () => {

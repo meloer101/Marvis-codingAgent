@@ -202,7 +202,7 @@ export class PermissionEngine {
     const command = typeof rec.command === 'string' ? rec.command : '';
     const inspected = inspectBash(command, { workspaceRoot: this.workspaceRoot });
     if (inspected.hardDenyReason) {
-      if (inspected.unreviewable && this.mode === 'yolo') return this.evaluateUnreviewedInYolo(command);
+      if (inspected.unreviewable) return this.evaluateUnreviewable(command, inspected.hardDenyReason);
       return { decision: 'deny', reason: inspected.hardDenyReason };
     }
 
@@ -273,16 +273,19 @@ export class PermissionEngine {
   }
 
   /**
-   * `yolo` for a command that could not be parsed into segments: inline
-   * interpreter code, `$(...)`, a heredoc. The refusal in other modes exists
-   * because the command can't be reviewed; `yolo` reviews nothing, and the same
-   * code written to a file and run is allowed anyway, so refusing costs a turn
-   * and buys no safety — in the Terminal-Bench run it was 10% of all tool calls.
-   * What still applies is what the user configured: a `Bash` deny rule, matched
-   * on the raw text since there are no segments, and the sensitive-file stance.
-   * Destructive commands never reach here (`inspectBash` refuses them first).
+   * A command that could not be parsed into segments: inline interpreter
+   * code, `$(...)`, a heredoc. Nothing here can check what it will run, so the
+   * decision goes to whoever can: in `ask` / `acceptEdits` the person
+   * approving, who can read the whole command; in `auto` the classifier; in
+   * `yolo` nobody reviews anything, and the same code written to a file would
+   * run anyway, so it is allowed (in the Terminal-Bench run refusing these was
+   * 10% of all tool calls). `plan` and `readOnly` still refuse — they can't
+   * know it is read-only. In every mode what the user configured still holds:
+   * a `Bash` deny rule, matched on the raw text since there are no segments,
+   * and the sensitive-file stance. Destructive commands never reach here
+   * (`inspectBash` refuses them first).
    */
-  private evaluateUnreviewedInYolo(command: string): PermissionVerdict {
+  private evaluateUnreviewable(command: string, reason: string): PermissionVerdict {
     for (const rule of this.deny) {
       if (rule.tool !== 'bash') continue;
       if (rule.pattern === undefined || mentionsCommand(command, rule.pattern)) {
@@ -297,7 +300,17 @@ export class PermissionEngine {
     if (sensitive) {
       return { decision: 'deny', reason: `Refusing to access sensitive file ${sensitive}` };
     }
-    return { decision: 'allow' };
+    switch (this.mode) {
+      case 'yolo':
+        return { decision: 'allow' };
+      case 'auto':
+        return { decision: 'classify' };
+      case 'ask':
+      case 'acceptEdits':
+        return { decision: 'ask', reason: unreviewableAskReason(reason) };
+      default:
+        return { decision: 'deny', reason };
+    }
   }
 
   private async evaluatePathTool(tool: string, req: EvaluateRequest): Promise<PermissionVerdict> {
@@ -428,6 +441,20 @@ export class PermissionEngine {
         return { decision: 'ask', reason: `${tool} requires approval in ask mode` };
     }
   }
+}
+
+/** Why an unreviewable command is being put to the person approving it — and how to avoid the prompt. */
+function unreviewableAskReason(reason: string): string {
+  const inline = /inline code via (\S+)/.exec(reason);
+  const what = inline
+    ? `inline ${inline[1]} code`
+    : /substitution/i.test(reason)
+      ? 'command substitution ($(...) or backticks)'
+      : 'a shape the reviewer cannot parse (a heredoc or subshell)';
+  return (
+    `This command contains ${what}, which can't be checked automatically, so it needs approval. ` +
+    `Writing the code to a file and running that avoids the prompt.`
+  );
 }
 
 /**

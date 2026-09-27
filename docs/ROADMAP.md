@@ -96,9 +96,6 @@
 
 ## D · Permissions, safety & sandboxing
 
-- **无法审查的命令在 `ask` / `acceptEdits` 下改为交给人确认**：`$(...)`、heredoc、`python -c` 这类命令，
-  `yolo` 下已经放行（9-25），其他模式仍然直接拒绝。在有人审批的模式下，把它们交给人看比直接拒绝更合理：用户
-  能读懂整条命令，而拒绝只会让模型绕路写文件。`auto` 模式可以交给分类器。*(S)*
 - **只读 shell 白名单继续扩充**：9-27 已加入 `od`、`xxd`、`hexdump`、`cmp`、`diff`、`sort`、`uniq`、`jq`、`cut`、
   校验和工具等（会写文件的参数形式被排除）。剩下：`for` 循环这类 shell 结构；`cd`（故意没加：`cd .git && cat config`
   会绕过敏感路径检查）；`grep -r` 仍会顺带读到 `.env` 的内容，参数检查拦不住。*(S)*

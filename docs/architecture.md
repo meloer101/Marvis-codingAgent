@@ -199,11 +199,13 @@ six modes: `ask`, `plan`, `acceptEdits`, `readOnly`, `yolo`, `auto`.
   by segment. Two kinds of refusal: *destructive* (`rm -rf` of `/`, `~`, the
   workspace root or anything outside it; `.ssh`; `chmod 777 /`; piping into a
   shell) holds in every mode, and is also searched for in the raw text of
-  commands that don't parse; *unreviewable* (`$(…)`, heredocs, inline eval flags
-  for `node`/`python`/`perl`/`ruby`, which would escape a `Bash(node:*)`
-  allowance) is refused in every mode but `yolo`. `yolo` reviews nothing, and the
-  same code written to a file runs anyway, so there it only checks `Bash` deny
-  rules and sensitive paths against the raw text.
+  commands that don't parse. *Unreviewable* commands (`$(…)`, heredocs, inline
+  eval flags for `node`/`python`/`perl`/`ruby`, which would escape a
+  `Bash(node:*)` allowance) can't be checked segment by segment, so they go to
+  whoever can judge them: the person in `ask`/`acceptEdits`, the classifier in
+  `auto`; `yolo` allows them (it reviews nothing, and the same code written to a
+  file runs anyway); `plan`/`readOnly` refuse. In every mode the raw text is
+  still checked against `Bash` deny rules and for sensitive paths.
 - **Path cage.** Paths are `realpath`-resolved and must stay inside the workspace
   (blocks symlink and `../` escape) — or, for the file tools, inside the system
   temp dir, which the OS sandbox already lets shell commands write, so scratch
