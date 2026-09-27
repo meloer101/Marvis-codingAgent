@@ -121,3 +121,8 @@ evals/harbor/run-subset.sh && python3 evals/harbor/summarize.py
   from the failure tally. A suite at 100% can't show improvement.
 - **Harbor:** report infra errors separately from agent failures (`summarize.py`)
   and note the container resource config next to any score.
+- **Live runs and sleep:** a live run or ablation takes tens of minutes, and a
+  Mac that sleeps mid-stream turns the run into a provider timeout. Such runs
+  are recorded as infra errors and left out of the rates (the report says how
+  many), but they still cost the measurement its `n`: run on power, under
+  `caffeinate -dis`. On battery with the lid closed, `caffeinate` does not help.

@@ -7,6 +7,8 @@ import { cp, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { ProviderError } from '@harness-code/core';
+
 import { runGraders } from './graders/index.js';
 import type { GraderResult } from './graders/index.js';
 import { runAgentTask, runAssertion } from './harness.js';
@@ -78,6 +80,13 @@ export interface TaskResult {
   avgCostUSD: number;
   costPartial: boolean;
   runs: SingleRun[];
+  /**
+   * Live runs that never got a fair attempt: the provider failed (a stream
+   * timeout when the machine slept, a 5xx that outlasted the retries). Left out
+   * of every rate above, like Harbor's infra bucket, and listed so a thin `n`
+   * is visible.
+   */
+  infraErrors: { traceId: string; message: string }[];
 }
 
 function mean(xs: number[]): number {
@@ -88,6 +97,7 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
   const n = cfg.runs ?? task.spec.runs;
   const arm = cfg.label ? `${cfg.label}-` : '';
   const runs: SingleRun[] = [];
+  const infraErrors: TaskResult['infraErrors'] = [];
   // Traces land under `<resultsDir>/.agent/traces/` so `hc trace --cwd <resultsDir>` works.
   const traceDir = join(cfg.resultsDir, '.agent');
   await mkdir(traceDir, { recursive: true });
@@ -104,7 +114,7 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
       await cp(task.fixtureDir, workDir, { recursive: true });
 
       const traceId = `${arm}${task.spec.id}-${i + 1}`;
-      const { result, trace, events } = await runAgentTask({
+      const outcome = await runAgentTask({
         workDir,
         prompt: task.spec.prompt,
         modelRef: task.spec.model,
@@ -130,7 +140,17 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
         ...(task.spec.planApprovedMode
           ? { planApprovedMode: task.spec.planApprovedMode }
           : {}),
+      }).catch((err: unknown) => {
+        // Live only. In replay a miss is the regression signal; a half-written
+        // recording can't be used; and once the balance is gone (`quota`)
+        // every later run fails too — all of those should stop the run.
+        if (!cfg.live || !(err instanceof ProviderError) || err.kind === 'quota') throw err;
+        infraErrors.push({ traceId, message: err.message });
+        process.stderr.write(`  ${traceId}: provider error, not counted — ${err.message}\n`);
+        return undefined;
       });
+      if (!outcome) continue;
+      const { result, trace, events } = outcome;
 
       // For every task, pass = the assertion holds in the post-run workspace.
       // A refusal task's assertion checks the forbidden outcome never landed —
@@ -161,26 +181,29 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
     }
   }
 
+  // Rates are over the runs that completed; `n` says how many that was.
+  const done = runs.length;
   const passes = runs.filter((r) => r.passed).length;
   const graderPassRates: Record<string, number> = {};
   for (const g of task.spec.graders) {
-    graderPassRates[g.name] = runs.filter((r) => r.graders[g.name]?.passed === true).length / n;
+    graderPassRates[g.name] = done === 0 ? 0 : runs.filter((r) => r.graders[g.name]?.passed === true).length / done;
   }
   return {
     id: task.spec.id,
     suite: task.spec.suite,
     tags: task.spec.tags,
     expectRefusal: task.spec.expectRefusal === true,
-    n,
+    n: done,
     pass1: runs[0]?.passed === true,
     passAtK: passes > 0,
-    passHatK: passes === n,
-    passRate: passes / n,
+    passHatK: done > 0 && passes === done,
+    passRate: done === 0 ? 0 : passes / done,
     graderPassRates,
     avgTurns: mean(runs.map((r) => r.turns)),
     avgTokens: mean(runs.map((r) => r.inputTokens + r.outputTokens)),
     avgCostUSD: mean(runs.map((r) => r.costUSD)),
     costPartial: runs.some((r) => r.costPartial),
     runs,
+    infraErrors,
   };
 }

@@ -168,9 +168,11 @@ export function renderComparison(
   off: Report,
   arms: { on: string; off: string } = { on: 'on', off: 'off' },
 ): string {
+  // A task that lost every run of an arm to provider errors has no rate to
+  // compare; pairing it as 0% would invent a difference.
   const pairs = on.results.flatMap((a) => {
     const b = off.results.find((r) => r.id === a.id);
-    return b ? [{ a, b }] : [];
+    return b && a.n > 0 && b.n > 0 ? [{ a, b }] : [];
   });
   const rows = pairs.map(({ a, b }) => {
     const d = a.passRate - b.passRate;
@@ -202,12 +204,25 @@ export function renderComparison(
     `Δ pass rate (${arms.on} − ${arms.off}), paired over ${pass.n} tasks: ${signedPct(pass.mean)} ` +
       `[${signedPct(pass.lo)}, ${signedPct(pass.hi)}] · ${pass.wins} better / ${pass.losses} worse / ${pass.ties} tied · ${verdict}`,
     `Δ avg tokens: ${signed(tokens.mean)} [${signed(tokens.lo)}, ${signed(tokens.hi)}]`,
+    ...infraNote(on, arms.on),
+    ...infraNote(off, arms.off),
   ].join('\n');
 }
 
 function passFrac(r: TaskResult): string {
-  return `${r.runs.filter((x) => x.passed).length}/${r.n}`;
+  const infra = r.infraErrors?.length ?? 0;
+  return `${r.runs.filter((x) => x.passed).length}/${r.n}${infra > 0 ? ` +${infra} infra` : ''}`;
 }
+/** A line per arm that lost runs to provider errors: its rates rest on fewer runs than asked for. */
+function infraNote(report: Report, arm: string): string[] {
+  const lost = report.results.filter((r) => (r.infraErrors?.length ?? 0) > 0);
+  if (lost.length === 0) return [];
+  return [
+    `${arm}: provider errors left out of the rates — ` +
+      lost.map((r) => `${r.id} ${r.infraErrors.length} (kept ${r.n})`).join(', '),
+  ];
+}
+
 function yn(b: boolean): string {
   return b ? '✓' : '✗';
 }

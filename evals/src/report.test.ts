@@ -28,6 +28,7 @@ function taskResult(over: Partial<TaskResult> = {}): TaskResult {
     tags: ['bug-fix'],
     expectRefusal: false,
     n: 3,
+    infraErrors: [],
     pass1: true,
     passAtK: true,
     passHatK: true,
@@ -129,5 +130,21 @@ describe('renderComparison', () => {
   it('does not call identical arms an effect', () => {
     const r = buildReport([taskResult({ id: 'a' }), taskResult({ id: 'b' })], 'p/m');
     expect(renderComparison('dim', r, r)).toContain('no difference on any task');
+  });
+  it('names runs lost to provider errors, and leaves an arm with none left out of the pairing', () => {
+    const err = { traceId: 't', message: 'Streaming response timed out' };
+    const on = buildReport(
+      [
+        taskResult({ id: 'a', passRate: 1, n: 3, infraErrors: [err, err] }),
+        taskResult({ id: 'b', passRate: 0, n: 0, runs: [], infraErrors: [err, err, err] }),
+      ],
+      'p/m',
+    );
+    const off = buildReport([taskResult({ id: 'a', passRate: 1 }), taskResult({ id: 'b', passRate: 1 })], 'p/m');
+    const out = renderComparison('dim', on, off, { on: 'with', off: 'without' });
+    expect(out).toContain('paired over 1 tasks');
+    expect(out).toContain('with: provider errors left out of the rates — a 2 (kept 3), b 3 (kept 0)');
+    expect(out).not.toContain('without: provider errors');
+    expect(renderTable(on)).toContain('+2 infra');
   });
 });
