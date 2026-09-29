@@ -118,8 +118,7 @@
 - **[codex] 上下文注入规则**：所有模型可见的注入都只追加、每项有上限（单项 ≤10K tokens，超过 1K
   tokens 的要额外审查），并且是带标记的类型化片段（codex 根 `AGENTS.md` 的 "Model visible context"
   一节、`context-fragments/src/fragment.rs`）。落到 `hc`：一个带硬上限的共用片段 helper，加上
-  project memory 的**总**预算，并改为按字节截断——`context/memory.ts` 现在每个文件限 32 KiB，但按
-  字符截取，CJK 内容会超出。*(S)*
+  project memory 的**总**预算（现在只有每个文件 32 KiB 的上限）。*(S)*
 - **[codex] 模型可见的上下文预算**：只提醒一次的剩余 token 提示、`get_context_remaining` 工具、由
   模型发起的 `new_context` 换窗，提示文案按模型配置（`core/src/session/token_budget.rs`、
   `core/src/tools/handlers/get_context_remaining_spec.rs`）。可以替代 H 节推送式的回合预算 nudge。

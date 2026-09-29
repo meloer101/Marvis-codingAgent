@@ -21,6 +21,20 @@ export const MEMORY_FILENAMES = ['AGENTS.md', 'CLAUDE.md'] as const;
 /** Per-file ceiling, so one runaway CLAUDE.md cannot swallow the context budget. */
 export const MAX_MEMORY_FILE_BYTES = 32 * 1024;
 
+/**
+ * Cap a memory file at {@link MAX_MEMORY_FILE_BYTES} of UTF-8, with a marker.
+ * The cut is in bytes, not string indices (a CJK character is 3 bytes, so a
+ * character cut let such a file through at up to 3× the ceiling), and backs
+ * off to a character boundary so no character is split.
+ */
+export function capMemoryFile(text: string): string {
+  const bytes = Buffer.from(text, 'utf8');
+  if (bytes.length <= MAX_MEMORY_FILE_BYTES) return text;
+  let end = MAX_MEMORY_FILE_BYTES;
+  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end--; // continuation byte
+  return `${bytes.subarray(0, end).toString('utf8')}\n\n[… truncated: file exceeds ${MAX_MEMORY_FILE_BYTES / 1024} KiB]`;
+}
+
 export interface ProjectMemory {
   /** Concatenated file bodies, each under a `## <path>` header. Empty when nothing was found. */
   text: string;
@@ -65,11 +79,8 @@ export async function loadProjectMemory(
       } catch {
         continue; // absent is the normal case
       }
-      let body = raw.trim();
+      const body = capMemoryFile(raw.trim());
       if (body === '') continue;
-      if (Buffer.byteLength(body, 'utf8') > MAX_MEMORY_FILE_BYTES) {
-        body = `${body.slice(0, MAX_MEMORY_FILE_BYTES)}\n\n[… truncated: file exceeds ${MAX_MEMORY_FILE_BYTES / 1024} KiB]`;
-      }
       sections.push(`## ${path}\n\n${body}`);
       sources.push(path);
     }

@@ -70,6 +70,17 @@ describe('loadProjectMemory', () => {
     expect(mem.text.length).toBeLessThan(MAX_MEMORY_FILE_BYTES + 200);
   });
 
+  it('caps a CJK file in bytes, not characters, without splitting a character', async () => {
+    // 3 bytes per character: the file is ~2× the ceiling in bytes but under it in characters.
+    await writeFile(join(root, 'AGENTS.md'), '记'.repeat(MAX_MEMORY_FILE_BYTES * (2 / 3)), 'utf8');
+
+    const mem = await loadProjectMemory(root, { homeDir: fakeHome });
+
+    expect(mem.text).toMatch(/truncated/);
+    expect(Buffer.byteLength(mem.text, 'utf8')).toBeLessThan(MAX_MEMORY_FILE_BYTES + 400);
+    expect(mem.text).not.toContain('�');
+  });
+
   it('skips an empty memory file', async () => {
     await writeFile(join(root, 'AGENTS.md'), '   \n  ', 'utf8');
     const mem = await loadProjectMemory(root, { homeDir: fakeHome });

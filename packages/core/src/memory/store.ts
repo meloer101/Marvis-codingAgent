@@ -19,7 +19,7 @@ import matter from 'gray-matter';
 import { stringify as yamlStringify } from 'yaml';
 
 import { AGENT_DIR, resolveProjectMemoryDir } from '../config/settings.js';
-import { MAX_MEMORY_FILE_BYTES } from '../context/memory.js';
+import { MAX_MEMORY_FILE_BYTES, capMemoryFile } from '../context/memory.js';
 import {
   isMemoryType,
   MAX_INDEX_LINE_CHARS,
@@ -252,11 +252,7 @@ export async function readMemoryFile(
     return undefined;
   }
   try {
-    const raw = await readFile(abs, 'utf8');
-    if (Buffer.byteLength(raw, 'utf8') > MAX_MEMORY_FILE_BYTES) {
-      return `${raw.slice(0, MAX_MEMORY_FILE_BYTES)}\n\n[… truncated: file exceeds ${MAX_MEMORY_FILE_BYTES / 1024} KiB]`;
-    }
-    return raw;
+    return capMemoryFile(await readFile(abs, 'utf8'));
   } catch {
     return undefined;
   }
