@@ -70,6 +70,15 @@ describe('diffBaseline', () => {
     expect(diffBaseline(report, baseline)).toEqual([]);
   });
 
+  it('does not flag a fractional rate against its own rounded baseline', () => {
+    const twoThirds = buildReport(
+      [taskResult({ id: 'a', graderPassRates: { 'first-touch': 2 / 3 }, avgTokens: 10_000, avgCostUSD: 0.003 })],
+      'p/m',
+    );
+    expect(toBaseline(twoThirds).tasks.a?.graders?.['first-touch']).toBe(0.667);
+    expect(diffBaseline(twoThirds, toBaseline(twoThirds))).toEqual([]);
+  });
+
   it('flags losing pass^k even when pass@k still holds (one flaky run of three)', () => {
     const flaky = buildReport(
       [taskResult({ id: 'a', passHatK: false, passAtK: true, passRate: 2 / 3, runs: [run(true), run(false), run(true)] })],

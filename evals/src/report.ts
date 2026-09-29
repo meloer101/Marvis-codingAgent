@@ -103,7 +103,7 @@ export function diffBaseline(report: Report, baseline: Baseline | undefined): Re
     const baseHatK = base.passHatK ?? base.passRate >= 1 - 1e-9;
     if (baseHatK && !r.passHatK) {
       out.push({ task: r.id, kind: 'pass', detail: `pass^k lost: ${passFrac(r)} runs passed` });
-    } else if (r.passRate < base.passRate - 1e-9) {
+    } else if (round(r.passRate, 3) < base.passRate - 1e-9) {
       out.push({
         task: r.id,
         kind: 'pass',
@@ -111,8 +111,10 @@ export function diffBaseline(report: Report, baseline: Baseline | undefined): Re
       });
     }
     for (const [name, baseRate] of Object.entries(base.graders ?? {})) {
+      // The baseline stores rates rounded to 3 places (toBaseline), so compare
+      // at that precision: an exact 2/3 is not below its own stored 0.667.
       const now = r.graderPassRates[name];
-      if (now !== undefined && now < baseRate - 1e-9) {
+      if (now !== undefined && round(now, 3) < baseRate - 1e-9) {
         out.push({ task: r.id, kind: 'grader', detail: `${name} ${pct(baseRate)} → ${pct(now)}` });
       }
     }
