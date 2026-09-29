@@ -278,8 +278,9 @@ async function probe3() {
  * `tool_choice: "none"` survives thinking mode (the compactor needs it to keep
  * the tools in the cached prefix while asking for prose), and which
  * `reasoning_effort` values the endpoint actually accepts — DeepSeek's own
- * harness rejects everything but low/high/max client-side, so `mapEffort`
- * folds the ladder onto those three. If the endpoint takes more, it need not.
+ * harness rejects everything but low/high/max client-side, so the model's
+ * `effortMap` folds the ladder onto those three. If the endpoint takes more,
+ * it need not.
  */
 async function probe4() {
   const none = await call({

@@ -108,11 +108,12 @@ export type ToolChoice =
 
 /**
  * Reasoning-effort level for models with a reasoning channel. The full union
- * spans providers (OpenAI: minimal→high; DeepSeek: low/high/max; Claude: up to
- * max); which subset a given model actually accepts is `capabilities.effortLevels`,
- * and a provider maps the rest onto it. `off` is not a level but the absence of
- * one: reasoning is turned off (`thinking: { type: "disabled" }` where the
- * endpoint has that switch) and no effort is sent.
+ * spans providers (OpenAI: minimal→high; DeepSeek: accepts minimal→ultra and
+ * folds them onto low/high/max; Claude: up to max); this is what the user picks
+ * and sees, while `capabilities.effortMap` says what a model actually gets sent.
+ * `off` is not a level but the absence of one: reasoning is turned off
+ * (`thinking: { type: "disabled" }` where the endpoint has that switch) and no
+ * effort is sent.
  */
 export type ReasoningEffort =
   | 'off'
@@ -121,7 +122,8 @@ export type ReasoningEffort =
   | 'medium'
   | 'high'
   | 'xhigh'
-  | 'max';
+  | 'max'
+  | 'ultra';
 
 export interface ModelRequest {
   /** Bare model id as the endpoint expects it (routing already stripped). */

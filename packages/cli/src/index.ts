@@ -193,7 +193,7 @@ program
   )
   .option(
     '--effort <level>',
-    'reasoning effort: off|minimal|low|medium|high|xhigh|max (mapped to the levels the model accepts)',
+    'reasoning effort: off|minimal|low|medium|high|xhigh|max|ultra (mapped to the levels the model accepts)',
   )
   .option('--allow <rule>', 'add an allow rule, e.g. "Bash(git status:*)" (repeatable)', collect, [])
   .option('--ask <rule>', 'add an ask rule (repeatable)', collect, [])

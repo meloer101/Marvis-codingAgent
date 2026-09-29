@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { BUILTIN_PROVIDERS, ProviderRegistry, parseModelRef } from './router.js';
-import { resolveCapabilities, estimateCostUSD, mapEffort } from './capabilities.js';
+import {
+  DEFAULT_REASONING_EFFORTS,
+  estimateCostUSD,
+  mapEffort,
+  resolveCapabilities,
+} from './capabilities.js';
 import { ProviderError } from './types.js';
-import type { ReasoningEffort } from './types.js';
 
 describe('parseModelRef', () => {
   it('splits provider from model', () => {
@@ -134,7 +138,8 @@ describe('resolveCapabilities', () => {
     const flash = resolveCapabilities('deepseek', 'deepseek-flash');
     expect(flash.contextWindow).toBe(1_000_000);
     expect(flash.maxOutputTokens).toBe(384_000);
-    expect(flash.effortLevels).toEqual(['low', 'high', 'max']);
+    // The picker shows the whole ladder; `effortMap` folds it onto low/high/max.
+    expect(flash.effortLevels).toEqual(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
     expect(flash.defaultEffort).toBe('high');
     expect(flash.reasoningReplay).toBe('text');
     // `deepseek-v4-flash` is DeepSeek's transitional alias for the same model.
@@ -209,18 +214,50 @@ describe('estimateCostUSD', () => {
 });
 
 describe('mapEffort', () => {
-  it('folds the universal ladder onto the levels a model accepts', () => {
-    const deepseek: readonly ReasoningEffort[] = ['low', 'high', 'max'];
-    // Nearest level, ties going to the smarter one.
-    expect(mapEffort('minimal', deepseek)).toBe('low');
-    expect(mapEffort('low', deepseek)).toBe('low');
-    expect(mapEffort('medium', deepseek)).toBe('high');
-    expect(mapEffort('high', deepseek)).toBe('high');
-    expect(mapEffort('xhigh', deepseek)).toBe('max');
-    expect(mapEffort('max', deepseek)).toBe('max');
+  it("sends DeepSeek's published mapping for every level the user can pick", () => {
+    // api-docs.deepseek.com/zh-cn/guides/thinking_mode — request effort → actual effort.
+    const table = {
+      minimal: 'low',
+      low: 'low',
+      medium: 'high',
+      high: 'high',
+      xhigh: 'high',
+      max: 'max',
+      ultra: 'max',
+    } as const;
+    for (const model of ['deepseek-flash', 'deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-other']) {
+      const caps = resolveCapabilities('deepseek', model);
+      expect(caps.effortLevels).toEqual(Object.keys(table));
+      for (const [picked, sent] of Object.entries(table)) {
+        expect(mapEffort(picked as keyof typeof table, caps)).toBe(sent);
+      }
+    }
+  });
+
+  it('folds a level outside the declared subset onto the nearest one, ties to the smarter', () => {
+    const subset = { effortLevels: ['low', 'high', 'max'] } as const;
+    expect(mapEffort('minimal', subset)).toBe('low');
+    expect(mapEffort('low', subset)).toBe('low');
+    expect(mapEffort('medium', subset)).toBe('high');
+    expect(mapEffort('high', subset)).toBe('high');
+    expect(mapEffort('xhigh', subset)).toBe('max');
+    expect(mapEffort('max', subset)).toBe('max');
+    expect(mapEffort('ultra', subset)).toBe('max');
+  });
+
+  it('prefers the model\'s explicit map over the nearest-level fold', () => {
+    const caps = { effortLevels: ['low', 'high', 'max'], effortMap: { xhigh: 'high' } } as const;
+    expect(mapEffort('xhigh', caps)).toBe('high');
+    // No entry for medium: falls through to the fold.
+    expect(mapEffort('medium', caps)).toBe('high');
   });
 
   it('passes the level through when a model declares no subset', () => {
-    expect(mapEffort('medium', undefined)).toBe('medium');
+    expect(mapEffort('medium', {})).toBe('medium');
+  });
+
+  it('does not offer ultra where no provider publishes it', () => {
+    expect(resolveCapabilities('openai', 'gpt-5').effortLevels).toBeUndefined();
+    expect(DEFAULT_REASONING_EFFORTS).not.toContain('ultra');
   });
 });

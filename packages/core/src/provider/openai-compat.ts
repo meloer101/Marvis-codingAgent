@@ -522,7 +522,7 @@ export class OpenAICompatProvider implements Provider {
         if (caps.thinkingParam) body['thinking'] = { type: 'disabled' };
       } else {
         if (caps.thinkingParam) body['thinking'] = { type: 'enabled' };
-        body['reasoning_effort'] = mapEffort(req.reasoningEffort, caps.effortLevels);
+        body['reasoning_effort'] = mapEffort(req.reasoningEffort, caps);
       }
     }
     if (req.temperature !== undefined && !caps.fixedTemperature) {

@@ -14,14 +14,10 @@ export type PromptCacheMode = 'none' | 'implicit' | 'explicit';
 
 /**
  * Universal reasoning-effort ladder shown by default (Faster→Smarter). A model
- * declares `effortLevels` when only part of the ladder means anything to it;
- * `mapEffort` then folds a requested level onto the declared ones.
- *
- * DeepSeek is the reason this exists, though not quite as documented: probed
- * 2026-09-19 (`scripts/deepseek-probe.mjs`), its endpoint *accepts* the whole
- * ladder (only a nonsense value 422s) while publishing three native levels.
- * We keep the picker on the three real ones rather than offering six that
- * collapse to three.
+ * declares `effortLevels` when its picker should differ (DeepSeek adds `ultra`),
+ * and `effortMap` when what it actually takes differs from what the user picks.
+ * `ultra` is not in the default: it means something only where a provider
+ * publishes it, and most endpoints would reject it.
  */
 export const DEFAULT_REASONING_EFFORTS: readonly ReasoningEffort[] = [
   'minimal',
@@ -31,6 +27,30 @@ export const DEFAULT_REASONING_EFFORTS: readonly ReasoningEffort[] = [
   'xhigh',
   'max',
 ];
+
+/** Every level in Faster→Smarter order — the ruler `mapEffort`'s nearest-level fold measures on. */
+const EFFORT_LADDER: readonly ReasoningEffort[] = [...DEFAULT_REASONING_EFFORTS, 'ultra'];
+
+/**
+ * DeepSeek's published effort table (api-docs.deepseek.com, thinking mode): the
+ * user picks and sees the left column, and the request carries the right one.
+ * The endpoint takes the whole ladder as input and folds it onto its three
+ * native levels itself; sending the folded value keeps what we ask for
+ * explicit and independent of that server-side behaviour.
+ */
+const DEEPSEEK_EFFORT = {
+  effortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  effortMap: {
+    minimal: 'low',
+    low: 'low',
+    medium: 'high',
+    high: 'high',
+    xhigh: 'high',
+    max: 'max',
+    ultra: 'max',
+  },
+  defaultEffort: 'high',
+} as const;
 
 /** Rates in $/MTok. `offPeak` applies outside the provider's peak window. */
 export interface Pricing {
@@ -45,17 +65,21 @@ export interface Pricing {
 }
 
 /**
- * Maps a requested effort onto the levels a model actually accepts: nearest
- * position on `DEFAULT_REASONING_EFFORTS`, ties going to the smarter level
- * (so DeepSeek's low/high/max gets minimal→low, medium→high, xhigh→max).
- * `off` is not a level — callers handle it before asking.
+ * What to send for the effort the user picked. The model's `effortMap` decides
+ * when it has an entry; otherwise a level outside `effortLevels` is folded onto
+ * the nearest declared one on the ladder, ties going to the smarter level, and
+ * a model that declares neither gets the level as is. `off` is not a level —
+ * callers handle it before asking.
  */
 export function mapEffort(
   effort: Exclude<ReasoningEffort, 'off'>,
-  levels: readonly ReasoningEffort[] | undefined,
+  caps: Pick<ModelCapabilities, 'effortLevels' | 'effortMap'>,
 ): ReasoningEffort {
+  const mapped = caps.effortMap?.[effort];
+  if (mapped) return mapped;
+  const levels = caps.effortLevels;
   if (!levels || levels.length === 0 || levels.includes(effort)) return effort;
-  const rank = (e: ReasoningEffort) => DEFAULT_REASONING_EFFORTS.indexOf(e);
+  const rank = (e: ReasoningEffort) => EFFORT_LADDER.indexOf(e);
   const want = rank(effort);
   let best = levels[0]!;
   for (const level of levels) {
@@ -80,11 +104,18 @@ export interface ModelCapabilities {
   /** Model emits a separate reasoning channel we should surface as `thinking`. */
   reasoning: boolean;
   /**
-   * Reasoning-effort levels this model actually accepts, in Faster→Smarter order
-   * (drives the TUI picker and the value sent as `reasoning_effort`). Only
-   * meaningful when `reasoning` is true; falls back to `DEFAULT_REASONING_EFFORTS`.
+   * Reasoning-effort levels the user can pick for this model, in Faster→Smarter
+   * order (drives the TUI picker). Only meaningful when `reasoning` is true;
+   * falls back to `DEFAULT_REASONING_EFFORTS`. A picked level outside this list
+   * (a `--effort` flag, settings.json) is folded onto the nearest one.
    */
   effortLevels?: readonly ReasoningEffort[];
+  /**
+   * What is actually sent as `reasoning_effort` for a picked level, when it
+   * differs — DeepSeek shows the whole ladder but only has low/high/max. A level
+   * with no entry falls through to `effortLevels`' nearest-level fold.
+   */
+  effortMap?: Partial<Record<Exclude<ReasoningEffort, 'off'>, ReasoningEffort>>;
   /** Default reasoning effort when none is configured. */
   defaultEffort?: ReasoningEffort;
   /**
@@ -175,10 +206,9 @@ const RULES: CapabilityRule[] = [
   // `deepseek-flash` (V4.1-Flash, 2026-09-10) and `deepseek-v4-pro`, with
   // `deepseek-v4-flash` routed to V4.1-Flash as a transitional alias. Thinking
   // is an effort level on the same model id rather than a separate model, so
-  // every rule here sets `reasoning: true`. low/high/max are the published
-  // native levels — the endpoint tolerates the rest of the ladder, but
-  // `effortLevels` keeps the picker on the three that mean something and
-  // `mapEffort` folds the others onto them. Context (1M) and output
+  // every rule here sets `reasoning: true`. The user picks from the whole
+  // ladder and `DEEPSEEK_EFFORT` says which of the three native levels
+  // (low/high/max) each one is sent as. Context (1M) and output
   // (384K) are DeepSeek's published V4 figures. Prices are the published
   // peak-hour rates with `offPeak` (Mon–Fri outside 01:00–04:00 and 06:00–10:00
   // UTC) — note the cache-hit rate is ~1/50 of the miss rate, which is why
@@ -188,8 +218,7 @@ const RULES: CapabilityRule[] = [
     match: /^deepseek-(v4-)?flash/i,
     caps: {
       reasoning: true,
-      effortLevels: ['low', 'high', 'max'],
-      defaultEffort: 'high',
+      ...DEEPSEEK_EFFORT,
       thinkingParam: true,
       reasoningReplay: 'text',
       systemPromptUpdate: 'in-history',
@@ -211,8 +240,7 @@ const RULES: CapabilityRule[] = [
     match: /^deepseek-v4-pro/i,
     caps: {
       reasoning: true,
-      effortLevels: ['low', 'high', 'max'],
-      defaultEffort: 'high',
+      ...DEEPSEEK_EFFORT,
       thinkingParam: true,
       reasoningReplay: 'text',
       systemPromptUpdate: 'in-history',
@@ -351,8 +379,7 @@ const PROVIDER_DEFAULTS: Record<string, Partial<ModelCapabilities>> = {
   deepseek: {
     promptCache: 'implicit',
     reasoning: true,
-    effortLevels: ['low', 'high', 'max'],
-    defaultEffort: 'high',
+    ...DEEPSEEK_EFFORT,
     thinkingParam: true,
     reasoningReplay: 'text',
     systemPromptUpdate: 'in-history',

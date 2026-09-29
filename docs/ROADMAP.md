@@ -153,9 +153,6 @@
 - **[codex] 带生命周期阶段的特性开关注册表**：类型化的开关（开发中 / 实验 / 稳定 / 弃用 / 已移除），
   每个行为改动都放在开关后面，ablation 可以统一切换（`features/src/lib.rs`）。*(S–M)*
 - **OpenTelemetry exporter**：基于现有 trace 事件的 span / metric 导出。*(M, stretch)*
-- **DeepSeek effort 档位的实际折叠**：单次采样的 reasoning token 数在各档之间没有单调关系，要多次
-  重复、取中位数，才能判断 minimal / xhigh 实际折叠到哪一档（`scripts/deepseek-probe.mjs`）。不影响
-  `mapEffort` 现在的保守映射。*(S, 低)*
 
 ### 失败模式统计
 

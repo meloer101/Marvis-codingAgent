@@ -9,7 +9,7 @@ import type { ReasoningEffort } from '../provider/types.js';
 import type { AgentDefinition, AgentSource } from './types.js';
 
 /** Effort levels a definition may declare; the provider maps them per model. */
-const VALID_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+const VALID_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
 
 export const NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_NAME = 64;

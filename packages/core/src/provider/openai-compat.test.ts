@@ -617,6 +617,7 @@ describe('request shaping', () => {
     const deepseekish = {
       reasoning: true,
       effortLevels: ['low', 'high', 'max'] as const,
+      effortMap: { xhigh: 'high', ultra: 'max' } as const,
       thinkingParam: true,
     };
     await drainStream(provider(spy, deepseekish).stream({ ...ask, reasoningEffort: 'medium' }));
@@ -625,21 +626,27 @@ describe('request shaping', () => {
       thinking: { type: 'enabled' },
     });
 
+    // An explicit map entry wins over the nearest-level fold (which sends xhigh → max).
+    await drainStream(provider(spy, deepseekish).stream({ ...ask, reasoningEffort: 'xhigh' }));
+    expect(bodies[1]).toHaveProperty('reasoning_effort', 'high');
+    await drainStream(provider(spy, deepseekish).stream({ ...ask, reasoningEffort: 'ultra' }));
+    expect(bodies[2]).toHaveProperty('reasoning_effort', 'max');
+
     // `off` is not a level: the switch says disabled and no effort goes out.
     await drainStream(provider(spy, deepseekish).stream({ ...ask, reasoningEffort: 'off' }));
-    expect(bodies[1]).toMatchObject({ thinking: { type: 'disabled' } });
-    expect(bodies[1]).not.toHaveProperty('reasoning_effort');
+    expect(bodies[3]).toMatchObject({ thinking: { type: 'disabled' } });
+    expect(bodies[3]).not.toHaveProperty('reasoning_effort');
 
     // Endpoints without the switch get the effort alone...
     await drainStream(
       provider(spy, { reasoning: true }).stream({ ...ask, reasoningEffort: 'medium' }),
     );
-    expect(bodies[2]).toHaveProperty('reasoning_effort', 'medium');
-    expect(bodies[2]).not.toHaveProperty('thinking');
+    expect(bodies[4]).toHaveProperty('reasoning_effort', 'medium');
+    expect(bodies[4]).not.toHaveProperty('thinking');
 
     // ...and a model with no reasoning channel gets neither.
     await drainStream(provider(spy).stream({ ...ask, reasoningEffort: 'high' }));
-    expect(bodies[3]).not.toHaveProperty('reasoning_effort');
+    expect(bodies[5]).not.toHaveProperty('reasoning_effort');
   });
 
   it('sends a system update only to models that take updates in history', async () => {
