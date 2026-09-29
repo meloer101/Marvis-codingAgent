@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ChevronDown, Gauge } from 'lucide-react';
+import { ChevronDown, Folder, Gauge } from 'lucide-react';
 
 import { fmtTokens, fmtUSD } from '@harness-code/core/browser';
 import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
@@ -32,8 +32,10 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = {
 
 export function SessionHeader({ view }: { view: SessionViewState }) {
   const sync = useSync();
+  const workspace = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId));
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4 text-sm">
+      {workspace && <ProjectChip name={workspace.name} root={workspace.root} />}
       <ModelLabel modelRef={view.modelRef} />
       <ModePicker mode={view.mode} onChange={(mode) => void sync.setMode(view.id, mode)} />
       <EffortPicker
@@ -47,6 +49,16 @@ export function SessionHeader({ view }: { view: SessionViewState }) {
   );
 }
 
+/** Which project a session runs in. */
+export function ProjectChip({ name, root }: { name: string; root: string }) {
+  return (
+    <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-xs font-medium" title={root}>
+      <Folder className="size-3.5 text-muted-foreground" />
+      <span className="max-w-40 truncate">{name}</span>
+    </span>
+  );
+}
+
 export function ModelLabel({ modelRef }: { modelRef: string }) {
   return (
     <span className="flex min-w-0 items-center gap-2" title="Model">
@@ -56,9 +68,18 @@ export function ModelLabel({ modelRef }: { modelRef: string }) {
   );
 }
 
-/** The permission-mode dropdown, over the modes the server offers. */
-export function ModePicker({ mode, onChange }: { mode: PermissionMode; onChange: (mode: PermissionMode) => void }) {
-  const modes = useAppStore((s) => s.info?.modes) ?? [mode];
+/** The permission-mode dropdown, over the modes on offer (the server's, unless given). */
+export function ModePicker({
+  mode,
+  modes: offered,
+  onChange,
+}: {
+  mode: PermissionMode;
+  modes?: readonly PermissionMode[];
+  onChange: (mode: PermissionMode) => void;
+}) {
+  const serverModes = useAppStore((s) => s.info?.modes);
+  const modes = offered ?? serverModes ?? [mode];
   return (
     <HeaderSelect
       label="Permission mode"

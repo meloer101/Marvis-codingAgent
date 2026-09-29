@@ -1,32 +1,40 @@
 import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Folder, Loader2 } from 'lucide-react';
 
-import type { PermissionMode } from '@harness-code/core';
+import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
+import type { Workspace } from '@harness-code/protocol';
 
 import { Composer } from '@/components/Composer';
-import { ModelLabel, ModePicker } from '@/components/SessionHeader';
+import { EffortPicker, ModelLabel, ModePicker } from '@/components/SessionHeader';
 import { UserMessage } from '@/components/Transcript';
+import { relativeTime } from '@/lib/format';
 import { routeToHash } from '@/lib/route';
 import { allCommands } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
 
 const BUILTIN_COMMANDS = allCommands([]);
+const ADD_PROJECT = '__add__';
+const RECENT = 5;
 
 /**
- * A session that doesn't exist yet: the home screen. Nothing is created until
- * the first message is sent (`session.start`), so opening "New session" and
- * walking away leaves nothing behind. While the session starts (MCP servers
- * connecting can take a moment) the message already shows, then the view
- * becomes the session's own.
+ * A session that doesn't exist yet: the home screen, in one project (the
+ * route's, else the most recently used). Nothing is created until the first
+ * message is sent (`session.start`), with the project, mode and effort picked
+ * here; while the session starts (MCP servers connecting can take a moment)
+ * the message already shows, then the view becomes the session's own.
  */
-export function DraftView() {
+export function DraftView({ workspaceId }: { workspaceId?: string }) {
   const sync = useSync();
-  const info = useAppStore((s) => s.info);
+  const workspaces = useAppStore((s) => s.workspaces);
   const connected = useAppStore((s) => s.status === 'open');
-  const [mode, setMode] = useState<PermissionMode | null>(null);
+  const workspace = workspaces.find((w) => w.id === workspaceId) ?? workspaces[0];
+  // Choices reset with the project: its modes and its model's effort levels differ.
+  const [choice, setChoice] = useState<{ workspaceId?: string; mode?: PermissionMode; effort?: ReasoningEffort }>({});
   const [starting, setStarting] = useState<string | null>(null);
-  const chosenMode = mode ?? info?.defaultMode ?? 'ask';
+  const own = choice.workspaceId === workspace?.id ? choice : {};
+  const mode = own.mode ?? workspace?.defaults.mode ?? 'ask';
+  const effort = own.effort ?? workspace?.defaults.effort;
 
   const send = async (text: string): Promise<boolean> => {
     const command = /^\/(\S+)\s*$/.exec(text.trim())?.[1];
@@ -36,7 +44,11 @@ export function DraftView() {
     }
     if (command === 'clear') return true; // already a clean slate
     setStarting(text);
-    const id = await sync.startSession(text, { mode: chosenMode });
+    const id = await sync.startSession(text, {
+      ...(workspace ? { workspaceId: workspace.id } : {}),
+      mode,
+      ...(effort && workspace?.defaults.effortLevels.includes(effort) ? { effort } : {}),
+    });
     if (!id) {
       setStarting(null);
       return false;
@@ -50,21 +62,22 @@ export function DraftView() {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4 text-sm">
-        {info?.defaultModel && <ModelLabel modelRef={info.defaultModel} />}
-        <ModePicker mode={chosenMode} onChange={setMode} />
-        <div className="flex-1" />
-        <span className="font-mono text-[11px] text-muted-foreground">new session</span>
+        {workspace && <ProjectPicker workspaces={workspaces} current={workspace} />}
+        {workspace && <ModelLabel modelRef={workspace.defaults.model} />}
+        <ModePicker
+          mode={mode}
+          {...(workspace ? { modes: workspace.defaults.modes } : {})}
+          onChange={(m) => setChoice({ ...own, workspaceId: workspace?.id, mode: m })}
+        />
+        <EffortPicker
+          effort={effort}
+          levels={workspace?.defaults.effortLevels ?? []}
+          onChange={(e) => setChoice({ ...own, workspaceId: workspace?.id, effort: e })}
+        />
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {starting === null ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-            <span className="font-serif text-[34px] font-semibold tracking-[-0.02em]">
-              hc<span className="text-brass">·</span>web
-            </span>
-            <p className="max-w-60 font-serif text-[15px] leading-relaxed text-muted-foreground italic">
-              A coding agent, bound for the browser. What are we working on?
-            </p>
-          </div>
+          <Welcome workspace={workspace} />
         ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
             <UserMessage text={starting} />
@@ -76,16 +89,100 @@ export function DraftView() {
         )}
       </div>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
+        {workspace?.defaults.keyProblem && starting === null && <KeyProblem message={workspace.defaults.keyProblem} />}
         <Composer
-          key="draft"
-          sessionId="new"
+          key={`draft-${workspace?.id ?? ''}`}
+          sessionId={`new-${workspace?.id ?? ''}`}
           running={false}
-          disabled={!connected || starting !== null}
+          disabled={!connected || starting !== null || !workspace || workspace.missing === true}
           commands={BUILTIN_COMMANDS}
           onSend={send}
           onAbort={() => {}}
         />
       </div>
+    </div>
+  );
+}
+
+/** The project a new session starts in; picking another opens its draft. "Add project…" is the last option. */
+function ProjectPicker({ workspaces, current }: { workspaces: Workspace[]; current: Workspace }) {
+  const sync = useSync();
+  return (
+    <span className="relative flex items-center" title={current.root}>
+      <Folder className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground" aria-hidden />
+      <select
+        aria-label="Project"
+        value={current.id}
+        onChange={(e) => {
+          if (e.target.value === ADD_PROJECT) sync.setAddProjectOpen(true);
+          else window.location.hash = routeToHash({ kind: 'new', workspaceId: e.target.value });
+        }}
+        className="h-7 max-w-44 cursor-pointer appearance-none truncate rounded-md border bg-card pr-7 pl-7 text-xs font-medium shadow-xs transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+      >
+        {workspaces.map((w) => (
+          <option key={w.id} value={w.id} disabled={w.missing === true}>
+            {w.name}
+            {w.missing ? ' (missing)' : ''}
+          </option>
+        ))}
+        <option value={ADD_PROJECT}>Add project…</option>
+      </select>
+      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+    </span>
+  );
+}
+
+function Welcome({ workspace }: { workspace: Workspace | undefined }) {
+  const sessions = useAppStore((s) => s.sessions);
+  const recent = workspace
+    ? sessions.filter((s) => s.workspaceId === workspace.id && !s.archived).slice(0, RECENT)
+    : [];
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-6 px-6 text-center">
+      <div className="flex flex-col items-center gap-2">
+        <span className="font-serif text-[34px] font-semibold tracking-[-0.02em]">
+          hc<span className="text-brass">·</span>web
+        </span>
+        <p className="max-w-72 font-serif text-[15px] leading-relaxed text-muted-foreground italic">
+          {workspace ? (
+            <>
+              What are we working on in <span className="font-medium text-foreground not-italic">{workspace.name}</span>?
+            </>
+          ) : (
+            'A coding agent, bound for the browser.'
+          )}
+        </p>
+      </div>
+      {recent.length > 0 && (
+        <div className="w-full max-w-sm text-left">
+          <p className="mb-1.5 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">Recent</p>
+          <ul className="flex flex-col">
+            {recent.map((s) => (
+              <li key={s.id}>
+                <a
+                  href={routeToHash({ kind: 'session', id: s.id })}
+                  className="flex items-center gap-3 rounded-md px-2 py-1.5 text-[13px] transition-colors hover:bg-accent"
+                >
+                  <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{relativeTime(s.mtimeMs)}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The default model can't run here as configured — usually a key this project's environment lacks. */
+function KeyProblem({ message }: { message: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-brass/40 bg-brass-subtle/60 px-3 py-2 text-xs text-brass-strong">
+      <AlertTriangle className="mt-px size-3.5 shrink-0" />
+      <span>
+        {message} To share a key across projects, put it in <code className="font-mono">~/.agent/.env</code>.
+      </span>
     </div>
   );
 }

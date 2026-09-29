@@ -23,3 +23,11 @@ describe('parseRoute', () => {
     expect(parseRoute(routeToHash(route))).toEqual(route);
   });
 });
+
+describe('new-session routes', () => {
+  it('parses and builds a draft in a given workspace', () => {
+    expect(parseRoute('#/new/0f1e2d3c4b5a')).toEqual({ kind: 'new', workspaceId: '0f1e2d3c4b5a' });
+    expect(routeToHash({ kind: 'new', workspaceId: '0f1e2d3c4b5a' })).toBe('#/new/0f1e2d3c4b5a');
+    expect(routeToHash({ kind: 'home' })).toBe('#/');
+  });
+});

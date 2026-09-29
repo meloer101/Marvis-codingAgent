@@ -20,6 +20,8 @@ export { entriesFromTranscript };
 
 export interface SessionViewState extends FoldState {
   id: string;
+  /** The project the session runs in. */
+  workspaceId?: string;
   running: boolean;
   /** The model's effort levels, Faster→Smarter; empty without reasoning (no picker). */
   effortLevels: readonly ReasoningEffort[];
@@ -230,8 +232,17 @@ export class SessionModel {
   }
 
   #dispatch(action: FoldAction): void {
-    const { id, running, hydrating, askId, planId, effortLevels } = this.#state;
-    this.#state = { ...foldReducer(this.#state, action), id, running, hydrating, askId, planId, effortLevels };
+    const { id, workspaceId, running, hydrating, askId, planId, effortLevels } = this.#state;
+    this.#state = {
+      ...foldReducer(this.#state, action),
+      id,
+      ...(workspaceId ? { workspaceId } : {}),
+      running,
+      hydrating,
+      askId,
+      planId,
+      effortLevels,
+    };
   }
 }
 
@@ -262,6 +273,7 @@ export function stateFromSnapshot(
         }
       : null,
     id: s.id,
+    ...(s.workspaceId ? { workspaceId: s.workspaceId } : {}),
     running: s.running,
     effortLevels: s.effortLevels ?? [],
     hydrating: opts.hydrating ?? false,

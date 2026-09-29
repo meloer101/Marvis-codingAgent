@@ -22,7 +22,16 @@
  */
 
 import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
-import type { AskDecision, PushEvent, SessionSnapshot, WireEvent } from '@harness-code/protocol';
+import type {
+  AskDecision,
+  DirSuggestion,
+  PushEvent,
+  SessionSnapshot,
+  SessionSummary,
+  WireEvent,
+  Workspace,
+  WorkspaceInspection,
+} from '@harness-code/protocol';
 
 import { RpcClient, RpcError } from './rpc';
 import type { ConnectionStatus, RpcClientOptions } from './rpc';
@@ -185,7 +194,7 @@ export class SessionSync {
    */
   async startSession(
     text: string,
-    opts: { model?: string; mode?: PermissionMode; effort?: ReasoningEffort } = {},
+    opts: { workspaceId?: string; model?: string; mode?: PermissionMode; effort?: ReasoningEffort } = {},
   ): Promise<string | null> {
     try {
       const { snapshot } = await this.rpc.call('session.start', { text, ...opts });
@@ -260,6 +269,66 @@ export class SessionSync {
 
   setHelpOpen(open: boolean): void {
     this.#store.setState({ helpOpen: open });
+  }
+
+  setAddProjectOpen(open: boolean): void {
+    this.#store.setState({ addProjectOpen: open });
+  }
+
+  // -- workspaces ---------------------------------------------------------------
+
+  /** Host `path` as a project (or get the one covering it); null on failure, the error shown. */
+  async addWorkspace(path: string, opts: { createMarker?: boolean } = {}): Promise<Workspace | null> {
+    try {
+      const workspace = await this.rpc.call('workspace.add', { path, ...opts });
+      this.#store.setState((s) => ({
+        workspaces: [workspace, ...s.workspaces.filter((w) => w.id !== workspace.id)],
+      }));
+      return workspace;
+    } catch (err) {
+      this.#fail(err);
+      return null;
+    }
+  }
+
+  removeWorkspace(id: string): Promise<void> {
+    return this.#run(this.rpc.call('workspace.remove', { id }));
+  }
+
+  /** What adding `path` would mean; null when it can't be asked (offline). Never an error banner: it runs as you type. */
+  async inspectPath(path: string): Promise<WorkspaceInspection | null> {
+    try {
+      return await this.rpc.call('workspace.inspect', { path });
+    } catch {
+      return null;
+    }
+  }
+
+  async suggestDirs(prefix: string): Promise<DirSuggestion[]> {
+    try {
+      return await this.rpc.call('fs.suggestDirs', { prefix });
+    } catch {
+      return [];
+    }
+  }
+
+  // -- session management -------------------------------------------------------
+
+  /** Rename, pin or archive; the new row also arrives as a push. */
+  async updateSession(
+    id: string,
+    patch: { title?: string; pinned?: boolean; archived?: boolean },
+  ): Promise<SessionSummary | null> {
+    try {
+      return await this.rpc.call('session.update', { id, ...patch });
+    } catch (err) {
+      this.#fail(err);
+      return null;
+    }
+  }
+
+  deleteSession(id: string): Promise<void> {
+    return this.#run(this.rpc.call('session.delete', { id }));
   }
 
   dismissError(): void {
@@ -347,7 +416,10 @@ export class SessionSync {
   }
 
   #onPush(event: PushEvent): void {
-    if (event.type === 'workspaces') return; // the workspace list arrives with the sidebar's projects
+    if (event.type === 'workspaces') {
+      this.#store.setState({ workspaces: event.workspaces });
+      return;
+    }
     this.#store.setState((s) => ({ sessions: applySessionPush(s.sessions, event) }));
     if (event.type !== 'session_upsert') return;
     const { id, live } = event.summary;
@@ -366,13 +438,18 @@ export class SessionSync {
 
   async #onConnected(): Promise<void> {
     try {
-      const [info, sessions] = await Promise.all([
+      const [info, workspaces, sessions] = await Promise.all([
         this.rpc.call('server.info'),
+        this.rpc.call('workspace.list'),
         this.rpc.call('session.list'),
       ]);
       const bootChanged = info.bootId !== this.#bootId;
       this.#bootId = info.bootId;
-      this.#store.setState((s) => ({ info, sessions: mergeSessionList(s.sessions, sessions, bootChanged) }));
+      this.#store.setState((s) => ({
+        info,
+        workspaces,
+        sessions: mergeSessionList(s.sessions, sessions, bootChanged),
+      }));
     } catch (err) {
       this.#fail(err);
     }

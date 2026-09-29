@@ -6,7 +6,7 @@
  * answers it (pending ask survives a reload; first answer wins for everyone).
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,11 +23,13 @@ import { SessionSync } from './sync';
 const emptyState = (): AppState => ({
   status: 'closed',
   info: null,
+  workspaces: [],
   sessions: [],
   views: {},
   slash: {},
   error: null,
   helpOpen: false,
+  addProjectOpen: false,
 });
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -193,6 +195,50 @@ describe('SessionSync ↔ hc web --mock', () => {
     const started = await a.sync.startSession('set up a scratch file', { effort: 'low' });
     await until(() => a.store.getState().views[started!]?.effort === 'low', 'draft effort');
     await a.sync.abort(started!);
+  });
+
+  it('adds a project that every tab learns of, and starts a session in it', async () => {
+    const { server } = await boot();
+    const a = tab(server);
+    const b = tab(server);
+    await until(() => a.store.getState().workspaces.length && b.store.getState().workspaces.length, 'workspaces');
+    const other = await realpath(await mkdtemp(join(tmpdir(), 'hc-web-e2e-other-')));
+    cleanups.push(() => rm(other, { recursive: true, force: true }));
+    await mkdir(join(other, '.git'));
+
+    const added = await a.sync.addWorkspace(other);
+    expect(added).toMatchObject({ root: other });
+    await until(() => b.store.getState().workspaces.some((w) => w.id === added!.id), 'tab B hears of it');
+
+    const id = await a.sync.startSession('set up a scratch file', { workspaceId: added!.id });
+    await until(() => a.store.getState().views[id!]?.workspaceId === added!.id, 'the session is in that project');
+    await until(
+      () => b.store.getState().sessions.find((s) => s.id === id)?.workspaceId === added!.id,
+      "tab B's row names the project",
+    );
+    await a.sync.abort(id!);
+  });
+
+  it('renames, archives and deletes a session, every tab in step', async () => {
+    const { server } = await boot();
+    const a = tab(server);
+    const b = tab(server);
+    await until(() => a.store.getState().info && b.store.getState().info, 'both tabs connected');
+    const id = await a.sync.startSession('set up a scratch file');
+    await until(() => a.store.getState().views[id!]?.askId, 'first ask');
+    await a.sync.abort(id!);
+    await until(() => a.store.getState().views[id!] && !a.store.getState().views[id!]!.running, 'run end');
+
+    const rowB = () => b.store.getState().sessions.find((s) => s.id === id);
+    expect(await a.sync.updateSession(id!, { title: 'Scratch file', archived: true })).toMatchObject({
+      title: 'Scratch file',
+      archived: true,
+    });
+    await until(() => rowB()?.title === 'Scratch file' && rowB()?.archived, 'tab B sees it renamed and archived');
+
+    await a.sync.deleteSession(id!);
+    await until(() => !rowB(), 'tab B drops it');
+    expect(a.store.getState().error).toBeNull();
   });
 
   it('badges a session this tab never opened, from pushes alone', async () => {

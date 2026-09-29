@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Loader2, WifiOff, X } from 'lucide-react';
 import type { SessionSummary } from '@harness-code/protocol';
 
+import { AddProjectDialog } from '@/components/AddProjectDialog';
 import { DraftView } from '@/components/DraftView';
 import { HelpDialog } from '@/components/HelpDialog';
 import { SessionSidebar } from '@/components/SessionSidebar';
@@ -54,9 +55,13 @@ export function App() {
   const activeId = route.kind === 'session' ? route.id : null;
   useAttention();
 
-  /** A new session starts as a draft on the home route; it exists once its first message is sent. */
+  /**
+   * A new session starts as a draft — in the project of the session on screen,
+   * else the most recently used one; it exists once its first message is sent.
+   */
   const newSession = (): void => {
-    window.location.hash = routeToHash({ kind: 'home' });
+    const workspaceId = activeId ? useAppStore.getState().views[activeId]?.workspaceId : undefined;
+    window.location.hash = routeToHash(workspaceId ? { kind: 'new', workspaceId } : { kind: 'home' });
   };
 
   // Global keys: new session anywhere, Esc stops the active run. The composer's
@@ -70,8 +75,8 @@ export function App() {
         return;
       }
       if (e.key === 'Escape' && activeId && !e.defaultPrevented) {
-        const { views, helpOpen } = useAppStore.getState();
-        if (!helpOpen && views[activeId]?.running) void sync.abort(activeId);
+        const { views, helpOpen, addProjectOpen } = useAppStore.getState();
+        if (!helpOpen && !addProjectOpen && views[activeId]?.running) void sync.abort(activeId);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -84,9 +89,14 @@ export function App() {
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <ConnectionBanner />
         <ErrorBanner />
-        {activeId ? <SessionView key={activeId} id={activeId} onNewSession={newSession} /> : <DraftView />}
+        {activeId ? (
+          <SessionView key={activeId} id={activeId} onNewSession={newSession} />
+        ) : (
+          <DraftView {...(route.kind === 'new' ? { workspaceId: route.workspaceId } : {})} />
+        )}
       </main>
       <Help activeId={activeId} />
+      <AddProjectDialog />
     </div>
   );
 }
