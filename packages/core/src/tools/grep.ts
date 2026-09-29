@@ -7,7 +7,12 @@ import ignore from 'ignore';
 import { z } from 'zod';
 
 import { truncateHeadTail, truncateList } from '../context/truncate.js';
-import { PathEscapeError, assertInsideWorkspace } from '../permissions/paths.js';
+import {
+  PathEscapeError,
+  SENSITIVE_FILE_GLOBS,
+  assertInsideWorkspace,
+  isSensitivePath,
+} from '../permissions/paths.js';
 import type { ToolResult, ToolSpec } from './types.js';
 import { errorMessage } from './util.js';
 
@@ -105,6 +110,8 @@ async function grepWithRipgrep(
   for (const g of ['.agent', 'dist', 'coverage', '*.min.js', '*.min.css', '*.map']) {
     args.push('--glob', `!${g}`);
   }
+  // rg skips hidden files, so `.env` already, but not `server.pem` or `credentials.json`.
+  for (const g of SENSITIVE_FILE_GLOBS) args.push('--iglob', `!${g}`);
   args.push(input.pattern, searchPath);
 
   return new Promise((resolvePromise, reject) => {
@@ -159,7 +166,8 @@ export async function grepWithJs(input: Input, searchPath: string): Promise<Tool
       ignore: DEFAULT_IGNORE,
     });
     const matcher = await gitignoreMatcher(searchPath);
-    files = matcher ? found.filter((f) => !isGitignored(matcher, f)) : found;
+    // `dot: true` reaches `.env`; nothing names it, so the permission check never saw it.
+    files = found.filter((f) => !isSensitivePath(f) && !(matcher && isGitignored(matcher, f)));
   }
 
   const matches: string[] = [];

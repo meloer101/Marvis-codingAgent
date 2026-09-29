@@ -91,7 +91,8 @@
   `bash` 同档）。在 `.mcp.json` 里逐工具覆盖，可以让已知安全的工具并行。目前没有使用方。*(S)*
 - **只读 shell 白名单继续扩充**：9-27 已加入 `od`、`xxd`、`hexdump`、`cmp`、`diff`、`sort`、`uniq`、`jq`、`cut`、
   校验和工具等（会写文件的参数形式被排除）。剩下：`for` 循环这类 shell 结构；`cd`（故意没加：`cd .git && cat config`
-  会绕过敏感路径检查）；`grep -r` 仍会顺带读到 `.env` 的内容，参数检查拦不住。*(S)*
+  会绕过敏感路径检查）。9-29 起 bash 里的 `grep` / `rg` 会跳过敏感文件（`guardSecretSearch`），但 `cat *`、`diff -r`，
+  以及经 `xargs` / `find -exec` 调起的 `grep` 仍会读到——前两个是只读白名单里的命令。*(S)*
 - **[codex] 可解释、可自测的规则**：支持对象形式的规则
   `{ rule, justification?, examples?: { match?, notMatch? } }`。justification 出现在 deny / ask 的
   原因里（包括应该改用什么做法），examples 在规则加载时校验；再提供 `hc permissions check "<cmd>"`，

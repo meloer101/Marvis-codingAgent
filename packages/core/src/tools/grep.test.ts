@@ -85,6 +85,18 @@ describe('grepWithJs', () => {
     expect(result.content).not.toContain('dist/out.js');
   });
 
+  it('skips secret files, which no argument named for the permission check to see', async () => {
+    await mkdir(join(cwd, 'keys'), { recursive: true });
+    await writeFile(join(cwd, '.env'), 'API_KEY=secret', 'utf8');
+    await writeFile(join(cwd, 'keys', 'server.pem'), 'API_KEY=secret', 'utf8');
+    await writeFile(join(cwd, 'src', 'config.ts'), 'const API_KEY = process.env.API_KEY;', 'utf8');
+
+    const result = await grepWithJs({ pattern: 'API_KEY' }, cwd);
+
+    expect(result.content).toContain('config.ts');
+    expect(result.content).not.toContain('secret');
+  });
+
   it('honours a .gitignore in the search tree', async () => {
     await writeFile(join(cwd, '.gitignore'), 'generated/\n*.bundle.js\n', 'utf8');
     await mkdir(join(cwd, 'generated'), { recursive: true });

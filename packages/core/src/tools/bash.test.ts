@@ -1,11 +1,13 @@
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { SessionState } from '../agent/session.js';
 import { isSandboxExecAvailable } from '../permissions/macos-sandbox.js';
+import { isSensitivePath } from '../permissions/paths.js';
 import { bashTool } from './bash.js';
 import type { ToolContext } from './types.js';
 
@@ -85,6 +87,67 @@ describe('bashTool', () => {
       if (prev === undefined) delete process.env.OPENAI_API_KEY;
       else process.env.OPENAI_API_KEY = prev;
     }
+  });
+
+  describe('grep and rg skip secret files', () => {
+    // Sensitive and look-alike names side by side; `isSensitivePath` decides
+    // which should be found, so the globs cannot drift from it unnoticed.
+    const NAMES = [
+      '.env',
+      'sub/.env.local',
+      '.envrc',
+      'id_rsa',
+      'keys/id_rsa.pub',
+      'keys/server.pem',
+      'keys/CERT.PEM',
+      'config/Credentials.json',
+      'aws_credentials',
+      'secrets.json',
+      'secret.json',
+      'environment.ts',
+      'secrets.ts',
+      'pem.txt',
+      'src/app.ts',
+    ];
+    const visible = NAMES.filter((n) => !isSensitivePath(n)).sort();
+
+    beforeEach(async () => {
+      for (const name of NAMES) {
+        await mkdir(join(cwd, dirname(name)), { recursive: true });
+        await writeFile(join(cwd, name), 'KEY=value\n', 'utf8');
+      }
+    });
+
+    const found = (output: string): string[] =>
+      output
+        .split('\n')
+        .filter((l) => l !== '')
+        .map((l) => l.replace(/^\.\//, ''))
+        .sort();
+
+    it('in a recursive grep that names no file', async () => {
+      const result = await bashTool.execute({ command: 'grep -rl KEY .' }, ctx);
+      expect(result.isError).toBeUndefined();
+      expect(found(result.content)).toEqual(visible);
+    });
+
+    it('in a grep that names the file', async () => {
+      const result = await bashTool.execute({ command: 'grep -l KEY .env src/app.ts' }, ctx);
+      expect(found(result.content)).toEqual(['src/app.ts']);
+    });
+
+    it('keeps grep exit status: no match is still exit 1', async () => {
+      const result = await bashTool.execute({ command: 'grep nothing src/app.ts' }, ctx);
+      expect(result.content).toContain('[exit code 1]');
+    });
+
+    // Probed outside the tool: inside it, `command -v rg` finds the guard's function.
+    const hasRg = spawnSync('rg', ['--version']).error === undefined;
+
+    it.skipIf(!hasRg)('in rg, which searches hidden files only when told to', async () => {
+      const result = await bashTool.execute({ command: 'rg -l --hidden KEY .' }, ctx);
+      expect(found(result.content)).toEqual(visible);
+    });
   });
 
   describe('OS sandbox and symlinked paths', () => {

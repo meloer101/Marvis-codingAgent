@@ -6,7 +6,9 @@
  * a compound command is allowed when every segment is either read-only or
  * matched by an allow rule — which is what makes `npm test 2>&1 | tail` work
  * off a `Bash(npm:*)` rule. "Read-only" is about the filesystem, not about
- * secrecy: the engine checks the arguments for sensitive paths separately.
+ * secrecy: the engine checks the arguments for sensitive paths separately, and
+ * the bash tool keeps `grep` / `rg` out of secret files that no argument names
+ * (`grep -r`, see `guardSecretSearch`).
  */
 
 export const READ_ONLY_BASH_COMMANDS = new Set([

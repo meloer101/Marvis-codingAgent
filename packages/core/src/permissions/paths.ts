@@ -116,6 +116,22 @@ export function isSensitivePath(relPosix: string): boolean {
 }
 
 /**
+ * {@link isSensitivePath} as basename globs, matched case-insensitively, for
+ * searches that choose their own files — `grep -r`, `rg`, the `grep` tool —
+ * where no argument names the secret and so no argument check can catch it.
+ * `.git/config` has no basename form and is left out.
+ */
+export const SENSITIVE_FILE_GLOBS: readonly string[] = [
+  '.env*',
+  'id_rsa',
+  'id_rsa.pub',
+  '*.pem',
+  '*credential*',
+  'secret.json',
+  'secrets.json',
+];
+
+/**
  * Arguments of a shell command that name a sensitive file (`.env`, `id_rsa`,
  * `*.pem`, …). Used to keep `cat .env` out of the read-only fast path: nothing
  * about reading a secret is harmless just because it writes nothing.
