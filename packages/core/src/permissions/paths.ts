@@ -102,12 +102,19 @@ async function realpathExistingOrJoin(abs: string): Promise<string> {
 
 const SENSITIVE_BASENAME = /^(id_rsa(\.pub)?|.+\.pem)$/i;
 
+/**
+ * Committed templates that document which variables exist, without values:
+ * reading or editing one is ordinary work. Only these exact names — `.env`,
+ * `.env.local`, `.env.production` and every other `.env*` stay protected.
+ */
+const ENV_TEMPLATE = /^\.env\.(example|sample|template)$/i;
+
 export function isSensitivePath(relPosix: string): boolean {
   const n = relPosix.replace(/\\/g, '/').replace(/^\.\//, '');
   const parts = n.split('/');
   const base = parts[parts.length - 1] ?? '';
 
-  if (base === '.env' || base.startsWith('.env')) return true;
+  if (base.startsWith('.env') && !ENV_TEMPLATE.test(base)) return true;
   if (n === '.git/config' || n.endsWith('/.git/config')) return true;
   if (SENSITIVE_BASENAME.test(base)) return true;
   if (/credential/i.test(base)) return true;

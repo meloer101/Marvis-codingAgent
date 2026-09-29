@@ -59,6 +59,17 @@ describe('isSensitivePath', () => {
     expect(isSensitivePath('credentials.json')).toBe(true);
     expect(isSensitivePath('src/a.ts')).toBe(false);
   });
+
+  it('lets the committed .env templates through, and nothing else named .env*', () => {
+    expect(isSensitivePath('.env.example')).toBe(false);
+    expect(isSensitivePath('config/.env.sample')).toBe(false);
+    expect(isSensitivePath('.env.template')).toBe(false);
+    expect(isSensitivePath('.ENV.Example')).toBe(false);
+    expect(isSensitivePath('.env.production')).toBe(true);
+    expect(isSensitivePath('.env.example.local')).toBe(true);
+    expect(isSensitivePath('.env.examples')).toBe(true);
+    expect(isSensitivePath('.envrc')).toBe(true);
+  });
 });
 
 describe('isProtectedPath', () => {

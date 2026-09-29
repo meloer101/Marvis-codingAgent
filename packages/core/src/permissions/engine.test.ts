@@ -119,6 +119,24 @@ describe('PermissionEngine', () => {
     }
   });
 
+  it('treats a committed .env template like any other file', async () => {
+    const e = engine({ mode: 'acceptEdits' });
+    const bash = (command: string) => e.evaluate({ toolName: 'bash', input: { command }, readOnly: false });
+    expect((await bash('cat .env.example')).decision).toBe('allow');
+    expect((await bash('cat .env.example .env')).decision).toBe('deny');
+    expect(
+      (await e.evaluate({ toolName: 'read', input: { path: '.env.example' }, readOnly: true })).decision,
+    ).toBe('allow');
+    expect(
+      (await e.evaluate({ toolName: 'edit', input: { path: '.env.example', old: 'a', new: 'b' }, readOnly: false }))
+        .decision,
+    ).toBe('allow');
+    expect(
+      (await e.evaluate({ toolName: 'write', input: { path: '.env.local', content: 'X=1' }, readOnly: false }))
+        .decision,
+    ).toBe('deny');
+  });
+
   it('lets a rule that names the sensitive file itself through', async () => {
     const e = engine({ mode: 'ask', allow: ['Bash(cat .env)'] });
     expect(
