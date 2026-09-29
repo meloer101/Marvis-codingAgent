@@ -21,7 +21,7 @@
  *    or answers `reset` with a fresh snapshot.
  */
 
-import type { PermissionMode } from '@harness-code/core';
+import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
 import type { AskDecision, PushEvent, SessionSnapshot, WireEvent } from '@harness-code/protocol';
 
 import { RpcClient, RpcError } from './rpc';
@@ -162,7 +162,7 @@ export class SessionSync {
     return this.#run(this.#ensureLive(id));
   }
 
-  async create(opts: { model?: string; mode?: PermissionMode } = {}): Promise<string | null> {
+  async create(opts: { model?: string; mode?: PermissionMode; effort?: ReasoningEffort } = {}): Promise<string | null> {
     try {
       const snapshot = await this.rpc.call('session.create', opts);
       // A fresh session's only events before the snapshot are its startup
@@ -183,7 +183,10 @@ export class SessionSync {
    * Turn a draft into a session: create it and send its first message in one
    * call. Resolves with the new id (null on failure, the error shown).
    */
-  async startSession(text: string, opts: { model?: string; mode?: PermissionMode } = {}): Promise<string | null> {
+  async startSession(
+    text: string,
+    opts: { model?: string; mode?: PermissionMode; effort?: ReasoningEffort } = {},
+  ): Promise<string | null> {
     try {
       const { snapshot } = await this.rpc.call('session.start', { text, ...opts });
       // The snapshot predates the message; everything since — the startup
@@ -215,6 +218,10 @@ export class SessionSync {
 
   setMode(id: string, mode: PermissionMode): Promise<void> {
     return this.#run(this.#act(id, () => this.rpc.call('session.setMode', { id, mode })));
+  }
+
+  setEffort(id: string, effort: ReasoningEffort): Promise<void> {
+    return this.#run(this.#act(id, () => this.rpc.call('session.setEffort', { id, effort })));
   }
 
   answerAsk(sessionId: string, askId: string, decision: AskDecision, feedback?: string): Promise<void> {

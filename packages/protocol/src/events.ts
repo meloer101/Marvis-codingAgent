@@ -5,7 +5,7 @@
  * here, so they can't drift from the loop's actual event shapes.
  */
 
-import type { AgentEvent, AgentStopReason, Notice, PermissionMode, Usage } from '@harness-code/core';
+import type { AgentEvent, AgentStopReason, Notice, PermissionMode, ReasoningEffort, Usage } from '@harness-code/core';
 
 export type WireEvent =
   // AgentEvent, forwarded verbatim (deltas coalesced by EventBuffer)
@@ -30,4 +30,5 @@ export type WireEvent =
   | { type: 'plan'; planId: string; title: string; body: string; yesMode?: PermissionMode }
   | { type: 'resolved'; requestId: string; by: 'user' | 'abort' }
   // state changes not otherwise visible
-  | { type: 'mode'; mode: PermissionMode };
+  | { type: 'mode'; mode: PermissionMode }
+  | { type: 'effort'; effort: ReasoningEffort };

@@ -51,6 +51,7 @@ describe('App', () => {
           pendingPlan: null,
           running: false,
           hydrating: false,
+          effortLevels: [],
           askId: null,
           planId: null,
         },

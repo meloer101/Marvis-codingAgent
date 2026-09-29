@@ -99,7 +99,7 @@ import { addUsage } from '../provider/types.js';
 import type { Message, SystemSegment, Usage } from '../provider/types.js';
 import { ProviderRegistry } from '../provider/router.js';
 import type { ResolvedModel } from '../provider/router.js';
-import { DEFAULT_REASONING_EFFORTS, estimateCostUSD } from '../provider/capabilities.js';
+import { effortOptions, estimateCostUSD } from '../provider/capabilities.js';
 import type { ReasoningEffort } from '../provider/types.js';
 import type { ContextBreakdown } from '../context/budget.js';
 
@@ -165,7 +165,7 @@ export interface AgentSessionConfig {
   budgets: ResolvedBudgets;
 
   mode?: PermissionMode;
-  /** Reasoning-effort level for reasoning-capable models. Defaults to `medium`. */
+  /** Reasoning-effort level for reasoning-capable models. Defaults to the model's own default, else `high`. */
   reasoningEffort?: ReasoningEffort;
   /** Mode to switch to after a plan is approved. Defaults to `settings` then auto/acceptEdits. */
   planApprovedMode?: PermissionMode;
@@ -298,12 +298,9 @@ export class AgentSession {
     this.#platform = config.platform ?? process.platform;
     this.#model = config.model;
     // Reasoning-capable models start at their declared default effort (falling
-    // back to `high`); non-reasoning models carry none.
-    this.#effort =
-      config.reasoningEffort ??
-      (config.model.capabilities.reasoning
-        ? (config.model.capabilities.defaultEffort ?? 'high')
-        : undefined);
+    // back to `high`); non-reasoning models carry none. A configured effort is
+    // kept even then: sub-agents on reasoning models inherit it.
+    this.#effort = config.reasoningEffort ?? effortOptions(config.model.capabilities).initial;
     this.#registry = init.registry;
     this.#engine = init.engine;
     this.#planApprovedMode = init.planApprovedMode;
@@ -693,8 +690,7 @@ export class AgentSession {
 
   /** Effort levels this model accepts (Faster→Smarter); empty for non-reasoning models. */
   get effortLevels(): readonly ReasoningEffort[] {
-    const caps = this.#model.capabilities;
-    return caps.reasoning ? (caps.effortLevels ?? DEFAULT_REASONING_EFFORTS) : [];
+    return effortOptions(this.#model.capabilities).levels;
   }
 
   get activeSkills(): readonly ActiveSkill[] {

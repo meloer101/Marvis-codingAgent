@@ -30,6 +30,7 @@ import type {
   Notice,
   PermissionDecision,
   PermissionMode,
+  ReasoningEffort,
   SlashCommandInfo,
   Usage,
 } from '@harness-code/core';
@@ -56,6 +57,14 @@ export class BusyError extends Error {
   constructor() {
     super('a run is already active for this session');
     this.name = 'BusyError';
+  }
+}
+
+/** Thrown for a request the session can't honour as asked. The WS layer maps it to `bad_request`. */
+export class InvalidRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidRequestError';
   }
 }
 
@@ -109,6 +118,8 @@ export class SessionHost {
   #modelRef = '';
   /** Last mode broadcast (or snapshotted) — `mode` events fire only on change. */
   #lastMode: PermissionMode | undefined;
+  /** Likewise for effort. */
+  #lastEffort: ReasoningEffort | undefined;
   /**
    * The metadata sidecar is written in full when this host's first run starts
    * (a session nobody sent anything to has no transcript and gets none) and
@@ -127,6 +138,12 @@ export class SessionHost {
   #currentRunId: string | undefined;
   /** Settles when the current run (if any) has fully wound down. */
   #runDone: Promise<void> = Promise.resolve();
+  /**
+   * The current run's abort signal, handed to `runTurn`. The session's own
+   * `abort()` only reaches a loop that has started, and `runTurn` records the
+   * message before starting one — an abort landing in between would be lost.
+   */
+  #runAbort: AbortController | undefined;
   /** Last event emitted, or last listener gone — what idle eviction measures from. */
   #lastActive = Date.now();
 
@@ -158,6 +175,7 @@ export class SessionHost {
   attach(session: AgentSession, modelRef: string): void {
     this.#session = session;
     this.#lastMode = session.mode;
+    this.#lastEffort = session.effort;
     this.id = session.id;
     this.#modelRef = modelRef;
     // Startup notices (skills, MCP, session-start…) are emitted while
@@ -227,7 +245,7 @@ export class SessionHost {
     // announcing it only as a notice: turn that into the `mode` event clients
     // key their mode picker on.
     if (notice.kind === 'mode-changed') this.#syncMode();
-    if (notice.kind === 'effort-changed' && this.#session?.effort) this.#patchMeta({ effort: this.#session.effort });
+    if (notice.kind === 'effort-changed') this.#syncEffort();
   };
 
   /** Broadcast the session's current mode if it differs from the last one sent. */
@@ -237,6 +255,15 @@ export class SessionHost {
     this.#lastMode = mode;
     this.#emit({ type: 'mode', mode });
     this.#patchMeta({ mode });
+  }
+
+  /** Broadcast (and record) the session's effort if it differs from the last one sent. */
+  #syncEffort(): void {
+    const effort = this.#session?.effort;
+    if (effort === undefined || effort === this.#lastEffort) return;
+    this.#lastEffort = effort;
+    this.#emit({ type: 'effort', effort });
+    this.#patchMeta({ effort });
   }
 
   /** Write the whole sidecar (this host's first run), stamping `createdAt` if it is new. */
@@ -373,11 +400,13 @@ export class SessionHost {
     if (!this.#metaSynced) this.#writeMeta();
     this.#firstInput ??= text;
     this.#emit({ type: 'run_start', runId, input: text });
-    this.#runDone = this.#execute(runId, text);
+    const abort = new AbortController();
+    this.#runAbort = abort;
+    this.#runDone = this.#execute(runId, text, abort.signal);
     return { runId };
   }
 
-  async #execute(runId: string, text: string): Promise<void> {
+  async #execute(runId: string, text: string, signal: AbortSignal): Promise<void> {
     const session = this.#requireSession();
     try {
       const trimmed = text.trim();
@@ -401,7 +430,7 @@ export class SessionHost {
         }
         effective = expanded;
       }
-      const result = await session.runTurn(effective);
+      const result = await session.runTurn(effective, { signal });
       this.#endRun(runId, {
         stopReason: result.stopReason,
         usage: result.usage,
@@ -413,7 +442,10 @@ export class SessionHost {
         message: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      if (this.#currentRunId === runId) this.#currentRunId = undefined;
+      if (this.#currentRunId === runId) {
+        this.#currentRunId = undefined;
+        this.#runAbort = undefined;
+      }
       this.#busy = false;
     }
   }
@@ -441,12 +473,29 @@ export class SessionHost {
       p.resolve({ approved: false });
       this.#emit({ type: 'resolved', requestId: p.planId, by: 'abort' });
     }
+    this.#runAbort?.abort();
     this.#session?.abort();
   }
 
   setMode(mode: PermissionMode): void {
     this.#requireSession().setMode(mode);
     this.#syncMode();
+  }
+
+  /**
+   * Change the reasoning effort for the session's next message. Unlike core's
+   * `setEffort` — which silently ignores a model without reasoning and takes
+   * any value — an effort the model doesn't offer is refused.
+   */
+  setEffort(effort: ReasoningEffort): void {
+    const session = this.#requireSession();
+    const levels = session.effortLevels;
+    if (levels.length === 0) throw new InvalidRequestError(`${this.#modelRef} has no reasoning effort to set`);
+    if (!levels.includes(effort)) {
+      throw new InvalidRequestError(`"${effort}" is not an effort level of ${this.#modelRef} (${levels.join(', ')})`);
+    }
+    session.setEffort(effort);
+    this.#syncEffort();
   }
 
   /** Compaction replaces the history a running turn is still appending to: not while one runs. */
@@ -497,7 +546,9 @@ export class SessionHost {
       running: this.#busy,
       lastSeq: this.#seq,
       epoch: this.epoch,
+      effortLevels: [...session.effortLevels],
     };
+    if (session.effort) snapshot.effort = session.effort;
     if (session.sessionUsage) snapshot.usage = session.sessionUsage;
     if (session.contextSnapshot) snapshot.context = session.contextSnapshot;
     if (this.#pendingAsk) {

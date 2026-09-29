@@ -18,6 +18,12 @@ const STARTUP_KINDS: ReadonlySet<Notice['kind']> = new Set([
   'sandbox-warn',
 ]);
 
+/**
+ * State changes the header already shows (the mode and effort pickers) — no
+ * transcript row, as in the TUI.
+ */
+const HIDDEN_KINDS: ReadonlySet<Notice['kind']> = new Set(['mode-changed', 'effort-changed']);
+
 export type Row =
   | { kind: 'entry'; key: string; entry: Entry }
   | { kind: 'details'; key: string; notices: Notice[] };
@@ -25,6 +31,7 @@ export type Row =
 export function transcriptRows(entries: readonly Entry[]): Row[] {
   const rows: Row[] = [];
   for (const entry of entries) {
+    if (entry.kind === 'notice' && HIDDEN_KINDS.has(entry.notice.kind)) continue;
     if (entry.kind === 'notice' && STARTUP_KINDS.has(entry.notice.kind)) {
       const last = rows.at(-1);
       if (last?.kind === 'details') last.notices.push(entry.notice);

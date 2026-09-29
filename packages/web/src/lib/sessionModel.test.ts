@@ -160,3 +160,21 @@ describe('SessionModel', () => {
 
 // `entriesFromTranscript` moved to `@harness-code/protocol`; its unit test now
 // lives in `packages/protocol/src/fold/transcript.test.ts`.
+
+describe('SessionModel effort', () => {
+  it('takes effort and levels from the snapshot, then follows effort events', () => {
+    const m = new SessionModel(snapshot({ effort: 'high', effortLevels: ['low', 'high', 'max'] }));
+    expect(m.state).toMatchObject({ effort: 'high', effortLevels: ['low', 'high', 'max'] });
+    feed(m, [{ type: 'effort', effort: 'max' }]);
+    expect(m.state.effort).toBe('max');
+    // Other events keep the levels (they live outside the shared fold state).
+    feed(m, [{ type: 'mode', mode: 'plan' }]);
+    expect(m.state).toMatchObject({ mode: 'plan', effort: 'max', effortLevels: ['low', 'high', 'max'] });
+  });
+
+  it('has no effort and no levels for a model without reasoning', () => {
+    const m = new SessionModel(snapshot());
+    expect(m.state.effort).toBeUndefined();
+    expect(m.state.effortLevels).toEqual([]);
+  });
+});

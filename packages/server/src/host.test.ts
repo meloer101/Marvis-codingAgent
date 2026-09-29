@@ -9,12 +9,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { DEFAULT_CAPABILITIES, ScriptedProvider, readSessionMeta } from '@harness-code/core';
-import type { PermissionMode, ResolvedModel, ScriptedTurn } from '@harness-code/core';
+import { DEFAULT_CAPABILITIES, DEFAULT_REASONING_EFFORTS, ScriptedProvider, readSessionMeta } from '@harness-code/core';
+import type { ModelCapabilities, PermissionMode, ResolvedModel, ScriptedTurn } from '@harness-code/core';
 import type { ServerFrame, WireEvent } from '@harness-code/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { BusyError, type SessionHost } from './host.js';
+import { BusyError, InvalidRequestError, type SessionHost } from './host.js';
 import { SessionRegistry } from './registry.js';
 
 const tmpDirs: string[] = [];
@@ -25,14 +25,14 @@ afterEach(async () => {
   await Promise.all(tmpDirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
 });
 
-function scriptedModel(turns: readonly ScriptedTurn[]): ResolvedModel {
+function scriptedModel(turns: readonly ScriptedTurn[], caps: Partial<ModelCapabilities> = {}): ResolvedModel {
   const provider = new ScriptedProvider(turns);
   return {
     provider,
     providerId: provider.id,
     model: 'test-model',
     ref: `${provider.id}/test-model`,
-    capabilities: { ...DEFAULT_CAPABILITIES },
+    capabilities: { ...DEFAULT_CAPABILITIES, ...caps },
   };
 }
 
@@ -47,7 +47,7 @@ interface Fixture {
 
 async function makeHost(
   turns: readonly ScriptedTurn[],
-  opts: { mode?: PermissionMode } = {},
+  opts: { mode?: PermissionMode; capabilities?: Partial<ModelCapabilities> } = {},
 ): Promise<Fixture> {
   const cwd = await mkdtemp(join(tmpdir(), 'hc-host-'));
   tmpDirs.push(cwd);
@@ -57,7 +57,7 @@ async function makeHost(
     buildConfig: () =>
       Promise.resolve({
         cwd,
-        model: scriptedModel(turns),
+        model: scriptedModel(turns, opts.capabilities),
         settings: {},
         budgets: {},
         mode: opts.mode ?? 'yolo',
@@ -384,6 +384,19 @@ describe('SessionHost metadata sidecar', () => {
 });
 
 describe('SessionHost lifecycle', () => {
+  it('an abort right after send stops the run, even before its loop has started', async () => {
+    const { host, events } = await makeHost(
+      [{ toolCalls: [{ name: 'write', input: { path: 'note.txt', content: 'hi' } }] }, { text: 'done' }],
+      { mode: 'ask' },
+    );
+    const settled = runSettled(host);
+    host.send('go');
+    host.abort();
+    expect(await settled).toMatchObject({ type: 'run_end', stopReason: 'aborted' });
+    expect(events().some((e) => e.type === 'ask')).toBe(false);
+    expect(host.running).toBe(false);
+  });
+
   it('close() stops a run that is still going (settling its ask) before tearing down', async () => {
     const { host, events } = await makeHost(
       [{ toolCalls: [{ name: 'write', input: { path: 'note.txt', content: 'hi' } }] }, { text: 'done' }],
@@ -431,5 +444,47 @@ describe('SessionHost lifecycle', () => {
     const [sa, sb] = [await a.host.snapshot(), await b.host.snapshot()];
     expect(sa.epoch).toBe(a.host.epoch);
     expect(sa.epoch).not.toBe(sb.epoch);
+  });
+});
+
+describe('SessionHost effort', () => {
+  it("puts a reasoning model's effort and levels in its snapshots", async () => {
+    const { host } = await makeHost([], { capabilities: { reasoning: true, defaultEffort: 'medium' } });
+    const snap = await host.snapshot();
+    expect(snap.effort).toBe('medium');
+    expect(snap.effortLevels).toEqual([...DEFAULT_REASONING_EFFORTS]);
+  });
+
+  it('changes effort and broadcasts an effort event once per change', async () => {
+    const { host, events } = await makeHost([], { capabilities: { reasoning: true } });
+    host.setEffort('low');
+    host.setEffort('low');
+    expect(events().filter((e) => e.type === 'effort')).toEqual([{ type: 'effort', effort: 'low' }]);
+    expect((await host.snapshot()).effort).toBe('low');
+  });
+
+  it('refuses a level the model does not offer, and any level on a model without reasoning', async () => {
+    const reasoning = await makeHost([], { capabilities: { reasoning: true } });
+    expect(() => reasoning.host.setEffort('ultra')).toThrow(InvalidRequestError);
+    const plain = await makeHost([]);
+    expect(() => plain.host.setEffort('high')).toThrow(/no reasoning effort/);
+    const snap = await plain.host.snapshot();
+    expect(snap.effortLevels).toEqual([]);
+    expect(snap.effort).toBeUndefined();
+  });
+
+  it('records a changed effort in the session metadata', async () => {
+    const { host, agentDir } = await makeHost([{ text: 'hi' }], { capabilities: { reasoning: true } });
+    const settled = runSettled(host);
+    host.send('go');
+    await settled;
+    host.setEffort('max');
+    const deadline = Date.now() + 2000;
+    let meta = await readSessionMeta(agentDir, host.id);
+    while (meta?.effort !== 'max' && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+      meta = await readSessionMeta(agentDir, host.id);
+    }
+    expect(meta?.effort).toBe('max');
   });
 });

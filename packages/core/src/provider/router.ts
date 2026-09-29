@@ -9,10 +9,10 @@
 
 import { OpenAICompatProvider } from './openai-compat.js';
 import type { OpenAICompatConfig, TokenCounter } from './openai-compat.js';
-import type { CapabilityOverrides, ModelCapabilities } from './capabilities.js';
-import { resolveCapabilities } from './capabilities.js';
+import type { CapabilityOverrides, EffortOptions, ModelCapabilities } from './capabilities.js';
+import { effortOptions, resolveCapabilities } from './capabilities.js';
 import { ProviderError } from './types.js';
-import type { Provider } from './types.js';
+import type { Provider, ReasoningEffort } from './types.js';
 
 export interface ProviderConfig {
   /** Human-readable name for error messages. */
@@ -150,6 +150,19 @@ export function parseModelRef(ref: string, defaultProvider = 'openai'): ModelRef
     );
   }
   return { provider, model };
+}
+
+/**
+ * Effort options for a `provider/model` ref under `settings`, without resolving
+ * the provider: no credentials, no network. How a UI shows the effort picker
+ * for a session that doesn't exist yet.
+ */
+export function modelEffort(
+  ref: string,
+  settings: Pick<RouterSettings, 'defaultProvider' | 'capabilities'> & { reasoningEffort?: ReasoningEffort },
+): EffortOptions {
+  const { provider, model } = parseModelRef(ref, settings.defaultProvider ?? 'openai');
+  return effortOptions(resolveCapabilities(provider, model, settings.capabilities ?? {}), settings.reasoningEffort);
 }
 
 export interface RouterSettings {

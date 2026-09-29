@@ -10,7 +10,7 @@
  * never recreated, so memoised rows keep their object identity.
  */
 
-import type { AgentStopReason, ContextSnapshot, ToolResult } from '@harness-code/core';
+import type { AgentStopReason, ContextSnapshot, ReasoningEffort, ToolResult } from '@harness-code/core';
 import { EventBuffer, entriesFromTranscript, foldReducer, initialFoldState } from '@harness-code/protocol';
 import type { FoldAction, FoldState, SessionSnapshot, WireEvent } from '@harness-code/protocol';
 
@@ -21,6 +21,8 @@ export { entriesFromTranscript };
 export interface SessionViewState extends FoldState {
   id: string;
   running: boolean;
+  /** The model's effort levels, Faster→Smarter; empty without reasoning (no picker). */
+  effortLevels: readonly ReasoningEffort[];
   /** True while `session.open` is hydrating a disk session after `session.preview`. */
   hydrating: boolean;
   /** Ids of the pending requests, for `ask.answer` / `plan.answer`. */
@@ -186,6 +188,9 @@ export class SessionModel {
       case 'mode':
         this.#dispatch({ type: 'SET_MODE', mode: event.mode });
         return true;
+      case 'effort':
+        this.#dispatch({ type: 'SET_EFFORT', effort: event.effort });
+        return true;
     }
   }
 
@@ -225,8 +230,8 @@ export class SessionModel {
   }
 
   #dispatch(action: FoldAction): void {
-    const { id, running, hydrating, askId, planId } = this.#state;
-    this.#state = { ...foldReducer(this.#state, action), id, running, hydrating, askId, planId };
+    const { id, running, hydrating, askId, planId, effortLevels } = this.#state;
+    this.#state = { ...foldReducer(this.#state, action), id, running, hydrating, askId, planId, effortLevels };
   }
 }
 
@@ -234,7 +239,7 @@ export function stateFromSnapshot(
   s: SessionSnapshot,
   opts: { hydrating?: boolean } = {},
 ): SessionViewState {
-  const base = initialFoldState({ mode: s.mode, modelRef: s.modelRef });
+  const base = initialFoldState({ mode: s.mode, modelRef: s.modelRef, ...(s.effort ? { effort: s.effort } : {}) });
   return {
     ...base,
     entries: entriesFromTranscript(s.transcript),
@@ -258,6 +263,7 @@ export function stateFromSnapshot(
       : null,
     id: s.id,
     running: s.running,
+    effortLevels: s.effortLevels ?? [],
     hydrating: opts.hydrating ?? false,
     askId: s.pendingAsk?.askId ?? null,
     planId: s.pendingPlan?.planId ?? null,

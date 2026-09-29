@@ -10,8 +10,8 @@
  * an `exit_plan_mode` plan approval.
  */
 
-import { DEFAULT_CAPABILITIES, ScriptedProvider } from '@harness-code/core';
-import type { AgentSessionConfig, ResolvedModel, ScriptedTurn } from '@harness-code/core';
+import { DEFAULT_CAPABILITIES, ScriptedProvider, effortOptions } from '@harness-code/core';
+import type { AgentSessionConfig, EffortOptions, ModelCapabilities, ResolvedModel, ScriptedTurn } from '@harness-code/core';
 
 import type { SessionConfigFactory } from './registry.js';
 
@@ -77,6 +77,17 @@ function mockScript(): ScriptedTurn[] {
 /** The model ref every mock session reports. */
 export const MOCK_MODEL_REF = 'mock/mock-model';
 
+/**
+ * A reasoning model on the default effort ladder, so the effort picker has
+ * something to show. The scripted provider ignores the effort it is sent.
+ */
+const MOCK_CAPABILITIES: ModelCapabilities = { ...DEFAULT_CAPABILITIES, reasoning: true, defaultEffort: 'medium' };
+
+/** The mock model's effort levels and starting level. */
+export function mockEffortOptions(): EffortOptions {
+  return effortOptions(MOCK_CAPABILITIES);
+}
+
 /** A `ResolvedModel` whose provider is a fresh `ScriptedProvider`. */
 function mockModel(): ResolvedModel {
   const provider = new ScriptedProvider(mockScript(), 'mock');
@@ -85,7 +96,7 @@ function mockModel(): ResolvedModel {
     providerId: provider.id,
     model: 'mock-model',
     ref: MOCK_MODEL_REF,
-    capabilities: { ...DEFAULT_CAPABILITIES },
+    capabilities: { ...MOCK_CAPABILITIES },
   };
 }
 
@@ -116,6 +127,7 @@ export function mockConfigFactory(cwd: string, agentDir?: string): SessionConfig
       ...(agentDir !== undefined ? { agentDir } : {}),
       trace: false,
       projectMemory: null,
+      ...(opts.effort ? { reasoningEffort: opts.effort } : {}),
       ...(opts.resumeId ? { resumeId: opts.resumeId } : {}),
     };
     return Promise.resolve(config);

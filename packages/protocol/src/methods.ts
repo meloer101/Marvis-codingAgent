@@ -15,6 +15,7 @@ import { z } from 'zod';
 import type {
   ContextSnapshot,
   PermissionMode,
+  ReasoningEffort,
   SlashCommandInfo,
   TranscriptItem,
   Usage,
@@ -73,6 +74,10 @@ export interface SessionSnapshot {
     alwaysAllow?: string;
   };
   pendingPlan?: { planId: string; title: string; body: string; yesMode?: PermissionMode };
+  /** Current reasoning effort; absent when the model has no reasoning channel. */
+  effort?: ReasoningEffort;
+  /** Levels the model offers, Faster→Smarter; empty (or absent) without reasoning. */
+  effortLevels?: ReasoningEffort[];
   lastSeq: number;
   /**
    * Identifies the live host behind this snapshot; absent from a disk-only
@@ -104,6 +109,18 @@ const permissionModeSchema: z.ZodType<PermissionMode> = z.enum([
   'auto',
 ]);
 
+/** Tied to core's `ReasoningEffort` the same way. */
+const reasoningEffortSchema: z.ZodType<ReasoningEffort> = z.enum([
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra',
+]);
+
 interface MethodSpec<P = unknown, R = unknown> {
   /** Validates `ClientFrame.params` for this method — same schema on client and server. */
   params: z.ZodType<P>;
@@ -118,8 +135,12 @@ function method<P, R>(params: z.ZodType<P>): MethodSpec<P, R> {
 export const methods = {
   'server.info': method<void, ServerInfo>(z.void()),
   'session.list': method<void, SessionSummary[]>(z.void()),
-  'session.create': method<{ model?: string; mode?: PermissionMode }, SessionSnapshot>(
-    z.object({ model: z.string().optional(), mode: permissionModeSchema.optional() }),
+  'session.create': method<{ model?: string; mode?: PermissionMode; effort?: ReasoningEffort }, SessionSnapshot>(
+    z.object({
+      model: z.string().optional(),
+      mode: permissionModeSchema.optional(),
+      effort: reasoningEffortSchema.optional(),
+    }),
   ),
   /**
    * Create a session and send its first message in one step — how a draft
@@ -128,9 +149,16 @@ export const methods = {
    * replays the startup notices and then the run.
    */
   'session.start': method<
-    { text: string; model?: string; mode?: PermissionMode },
+    { text: string; model?: string; mode?: PermissionMode; effort?: ReasoningEffort },
     { snapshot: SessionSnapshot; runId: string }
-  >(z.object({ text: z.string(), model: z.string().optional(), mode: permissionModeSchema.optional() })),
+  >(
+    z.object({
+      text: z.string(),
+      model: z.string().optional(),
+      mode: permissionModeSchema.optional(),
+      effort: reasoningEffortSchema.optional(),
+    }),
+  ),
   'session.open': method<{ id: string }, SessionSnapshot>(z.object({ id: z.string() })),
   /** Disk transcript only — no MCP / `AgentSession.create`. Used to render old sessions fast. */
   'session.preview': method<{ id: string }, SessionSnapshot>(z.object({ id: z.string() })),
@@ -145,6 +173,14 @@ export const methods = {
   'session.abort': method<{ id: string }, void>(z.object({ id: z.string() })),
   'session.setMode': method<{ id: string; mode: PermissionMode }, void>(
     z.object({ id: z.string(), mode: permissionModeSchema }),
+  ),
+  /**
+   * Change the reasoning effort; it applies from the next message (a run in
+   * progress keeps the level it started with). `bad_request` for a level the
+   * model doesn't offer, or a model without reasoning.
+   */
+  'session.setEffort': method<{ id: string; effort: ReasoningEffort }, void>(
+    z.object({ id: z.string(), effort: reasoningEffortSchema }),
   ),
   'session.compact': method<
     { id: string },

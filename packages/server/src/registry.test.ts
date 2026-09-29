@@ -2,11 +2,18 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { DEFAULT_CAPABILITIES, ScriptedProvider, SessionRecorder, updateSessionMeta } from '@harness-code/core';
-import type { PermissionMode, ResolvedModel, ScriptedTurn } from '@harness-code/core';
+import {
+  DEFAULT_CAPABILITIES,
+  DEFAULT_REASONING_EFFORTS,
+  ScriptedProvider,
+  SessionRecorder,
+  updateSessionMeta,
+} from '@harness-code/core';
+import type { EffortOptions, PermissionMode, ResolvedModel, ScriptedTurn } from '@harness-code/core';
 import type { PushEvent } from '@harness-code/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { InvalidRequestError } from './host.js';
 import { SessionPreviewNotFoundError, SessionRegistry } from './registry.js';
 
 const tmpDirs: string[] = [];
@@ -25,12 +32,19 @@ function scriptedModel(turns: readonly ScriptedTurn[] = []): ResolvedModel {
   };
 }
 
+/** The scripted test model offers the default ladder, starting at medium; nothing else offers effort. */
+const effortFor = (ref: string): EffortOptions =>
+  ref === 'scripted/test-model'
+    ? { levels: DEFAULT_REASONING_EFFORTS, initial: 'medium' }
+    : { levels: [], initial: undefined };
+
 function registry(cwd: string, agentDir: string, buildConfig = vi.fn()) {
   return new SessionRegistry({
     cwd,
     agentDir,
     buildConfig,
     previewDefaults: async () => ({ modelRef: 'scripted/test-model', mode: 'ask' }),
+    effortFor,
     sweepMs: 0,
   });
 }
@@ -188,6 +202,37 @@ describe('SessionRegistry lifecycle', () => {
     const deadline = Date.now() + 2000;
     while (changes.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
     expect(changes.at(-1)).toMatchObject({ type: 'session_upsert', summary: { id: 'resumed', live: false } });
+    await reg.shutdown();
+  });
+});
+
+describe('SessionRegistry effort', () => {
+  it("drops a recorded effort the resumed model doesn't offer", async () => {
+    const { reg, buildConfig } = await diskSession({ model: 'scripted/test-model', effort: 'ultra' });
+    await reg.open({ id: 'resumed' });
+    expect(buildConfig).toHaveBeenCalledWith({ resumeId: 'resumed', model: 'scripted/test-model' });
+    await reg.shutdown();
+  });
+
+  it('previews with the recorded effort and the levels of the recorded model', async () => {
+    const { reg } = await diskSession({ model: 'scripted/test-model', effort: 'low' });
+    expect(await reg.preview({ id: 'resumed' })).toMatchObject({
+      effort: 'low',
+      effortLevels: [...DEFAULT_REASONING_EFFORTS],
+    });
+    const other = await diskSession({ model: 'other/model', effort: 'low' });
+    const plain = await other.reg.preview({ id: 'resumed' });
+    expect(plain.effortLevels).toEqual([]);
+    expect(plain.effort).toBeUndefined();
+  });
+
+  it('checks the effort a new session asks for against its model', async () => {
+    const { reg, buildConfig } = await diskSession({});
+    await expect(reg.create({ effort: 'ultra' })).rejects.toBeInstanceOf(InvalidRequestError);
+    await expect(reg.create({ model: 'other/model', effort: 'low' })).rejects.toThrow(/no reasoning effort/);
+    expect(buildConfig).not.toHaveBeenCalled();
+    await reg.create({ effort: 'low' });
+    expect(buildConfig).toHaveBeenCalledWith({ effort: 'low' });
     await reg.shutdown();
   });
 });

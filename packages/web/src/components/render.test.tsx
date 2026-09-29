@@ -1,7 +1,8 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Markdown } from './Markdown';
+import { EffortPicker } from './SessionHeader';
 import { toolPreview, toolView } from './tools/registry';
 import { briefNotice, transcriptRows } from '@/lib/rows';
 
@@ -132,5 +133,40 @@ describe('startup notices', () => {
     expect(rows.map((r) => r.kind)).toEqual(['details', 'entry', 'entry']);
     const details = rows[0]!;
     expect(details.kind === 'details' && details.notices.map(briefNotice)).toEqual(['skills 2', 'mcp 1/1 ready', null]);
+  });
+});
+
+describe('EffortPicker', () => {
+  it('offers the model levels, and nothing for a model without reasoning', () => {
+    const picked: string[] = [];
+    render(<EffortPicker effort="high" levels={['low', 'high', 'max']} onChange={(e) => picked.push(e)} />);
+    const select = screen.getByLabelText('Reasoning effort') as HTMLSelectElement;
+    expect([...select.options].map((o) => o.textContent)).toEqual(['Low', 'High', 'Max']);
+    expect(select.value).toBe('high');
+    fireEvent.change(select, { target: { value: 'max' } });
+    expect(picked).toEqual(['max']);
+    cleanup();
+    render(<EffortPicker effort={undefined} levels={[]} onChange={() => {}} />);
+    expect(screen.queryByLabelText('Reasoning effort')).toBeNull();
+  });
+
+  it('still shows a current level the picker does not offer', () => {
+    render(<EffortPicker effort="off" levels={['low', 'high']} onChange={() => {}} />);
+    const select = screen.getByLabelText('Reasoning effort') as HTMLSelectElement;
+    expect(select.value).toBe('off');
+    expect([...select.options].map((o) => o.value)).toEqual(['off', 'low', 'high']);
+  });
+});
+
+describe('hidden notices', () => {
+  it('mode and effort changes get no transcript row', () => {
+    const notice = (id: number, kind: string, text: string) =>
+      ({ kind: 'notice', id, notice: { kind, level: 'info', text } }) as never;
+    const rows = transcriptRows([
+      notice(0, 'mode-changed', 'mode: ask → plan'),
+      notice(1, 'effort-changed', 'effort: high → max'),
+      notice(2, 'context-warn', 'context 81% full'),
+    ]);
+    expect(rows).toHaveLength(1);
   });
 });

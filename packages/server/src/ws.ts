@@ -30,7 +30,7 @@ import type {
 import { methods } from '@harness-code/protocol';
 import { WebSocket, WebSocketServer } from 'ws';
 
-import { BusyError, SessionNotFoundError } from './host.js';
+import { BusyError, InvalidRequestError, SessionNotFoundError } from './host.js';
 import { SessionPreviewNotFoundError } from './registry.js';
 import type { SessionHost } from './host.js';
 import type { SessionRegistry } from './registry.js';
@@ -241,6 +241,11 @@ class Connection {
         this.#host(id).setMode(mode);
         return undefined;
       }
+      case 'session.setEffort': {
+        const { id, effort } = params as MethodParams<'session.setEffort'>;
+        this.#host(id).setEffort(effort);
+        return undefined;
+      }
       case 'session.compact': {
         const { id } = params as MethodParams<'session.compact'>;
         return this.#host(id).compact();
@@ -368,6 +373,7 @@ function isClientFrame(value: unknown): value is ClientFrame {
 /** Map a thrown value to a wire error code. */
 function mapError(err: unknown): { code: ErrorCode; message: string } {
   if (err instanceof BusyError) return { code: 'busy', message: err.message };
+  if (err instanceof InvalidRequestError) return { code: 'bad_request', message: err.message };
   if (err instanceof SessionNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof SessionPreviewNotFoundError) return { code: 'not_found', message: err.message };
   const message = err instanceof Error ? err.message : String(err);

@@ -90,6 +90,29 @@ export function mapEffort(
   return best;
 }
 
+/** What a model offers for reasoning effort, and where a session on it starts. */
+export interface EffortOptions {
+  /** The picker's levels, Faster→Smarter; empty when the model has no reasoning channel. */
+  levels: readonly ReasoningEffort[];
+  /**
+   * Where a session starts: `preferred` (a `--effort` flag, settings), else the
+   * model's `defaultEffort`, else `high`. Undefined without reasoning.
+   */
+  initial: ReasoningEffort | undefined;
+}
+
+/** Effort levels and starting level for a model — the one rule sessions, the TUI and the web share. */
+export function effortOptions(
+  caps: Pick<ModelCapabilities, 'reasoning' | 'effortLevels' | 'defaultEffort'>,
+  preferred?: ReasoningEffort,
+): EffortOptions {
+  if (!caps.reasoning) return { levels: [], initial: undefined };
+  return {
+    levels: caps.effortLevels ?? DEFAULT_REASONING_EFFORTS,
+    initial: preferred ?? caps.defaultEffort ?? 'high',
+  };
+}
+
 export interface ModelCapabilities {
   /** Endpoint implements OpenAI `tools` / `tool_calls`. When false we fall back
    *  to prompt-encoded tool calling (see `prompt-tools.ts`). */

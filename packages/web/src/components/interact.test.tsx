@@ -97,6 +97,7 @@ function dockView(over: Partial<SessionViewState> = {}): SessionViewState {
     pendingPlan: null,
     running: true,
     hydrating: false,
+    effortLevels: [],
     askId: 'a1',
     planId: null,
     ...over,

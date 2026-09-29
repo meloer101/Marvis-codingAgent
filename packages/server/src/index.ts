@@ -26,13 +26,14 @@ import {
   findProjectRoot,
   isAutoModeAvailable,
   loadSettings,
+  modelEffort,
 } from '@harness-code/core';
 import type { PermissionMode } from '@harness-code/core';
 import type { ServerInfo } from '@harness-code/protocol';
 
 import { createStaticHandler, resolveStaticDir } from './http.js';
 import type { HealthInfo } from './instance.js';
-import { MOCK_MODEL_REF, mockConfigFactory } from './mock.js';
+import { MOCK_MODEL_REF, mockConfigFactory, mockEffortOptions } from './mock.js';
 import { SessionRegistry } from './registry.js';
 import type { SessionConfigFactory } from './registry.js';
 import { attachWsServer } from './ws.js';
@@ -109,6 +110,8 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       const info = await serverInfo();
       return { modelRef: info.defaultModel, mode: info.defaultMode };
     },
+    effortFor: async (modelRef) =>
+      opts.mock && !opts.buildConfig ? mockEffortOptions() : modelEffort(modelRef, (await loadSettings(cwd)).settings),
   });
 
   const staticDir = opts.staticDir ?? resolveStaticDir();

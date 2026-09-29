@@ -171,6 +171,30 @@ describe('SessionSync ↔ hc web --mock', () => {
     await a.sync.abort(id!);
   });
 
+  it('changes a session effort, and refuses a level the model does not offer', async () => {
+    const { server } = await boot();
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'tab A connected');
+    const id = await a.sync.create();
+    const view = () => a.store.getState().views[id!];
+    await until(() => view()?.effortLevels.length, 'effort levels');
+    expect(view()).toMatchObject({ effort: 'medium', effortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] });
+
+    await a.sync.setEffort(id!, 'max');
+    await until(() => view()?.effort === 'max', 'effort event');
+    expect(view()!.entries.some((e) => e.kind === 'notice' && e.notice.kind === 'effort-changed')).toBe(true);
+
+    await a.sync.setEffort(id!, 'ultra');
+    await until(() => a.store.getState().error, 'the refusal');
+    expect(a.store.getState().error).toMatch(/not an effort level/);
+    expect(view()!.effort).toBe('max');
+
+    // A draft can ask for a level up front; one the model lacks is refused before anything is created.
+    const started = await a.sync.startSession('set up a scratch file', { effort: 'low' });
+    await until(() => a.store.getState().views[started!]?.effort === 'low', 'draft effort');
+    await a.sync.abort(started!);
+  });
+
   it('badges a session this tab never opened, from pushes alone', async () => {
     const { server } = await boot();
     const a = tab(server);

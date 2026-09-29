@@ -15,6 +15,7 @@ function view(over: Partial<SessionViewState> = {}): SessionViewState {
     pendingPlan: null,
     running: false,
     hydrating: false,
+    effortLevels: [],
     askId: null,
     planId: null,
     ...over,

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { BUILTIN_PROVIDERS, ProviderRegistry, parseModelRef } from './router.js';
+import { BUILTIN_PROVIDERS, ProviderRegistry, modelEffort, parseModelRef } from './router.js';
 import {
   DEFAULT_REASONING_EFFORTS,
+  effortOptions,
   estimateCostUSD,
   mapEffort,
   resolveCapabilities,
@@ -259,5 +260,32 @@ describe('mapEffort', () => {
   it('does not offer ultra where no provider publishes it', () => {
     expect(resolveCapabilities('openai', 'gpt-5').effortLevels).toBeUndefined();
     expect(DEFAULT_REASONING_EFFORTS).not.toContain('ultra');
+  });
+});
+
+describe('effortOptions', () => {
+  it('offers nothing on a model without reasoning, whatever was preferred', () => {
+    expect(effortOptions({ reasoning: false }, 'high')).toEqual({ levels: [], initial: undefined });
+  });
+
+  it("starts at the preferred level, else the model's default, else high", () => {
+    const deepseek = resolveCapabilities('deepseek', 'deepseek-flash');
+    expect(effortOptions(deepseek).levels).toContain('ultra');
+    expect(effortOptions(deepseek).initial).toBe('high');
+    expect(effortOptions(deepseek, 'max').initial).toBe('max');
+    expect(effortOptions({ reasoning: true })).toEqual({ levels: DEFAULT_REASONING_EFFORTS, initial: 'high' });
+  });
+});
+
+describe('modelEffort', () => {
+  it('answers for a ref without credentials, honouring settings', () => {
+    const none = new ProviderRegistry({ env: {} });
+    expect(() => none.resolve('deepseek/deepseek-flash')).toThrow(); // no key
+    expect(modelEffort('deepseek/deepseek-flash', {}).levels).toHaveLength(7);
+    expect(modelEffort('deepseek/deepseek-flash', { reasoningEffort: 'low' }).initial).toBe('low');
+    expect(modelEffort('moonshot/kimi-k2', {})).toEqual({ levels: [], initial: undefined });
+    expect(
+      modelEffort('local/thinker', { capabilities: { 'local/thinker': { reasoning: true, defaultEffort: 'medium' } } }),
+    ).toEqual({ levels: DEFAULT_REASONING_EFFORTS, initial: 'medium' });
   });
 });

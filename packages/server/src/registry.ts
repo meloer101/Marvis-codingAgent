@@ -11,10 +11,16 @@
 
 import { AgentSession, UNTITLED_SESSION } from '@harness-code/core';
 import { listSessionIds, loadTranscript, readSessionMeta, readSessionSummary } from '@harness-code/core';
-import type { AgentSessionConfig, PermissionMode, ReasoningEffort, SessionMeta } from '@harness-code/core';
+import type {
+  AgentSessionConfig,
+  EffortOptions,
+  PermissionMode,
+  ReasoningEffort,
+  SessionMeta,
+} from '@harness-code/core';
 import type { PushEvent, SessionSnapshot, SessionSummary } from '@harness-code/protocol';
 
-import { SessionHost } from './host.js';
+import { InvalidRequestError, SessionHost } from './host.js';
 
 /** Builds an `AgentSessionConfig` for a new or resumed session. */
 export type SessionConfigFactory = (opts: {
@@ -41,6 +47,12 @@ export interface SessionRegistryOptions {
   buildConfig: SessionConfigFactory;
   /** Defaults for `session.preview` when the session is not live. */
   previewDefaults: () => Promise<{ modelRef: string; mode: PermissionMode }>;
+  /**
+   * The effort levels (and starting level) of a model ref, for previews and for
+   * checking a requested effort before a session exists. Omitted: no model
+   * offers effort.
+   */
+  effortFor?: (modelRef: string) => Promise<EffortOptions> | EffortOptions;
   /** Close a host nobody watches or waits on after this long idle. Default 10 minutes. */
   idleMs?: number;
   /** How often to look for idle hosts; `0` turns the sweep off (tests call `sweep()`). Default 1 minute. */
@@ -69,6 +81,7 @@ export class SessionRegistry {
   readonly #agentDir: string;
   readonly #buildConfig: SessionConfigFactory;
   readonly #previewDefaults: SessionRegistryOptions['previewDefaults'];
+  readonly #effortFor: NonNullable<SessionRegistryOptions['effortFor']>;
   readonly #hosts = new Map<string, SessionHost>();
   /** Resumes in flight, so two opens of one session share one `AgentSession`. */
   readonly #resuming = new Map<string, Promise<SessionHost>>();
@@ -83,6 +96,7 @@ export class SessionRegistry {
     this.#agentDir = opts.agentDir;
     this.#buildConfig = opts.buildConfig;
     this.#previewDefaults = opts.previewDefaults;
+    this.#effortFor = opts.effortFor ?? (() => ({ levels: [], initial: undefined }));
     this.#idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
     const sweepMs = opts.sweepMs ?? DEFAULT_SWEEP_MS;
     if (sweepMs > 0) {
@@ -160,7 +174,8 @@ export class SessionRegistry {
     );
   }
 
-  async create(opts: { model?: string; mode?: PermissionMode }): Promise<SessionSnapshot> {
+  async create(opts: { model?: string; mode?: PermissionMode; effort?: ReasoningEffort }): Promise<SessionSnapshot> {
+    await this.#checkEffort(opts.model, opts.effort);
     const host = await this.#spawn({ ...opts });
     this.#announce(host.id);
     return host.snapshot();
@@ -171,8 +186,10 @@ export class SessionRegistry {
     text: string;
     model?: string;
     mode?: PermissionMode;
+    effort?: ReasoningEffort;
   }): Promise<{ snapshot: SessionSnapshot; runId: string }> {
     const { text, ...spawnOpts } = opts;
+    await this.#checkEffort(spawnOpts.model, spawnOpts.effort);
     const host = await this.#spawn(spawnOpts);
     this.#announce(host.id);
     const snapshot = await host.snapshot();
@@ -208,17 +225,25 @@ export class SessionRegistry {
   async #resume(id: string): Promise<SessionHost> {
     const meta = await readSessionMeta(this.#agentDir, id);
     const mode = restoredMode(meta);
-    const resume = {
-      resumeId: id,
-      ...(mode ? { mode } : {}),
-      ...(meta?.effort ? { effort: meta.effort } : {}),
+    // The recorded effort only carries over to a model that offers it (a
+    // fallback model may not have DeepSeek's `ultra`, say).
+    const configFor = async (model: string | undefined): Promise<AgentSessionConfig> => {
+      const ref = model ?? (await this.#previewDefaults()).modelRef;
+      const { levels } = await this.#effortFor(ref);
+      const effort = meta?.effort && levels.includes(meta.effort) ? meta.effort : undefined;
+      return this.#buildConfig({
+        resumeId: id,
+        ...(model ? { model } : {}),
+        ...(mode ? { mode } : {}),
+        ...(effort ? { effort } : {}),
+      });
     };
     let config: AgentSessionConfig;
     try {
-      config = await this.#buildConfig(meta?.model ? { ...resume, model: meta.model } : resume);
+      config = await configFor(meta?.model);
     } catch (err) {
       if (!meta?.model) throw err;
-      config = await this.#buildConfig(resume);
+      config = await configFor(undefined);
     }
     const host = await this.#start(config, { hasMeta: meta !== null });
     this.#announce(host.id);
@@ -252,13 +277,18 @@ export class SessionRegistry {
         this.#previewDefaults(),
         readSessionMeta(this.#agentDir, opts.id),
       ]);
+      const modelRef = meta?.model ?? defaults.modelRef;
+      const { levels, initial } = await this.#effortFor(modelRef);
+      const effort = meta?.effort && levels.includes(meta.effort) ? meta.effort : initial;
       return {
         id: opts.id,
-        modelRef: meta?.model ?? defaults.modelRef,
+        modelRef,
         mode: restoredMode(meta) ?? defaults.mode,
         transcript,
         running: false,
         lastSeq: 0,
+        effortLevels: [...levels],
+        ...(effort ? { effort } : {}),
       };
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
@@ -282,8 +312,19 @@ export class SessionRegistry {
     await Promise.all(hosts.map((h) => h.close()));
   }
 
-  async #spawn(opts: { model?: string; mode?: PermissionMode }): Promise<SessionHost> {
+  async #spawn(opts: { model?: string; mode?: PermissionMode; effort?: ReasoningEffort }): Promise<SessionHost> {
     return this.#start(await this.#buildConfig(opts), { hasMeta: false });
+  }
+
+  /** Refuse an effort the new session's model (`model`, else the default) doesn't offer. */
+  async #checkEffort(model: string | undefined, effort: ReasoningEffort | undefined): Promise<void> {
+    if (effort === undefined) return;
+    const ref = model ?? (await this.#previewDefaults()).modelRef;
+    const { levels } = await this.#effortFor(ref);
+    if (levels.length === 0) throw new InvalidRequestError(`${ref} has no reasoning effort to set`);
+    if (!levels.includes(effort)) {
+      throw new InvalidRequestError(`"${effort}" is not an effort level of ${ref} (${levels.join(', ')})`);
+    }
   }
 
   async #start(config: AgentSessionConfig, opts: { hasMeta: boolean }): Promise<SessionHost> {
