@@ -8,8 +8,9 @@ import { Popover } from 'radix-ui';
 
 import { fmtTokens, fmtUSD } from '@harness-code/core/browser';
 import type { ContextSnapshot, Usage } from '@harness-code/core';
+import type { ModelInfo } from '@harness-code/protocol';
 
-import { contextLevel } from '@/lib/format';
+import { contextLevel, fmtWindow } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const LEVEL_STROKE = { ok: 'stroke-primary/70', warn: 'stroke-brass', danger: 'stroke-destructive' } as const;
@@ -53,12 +54,15 @@ export function ContextButton({
   context,
   usage,
   modelRef,
+  model,
   open,
   onOpenChange,
 }: {
   context?: ContextSnapshot;
   usage?: Usage;
   modelRef: string;
+  /** What the model offers — its window, shown until the first reply measures the context. */
+  model?: ModelInfo;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -69,13 +73,18 @@ export function ContextButton({
       context={context}
       usage={usage}
       modelRef={modelRef}
+      {...(model ? { model } : {})}
       {...(open !== undefined ? { open } : {})}
       {...(onOpenChange ? { onOpenChange } : {})}
     >
       <button
         type="button"
         aria-label="Context and usage"
-        title={context ? `Context ${pct}% full — ${fmtTokens(context.usedTokens)} of ${fmtTokens(context.windowTokens)}` : 'Context and usage'}
+        title={
+          context
+            ? `Context ${pct}% full — ${fmtTokens(context.usedTokens)} of ${fmtTokens(context.windowTokens)}`
+            : 'Context — measured after the first reply'
+        }
         className="flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-mono text-[11px] text-muted-foreground tabular-nums transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 data-[state=open]:bg-accent"
       >
         <ContextRing context={context} />
@@ -94,12 +103,14 @@ export function UsagePopover({
   modelRef,
   children,
   side = 'top',
+  model,
   open,
   onOpenChange,
 }: {
   context: ContextSnapshot | undefined;
   usage: Usage | undefined;
   modelRef: string;
+  model?: ModelInfo;
   children: ReactElement;
   side?: 'top' | 'bottom';
   open?: boolean;
@@ -115,19 +126,41 @@ export function UsagePopover({
           sideOffset={6}
           className="z-50 w-80 rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
         >
-          <UsageDetails context={context} usage={usage} modelRef={modelRef} />
+          <UsageDetails context={context} usage={usage} modelRef={modelRef} {...(model ? { model } : {})} />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
   );
 }
 
-export function UsageDetails({ context, usage, modelRef }: { context?: ContextSnapshot; usage?: Usage; modelRef: string }) {
+export function UsageDetails({
+  context,
+  usage,
+  modelRef,
+  model,
+}: {
+  context?: ContextSnapshot;
+  usage?: Usage;
+  modelRef: string;
+  model?: ModelInfo;
+}) {
   return (
     <div className="flex flex-col gap-3 text-xs">
       <section className="flex flex-col gap-2">
         <Heading>Context</Heading>
-        {context ? <ContextBreakdownView context={context} /> : <p className="text-muted-foreground">Measured after the first reply.</p>}
+        {context ? (
+          <ContextBreakdownView context={context} />
+        ) : (
+          <>
+            {model && model.contextWindow > 0 && (
+              <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 font-mono text-[11px] tabular-nums">
+                <Stat label="Window" value={fmtWindow(model.contextWindow)} />
+                {model.qualityContextWindow && <Stat label="Planned against" value={fmtWindow(model.qualityContextWindow)} />}
+              </dl>
+            )}
+            <p className="text-muted-foreground">How full it is shows after the first reply.</p>
+          </>
+        )}
       </section>
       <section className="flex flex-col gap-1.5 border-t pt-3">
         <Heading>This session</Heading>

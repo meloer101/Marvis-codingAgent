@@ -170,6 +170,13 @@ function SessionComposer({
   const { id } = view;
   const models = useAppStore((s) => (view.workspaceId ? s.models[view.workspaceId] : undefined));
   const restored = useAppStore((s) => s.restored[view.id]);
+  const modelInfo = models?.find((m) => m.ref === view.modelRef);
+  // Until the first reply measures the context, the meter shows the model's window.
+  const workspaceKey = view.workspaceId;
+  const needModels = !view.context && models === undefined;
+  useEffect(() => {
+    if (needModels && workspaceKey) void sync.loadModels(workspaceKey);
+  }, [needModels, workspaceKey]);
   /** A picker a command opened, closed by the picker as usual. */
   const control = (which: CommandSurface) => ({
     open: surface === which,
@@ -211,7 +218,15 @@ function SessionComposer({
           />
         </>
       }
-      trailing={<ContextButton context={view.context} usage={view.usage} modelRef={view.modelRef} {...control('usage')} />}
+      trailing={
+        <ContextButton
+          context={view.context}
+          usage={view.usage}
+          modelRef={view.modelRef}
+          {...(modelInfo ? { model: modelInfo } : {})}
+          {...control('usage')}
+        />
+      }
     />
   );
 }

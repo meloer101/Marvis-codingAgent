@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, ChevronDown, Folder, Loader2 } from 'lucide-react';
 
 import { nextPermissionMode } from '@harness-code/core/browser';
@@ -7,6 +7,7 @@ import type { Workspace } from '@harness-code/protocol';
 
 import { Composer } from '@/components/Composer';
 import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerControls';
+import { ContextButton } from '@/components/UsagePanel';
 import { UserMessage } from '@/components/Transcript';
 import { relativeTime } from '@/lib/format';
 import { routeToHash } from '@/lib/route';
@@ -51,6 +52,12 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
   const effort = own.effort ?? (own.model ? picked?.defaultEffort : workspace?.defaults.effort);
   const keyProblem = own.model ? picked?.problem : workspace?.defaults.keyProblem;
   const choose = (patch: typeof choice): void => setChoice({ ...own, workspaceId: workspace?.id, ...patch });
+  // The model list tells the meter the window before anything is sent.
+  const workspaceKey = workspace?.id;
+  useEffect(() => {
+    if (workspaceKey) void sync.loadModels(workspaceKey);
+  }, [workspaceKey]);
+  const modelInfo = models?.find((m) => m.ref === modelRef);
   /** The picker a command opened (`/model`, …). */
   const [surface, setSurface] = useState<CommandSurface | null>(null);
   const control = (which: CommandSurface) => ({
@@ -139,6 +146,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
           onAbort={() => {}}
           {...(workspace ? { onSearchFiles: (query: string) => sync.searchFiles(workspace.id, query) } : {})}
           onCycleMode={() => choose({ mode: nextPermissionMode(mode, { includeAuto: modes.includes('auto') }) })}
+          {...(workspace ? { trailing: <ContextButton modelRef={modelRef} {...(modelInfo ? { model: modelInfo } : {})} /> } : {})}
           controls={
             workspace && (
               <>
