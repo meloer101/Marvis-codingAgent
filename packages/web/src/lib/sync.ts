@@ -1,8 +1,15 @@
 /**
  * `SessionSync` — glue between the socket and the store.
  *
- *  - Keeps one `SessionModel` per opened session and stays subscribed to it,
- *    so background sessions keep folding.
+ *  - **Viewing is not acting.** Opening a session loads its preview (the log
+ *    on disk, or the live snapshot) and subscribes only if it already has a
+ *    live host. The first thing that acts on it — a message, a mode change,
+ *    the `/` menu — resumes it on the server (`session.open`) and subscribes.
+ *    So browsing old sessions never spawns their `AgentSession`s and MCP
+ *    processes.
+ *  - **Leaving releases.** A session the tab stopped showing is unsubscribed
+ *    after `releaseMs` (unless it's running or waiting on the user), which
+ *    lets the server close its idle host; its model stays for a fast return.
  *  - Events land in the model immediately (cheap) but are published to the
  *    store at most once per animation frame, all dirty sessions in one
  *    `setState` (opencode's 16 ms flush).
@@ -15,7 +22,7 @@
  */
 
 import type { PermissionMode } from '@harness-code/core';
-import type { AskDecision, PushEvent, WireEvent } from '@harness-code/protocol';
+import type { AskDecision, PushEvent, SessionSnapshot, WireEvent } from '@harness-code/protocol';
 
 import { RpcClient, RpcError } from './rpc';
 import type { ConnectionStatus, RpcClientOptions } from './rpc';
@@ -33,14 +40,27 @@ export interface SyncOptions {
   };
   scheduleFrame?: (fn: () => void) => void;
   createSocket?: RpcClientOptions['createSocket'];
+  /** How long a session the tab left stays subscribed. Default 15 s. */
+  releaseMs?: number;
 }
+
+const RELEASE_MS = 15_000;
 
 export class SessionSync {
   readonly rpc: RpcClient;
   #store: NonNullable<SyncOptions['store']>;
   #scheduleFrame: (fn: () => void) => void;
   #models = new Map<string, SessionModel>();
+  /** View loads in flight (`open`). */
   #opening = new Map<string, Promise<void>>();
+  /** Resumes in flight (`#ensureLive`). */
+  #starting = new Map<string, Promise<void>>();
+  /** Sessions this socket is subscribed to (each has a live host). */
+  #subscribed = new Set<string>();
+  /** Sessions a view is showing right now. */
+  #viewing = new Set<string>();
+  #releaseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  #releaseMs: number;
   /** Sessions whose open was cut off by a dropped socket; retried on reconnect. */
   #retryOpen = new Set<string>();
   #dirty = new Set<string>();
@@ -50,6 +70,7 @@ export class SessionSync {
 
   constructor(opts: SyncOptions) {
     this.#store = opts.store ?? useAppStore;
+    this.#releaseMs = opts.releaseMs ?? RELEASE_MS;
     this.#scheduleFrame =
       opts.scheduleFrame ??
       ((fn) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => fn()) : setTimeout(fn, 16)));
@@ -68,42 +89,40 @@ export class SessionSync {
   }
 
   stop(): void {
+    for (const timer of this.#releaseTimers.values()) clearTimeout(timer);
+    this.#releaseTimers.clear();
     this.rpc.close();
   }
 
   // -- actions ----------------------------------------------------------------
 
-  /** Load a session (live or from disk) and keep it subscribed. Idempotent. */
+  /**
+   * Show a session: its preview (the disk log, or the live snapshot when it has
+   * a host) and, if it is live, a subscription. Never resumes it — see
+   * `#ensureLive`. Idempotent while it stays subscribed.
+   */
   open(id: string): Promise<void> {
-    if (this.#models.has(id)) return Promise.resolve();
+    this.#viewing.add(id);
+    this.#cancelRelease(id);
+    if (this.#subscribed.has(id)) return Promise.resolve();
     const inflight = this.#opening.get(id);
     if (inflight) return inflight;
     const p = (async () => {
       try {
+        let snapshot: SessionSnapshot;
         try {
-          const preview = await this.rpc.call('session.preview', { id });
-          const model = new SessionModel(preview, { hydrating: true });
-          this.#models.set(id, model);
-          this.#publish(id);
+          snapshot = await this.rpc.call('session.preview', { id });
         } catch (err) {
+          // Nothing on disk yet: a live session that hasn't run (or no session).
           if (!(err instanceof RpcError && err.code === 'not_found')) throw err;
+          snapshot = await this.rpc.call('session.open', { id });
         }
-
-        const snapshot = await this.rpc.call('session.open', { id });
-        const model = this.#models.get(id);
-        if (model) {
-          model.reset(snapshot);
-          model.setHydrating(false);
-        } else {
-          this.#models.set(id, new SessionModel(snapshot));
-        }
-        this.#publish(id);
-        await this.#subscribe(id);
-        void this.#loadSlash(id);
+        this.#adopt(id, snapshot);
+        if (snapshot.epoch) await this.#subscribe(id);
       } catch (err) {
         // Cut off mid-open, the session has no model (the view waits on
-        // "Loading session…" forever) or a half-hydrated one: start it over
-        // once the socket is back.
+        // "Loading session…" forever) or a stale one: start it over once the
+        // socket is back.
         if (err instanceof RpcError && err.code === 'disconnected') this.#retryOpen.add(id);
         this.#fail(err);
       } finally {
@@ -112,6 +131,35 @@ export class SessionSync {
     })();
     this.#opening.set(id, p);
     return p;
+  }
+
+  /**
+   * The view stopped showing `id`. Its subscription is dropped after
+   * `releaseMs` — later if it is running or waiting on the user — so the
+   * server can close its host once idle. The model stays for a fast return.
+   */
+  release(id: string): void {
+    this.#viewing.delete(id);
+    this.#cancelRelease(id);
+    const later = (): void => {
+      this.#releaseTimers.delete(id);
+      if (this.#viewing.has(id) || !this.#subscribed.has(id)) return;
+      const view = this.#models.get(id)?.state;
+      if (view && (view.running || view.askId || view.planId)) {
+        this.#releaseTimers.set(id, setTimeout(later, this.#releaseMs));
+        return;
+      }
+      this.#subscribed.delete(id);
+      this.rpc.call('session.unsubscribe', { id }).catch(() => {
+        // Gone with the socket anyway.
+      });
+    };
+    this.#releaseTimers.set(id, setTimeout(later, this.#releaseMs));
+  }
+
+  /** Get the session's `/` menu ready: MCP prompts need its live host. */
+  prepareCommands(id: string): Promise<void> {
+    return this.#run(this.#ensureLive(id));
   }
 
   async create(opts: { model?: string; mode?: PermissionMode } = {}): Promise<string | null> {
@@ -133,7 +181,7 @@ export class SessionSync {
 
   async send(id: string, text: string): Promise<boolean> {
     try {
-      await this.rpc.call('session.send', { id, text });
+      await this.#act(id, () => this.rpc.call('session.send', { id, text }));
       return true;
     } catch (err) {
       this.#fail(err);
@@ -146,7 +194,7 @@ export class SessionSync {
   }
 
   setMode(id: string, mode: PermissionMode): Promise<void> {
-    return this.#run(this.rpc.call('session.setMode', { id, mode }));
+    return this.#run(this.#act(id, () => this.rpc.call('session.setMode', { id, mode })));
   }
 
   answerAsk(sessionId: string, askId: string, decision: AskDecision, feedback?: string): Promise<void> {
@@ -193,14 +241,76 @@ export class SessionSync {
 
   // -- internals --------------------------------------------------------------
 
+  /**
+   * Run `call` against the session's live host, resuming it first; if the host
+   * was closed in between (idled out), resume once more and retry.
+   */
+  async #act<T>(id: string, call: () => Promise<T>): Promise<T> {
+    await this.#ensureLive(id);
+    try {
+      return await call();
+    } catch (err) {
+      if (!(err instanceof RpcError && err.code === 'not_found')) throw err;
+      this.#subscribed.delete(id);
+      await this.#ensureLive(id);
+      return call();
+    }
+  }
+
+  /** Resume the session on the server (if it has no host) and subscribe to it. */
+  #ensureLive(id: string): Promise<void> {
+    if (this.#subscribed.has(id)) return Promise.resolve();
+    const inflight = this.#starting.get(id);
+    if (inflight) return inflight;
+    const p = (async () => {
+      await this.#opening.get(id); // a view load in flight settles first
+      if (this.#subscribed.has(id)) return;
+      const model = this.#models.get(id);
+      if (model) {
+        model.setHydrating(true);
+        this.#publish(id);
+      }
+      try {
+        this.#adopt(id, await this.rpc.call('session.open', { id }));
+        await this.#subscribe(id);
+        void this.#loadSlash(id);
+      } finally {
+        this.#models.get(id)?.setHydrating(false);
+        this.#publish(id);
+      }
+    })().finally(() => this.#starting.delete(id));
+    this.#starting.set(id, p);
+    return p;
+  }
+
+  /** Take `snapshot` as the session's state, creating its model if needed. */
+  #adopt(id: string, snapshot: SessionSnapshot): void {
+    const model = this.#models.get(id);
+    if (model) model.reset(snapshot);
+    else this.#models.set(id, new SessionModel(snapshot));
+    this.#publish(id);
+  }
+
   async #subscribe(id: string): Promise<void> {
     const model = this.#models.get(id);
     if (!model) return;
-    const res = await this.rpc.call('session.subscribe', { id, sinceSeq: model.lastSeq });
+    const res = await this.rpc.call('session.subscribe', {
+      id,
+      sinceSeq: model.lastSeq,
+      ...(model.epoch ? { epoch: model.epoch } : {}),
+    });
+    this.#subscribed.add(id);
     if ('reset' in res) {
       model.reset(res.snapshot);
       this.#publish(id);
     }
+  }
+
+  #cancelRelease(id: string): void {
+    const timer = this.#releaseTimers.get(id);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.#releaseTimers.delete(id);
   }
 
   #onEvent(id: string, seq: number, event: WireEvent): void {
@@ -211,6 +321,14 @@ export class SessionSync {
 
   #onPush(event: PushEvent): void {
     this.#store.setState((s) => ({ sessions: applySessionPush(s.sessions, event) }));
+    if (event.type !== 'session_upsert') return;
+    const { id, live } = event.summary;
+    // Its host closed: this socket's subscription went with it.
+    if (!live) this.#subscribed.delete(id);
+    // It came alive elsewhere (another tab) while shown here: follow it live.
+    else if (this.#viewing.has(id) && !this.#subscribed.has(id) && !this.#opening.has(id) && !this.#starting.has(id)) {
+      void this.open(id);
+    }
   }
 
   #onStatus(status: ConnectionStatus): void {
@@ -230,17 +348,19 @@ export class SessionSync {
     } catch (err) {
       this.#fail(err);
     }
-    const retry = [...this.#retryOpen];
+    // The old socket's subscriptions died with it: make them again.
+    const retry = new Set(this.#retryOpen);
     this.#retryOpen.clear();
-    for (const id of retry) this.#models.delete(id);
-    for (const id of [...this.#models.keys()]) {
+    const resubscribe = [...this.#subscribed];
+    this.#subscribed.clear();
+    for (const id of resubscribe) {
       try {
         await this.#subscribe(id);
       } catch (err) {
+        // The host is gone (the server restarted, or it idled out): a view
+        // showing it falls back to the preview; the next action resumes it.
         if (err instanceof RpcError && err.code === 'not_found') {
-          // The server restarted and dropped the host: reopen it from disk.
-          this.#models.delete(id);
-          await this.open(id);
+          if (this.#viewing.has(id)) retry.add(id);
         } else {
           this.#fail(err);
         }

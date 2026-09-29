@@ -45,13 +45,14 @@ async function boot(): Promise<{ server: RunningServer; cwd: string }> {
   return { server, cwd };
 }
 
-function tab(server: RunningServer, wrap?: (socket: SocketLike) => void) {
+function tab(server: RunningServer, wrap?: (socket: SocketLike) => void, opts: { releaseMs?: number } = {}) {
   const store = createStore<AppState>(() => emptyState());
   const origin = `http://127.0.0.1:${server.port}`;
   const sync = new SessionSync({
     url: `ws://127.0.0.1:${server.port}/ws`,
     token: server.token,
     store,
+    ...opts,
     scheduleFrame: (fn) => setTimeout(fn, 0),
     createSocket: (url) => {
       const socket = new WebSocket(url, { origin }) as unknown as SocketLike;
@@ -164,6 +165,59 @@ describe('SessionSync ↔ hc web --mock', () => {
 
     await a.sync.abort(id!);
     await until(() => row() && !row()!.pending && !row()!.running, 'tab B sees the run end');
+  });
+
+  it('views a session without resuming it, and resumes it on the first message', async () => {
+    const { server } = await boot();
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'tab A connected');
+    const id = await a.sync.create();
+    await a.sync.send(id!, 'set up a scratch file');
+    await until(() => a.store.getState().views[id!]?.askId, 'first ask');
+    await a.sync.abort(id!);
+    await until(() => a.store.getState().views[id!] && !a.store.getState().views[id!]!.running, 'run end');
+    await a.sync.rpc.call('session.close', { id: id! });
+    const row = (t: ReturnType<typeof tab>) => t.store.getState().sessions.find((s) => s.id === id);
+    await until(() => row(a)?.live === false, 'host closed');
+
+    const b = tab(server);
+    await until(() => b.store.getState().info, 'tab B connected');
+    await b.sync.open(id!);
+    const bView = () => b.store.getState().views[id!];
+    await until(() => bView()?.entries.some((e) => e.kind === 'user'), 'B shows the log');
+    await new Promise((r) => setTimeout(r, 50));
+    expect(row(b)?.live).toBe(false); // viewing did not resume it
+
+    expect(await b.sync.send(id!, 'set up a scratch file')).toBe(true);
+    await until(() => row(b)?.live === true, 'resumed by the message');
+    await until(() => bView()?.askId, "B follows its session's run live");
+    await b.sync.abort(id!);
+  });
+
+  it('lets go of a session it stopped showing, and picks it up again on return', async () => {
+    const { server } = await boot();
+    const a = tab(server, undefined, { releaseMs: 20 });
+    await until(() => a.store.getState().info, 'tab A connected');
+    const id = await a.sync.create();
+    await a.sync.open(id!);
+    const view = () => a.store.getState().views[id!];
+    await until(view, 'view');
+
+    a.sync.release(id!);
+    await new Promise((r) => setTimeout(r, 80));
+
+    // Another tab runs it: A's list badges it, but A's released view stays put.
+    const c = tab(server);
+    await until(() => c.store.getState().info, 'tab C connected');
+    await c.sync.open(id!);
+    expect(await c.sync.send(id!, 'set up a scratch file')).toBe(true);
+    await until(() => a.store.getState().sessions.find((s) => s.id === id)?.pending, 'A badges the ask');
+    expect(view()!.askId).toBeNull();
+
+    // Coming back to it catches up with what happened meanwhile.
+    await a.sync.open(id!);
+    await until(() => view()?.askId, 'A shows the pending ask after returning');
+    await c.sync.abort(id!);
   });
 
   it('retries an open that a dropped socket cut off', async () => {

@@ -382,3 +382,54 @@ describe('SessionHost metadata sidecar', () => {
     expect(patched).toMatchObject({ mode: 'acceptEdits', createdAt: written?.createdAt });
   });
 });
+
+describe('SessionHost lifecycle', () => {
+  it('close() stops a run that is still going (settling its ask) before tearing down', async () => {
+    const { host, events } = await makeHost(
+      [{ toolCalls: [{ name: 'write', input: { path: 'note.txt', content: 'hi' } }] }, { text: 'done' }],
+      { mode: 'ask' },
+    );
+    const askP = firstEvent(host, 'ask');
+    host.send('go');
+    await askP;
+    expect(host.running).toBe(true);
+    await host.close();
+    expect(host.running).toBe(false);
+    expect(events().some((e) => e.type === 'resolved' && e.by === 'abort')).toBe(true);
+  });
+
+  it('refuses to compact while a run is going', async () => {
+    const { host } = await makeHost(
+      [{ toolCalls: [{ name: 'write', input: { path: 'note.txt', content: 'hi' } }] }, { text: 'done' }],
+      { mode: 'ask' },
+    );
+    const askP = firstEvent(host, 'ask');
+    const settled = runSettled(host);
+    host.send('go');
+    await askP;
+    await expect(host.compact()).rejects.toBeInstanceOf(BusyError);
+    host.abort();
+    await settled;
+  });
+
+  it('counts idle time from its last event or its last subscriber leaving', async () => {
+    const { host } = await makeHost([{ text: 'hi' }]);
+    const settled = runSettled(host);
+    host.send('go');
+    await settled;
+    const unsub = host.addListener(() => {});
+    expect(host.listenerCount).toBeGreaterThan(0);
+    const before = host.idleFor();
+    unsub();
+    expect(host.idleFor()).toBeLessThanOrEqual(before + 5);
+    expect(host.idleFor(Date.now() + 60_000)).toBeGreaterThanOrEqual(60_000);
+  });
+
+  it('stamps its snapshots with an epoch of its own', async () => {
+    const a = await makeHost([]);
+    const b = await makeHost([]);
+    const [sa, sb] = [await a.host.snapshot(), await b.host.snapshot()];
+    expect(sa.epoch).toBe(a.host.epoch);
+    expect(sa.epoch).not.toBe(sb.epoch);
+  });
+});

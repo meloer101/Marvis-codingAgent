@@ -42,14 +42,21 @@ export class SessionModel {
   #state: SessionViewState;
   #liveDirty = false;
   #lastSeq: number;
+  #epoch: string | undefined;
 
   constructor(snapshot: SessionSnapshot, opts: { hydrating?: boolean } = {}) {
     this.#state = stateFromSnapshot(snapshot, opts);
     this.#lastSeq = snapshot.lastSeq;
+    this.#epoch = snapshot.epoch;
   }
 
   get lastSeq(): number {
     return this.#lastSeq;
+  }
+
+  /** The live host `lastSeq` counts in; undefined for a disk-only preview. */
+  get epoch(): string | undefined {
+    return this.#epoch;
   }
 
   /** Current view state; the live region is materialised here, at most once per change. */
@@ -67,6 +74,7 @@ export class SessionModel {
     this.#liveDirty = false;
     this.#state = stateFromSnapshot(snapshot, opts);
     this.#lastSeq = snapshot.lastSeq;
+    this.#epoch = snapshot.epoch;
   }
 
   setHydrating(hydrating: boolean): void {

@@ -220,6 +220,21 @@ describe('ws transport', () => {
     for (const c of [actor, watcher, stranger]) c.close();
   });
 
+  it('resets instead of replaying when the epoch names another host', async () => {
+    const server = await boot([{ text: 'one' }]);
+    const client = await Client.open(wsUrl(server), `http://127.0.0.1:${server.port}`);
+    await client.call('auth', { token: server.token });
+    const created = await client.call('session.create', {});
+    const snap = (created as { result: { id: string; epoch: string; lastSeq: number } }).result;
+    expect(snap.epoch).toBeTruthy();
+
+    const same = await client.call('session.subscribe', { id: snap.id, sinceSeq: snap.lastSeq, epoch: snap.epoch });
+    expect(same).toMatchObject({ ok: true, result: { lastSeq: snap.lastSeq } });
+    const other = await client.call('session.subscribe', { id: snap.id, sinceSeq: snap.lastSeq, epoch: 'gone' });
+    expect(other).toMatchObject({ ok: true, result: { reset: true, snapshot: { epoch: snap.epoch } } });
+    client.close();
+  });
+
   it('serves server.info once authed', async () => {
     const server = await boot();
     const client = await Client.open(wsUrl(server), `http://127.0.0.1:${server.port}`);

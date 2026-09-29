@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { DEFAULT_CAPABILITIES, ScriptedProvider, SessionRecorder, updateSessionMeta } from '@harness-code/core';
 import type { PermissionMode, ResolvedModel, ScriptedTurn } from '@harness-code/core';
+import type { PushEvent } from '@harness-code/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionPreviewNotFoundError, SessionRegistry } from './registry.js';
@@ -30,6 +31,7 @@ function registry(cwd: string, agentDir: string, buildConfig = vi.fn()) {
     agentDir,
     buildConfig,
     previewDefaults: async () => ({ modelRef: 'scripted/test-model', mode: 'ask' }),
+    sweepMs: 0,
   });
 }
 
@@ -75,38 +77,38 @@ describe('SessionRegistry.preview', () => {
   });
 });
 
-describe('SessionRegistry resume from metadata', () => {
-  async function diskSession(meta: Parameters<typeof updateSessionMeta>[2]) {
-    const cwd = await mkdtemp(join(tmpdir(), 'hc-registry-'));
-    tmpDirs.push(cwd);
-    const agentDir = join(cwd, '.agent');
-    const recorder = new SessionRecorder(agentDir, 'resumed');
-    await recorder.recordMessage({ role: 'user', content: [{ type: 'text', text: 'hello' }] });
-    await updateSessionMeta(agentDir, 'resumed', meta);
-    const buildConfig = vi.fn((opts: { model?: string; mode?: PermissionMode }) =>
-      opts.model === 'gone/model'
-        ? Promise.reject(new Error('unknown provider "gone"'))
-        : Promise.resolve({
-            cwd,
-            agentDir,
-            model: scriptedModel(),
-            settings: {},
-            budgets: {},
-            mode: opts.mode ?? 'ask',
-            skills: false,
-            subagents: false,
-            mcp: false,
-            memory: false,
-            recorder: false,
-            trace: false,
-            projectMemory: null,
-            resumeId: 'resumed',
-          }),
-    );
-    const reg = registry(cwd, agentDir, buildConfig);
-    return { reg, buildConfig };
-  }
+async function diskSession(meta: Parameters<typeof updateSessionMeta>[2]) {
+  const cwd = await mkdtemp(join(tmpdir(), 'hc-registry-'));
+  tmpDirs.push(cwd);
+  const agentDir = join(cwd, '.agent');
+  const recorder = new SessionRecorder(agentDir, 'resumed');
+  await recorder.recordMessage({ role: 'user', content: [{ type: 'text', text: 'hello' }] });
+  await updateSessionMeta(agentDir, 'resumed', meta);
+  const buildConfig = vi.fn((opts: { model?: string; mode?: PermissionMode }) =>
+    opts.model === 'gone/model'
+      ? Promise.reject(new Error('unknown provider "gone"'))
+      : Promise.resolve({
+          cwd,
+          agentDir,
+          model: scriptedModel(),
+          settings: {},
+          budgets: {},
+          mode: opts.mode ?? 'ask',
+          skills: false,
+          subagents: false,
+          mcp: false,
+          memory: false,
+          recorder: false,
+          trace: false,
+          projectMemory: null,
+          resumeId: 'resumed',
+        }),
+  );
+  const reg = registry(cwd, agentDir, buildConfig);
+  return { reg, buildConfig };
+}
 
+describe('SessionRegistry resume from metadata', () => {
   it('resumes with the model, mode and effort the session last ran with', async () => {
     const { reg, buildConfig } = await diskSession({ model: 'scripted/test-model', mode: 'plan', effort: 'high' });
     const snap = await reg.open({ id: 'resumed' });
@@ -141,5 +143,51 @@ describe('SessionRegistry resume from metadata', () => {
     const snap = await reg.preview({ id: 'resumed' });
     expect(snap).toMatchObject({ modelRef: 'deepseek/deepseek-pro', mode: 'readOnly' });
     expect(buildConfig).not.toHaveBeenCalled();
+  });
+});
+
+describe('SessionRegistry lifecycle', () => {
+  it('shares one resume between concurrent opens of a session', async () => {
+    const { reg, buildConfig } = await diskSession({});
+    const [a, b] = await Promise.all([reg.open({ id: 'resumed' }), reg.open({ id: 'resumed' })]);
+    expect(buildConfig).toHaveBeenCalledTimes(1);
+    expect(a.epoch).toBeTruthy();
+    expect(a.epoch).toBe(b.epoch);
+    await reg.shutdown();
+  });
+
+  it('previews without resuming: the host appears only once something acts on the session', async () => {
+    const { reg, buildConfig } = await diskSession({});
+    const preview = await reg.preview({ id: 'resumed' });
+    expect(preview.epoch).toBeUndefined();
+    expect(reg.get('resumed')).toBeUndefined();
+    const host = await reg.ensure('resumed');
+    expect(reg.get('resumed')).toBe(host);
+    expect((await reg.preview({ id: 'resumed' })).epoch).toBe(host.epoch);
+    expect(buildConfig).toHaveBeenCalledTimes(1);
+    await reg.shutdown();
+  });
+
+  it('sweeps hosts nobody watches once idle, and pushes that they went offline', async () => {
+    const { reg } = await diskSession({});
+    const host = await reg.ensure('resumed');
+    const later = Date.now() + 60 * 60_000;
+
+    const unsub = host.addListener(() => {});
+    reg.sweep(later);
+    expect(reg.get('resumed')).toBe(host); // someone is watching
+
+    unsub();
+    reg.sweep(Date.now() + 1000);
+    expect(reg.get('resumed')).toBe(host); // not idle for long enough
+
+    const changes: PushEvent[] = [];
+    reg.onChange((e) => changes.push(e));
+    reg.sweep(later);
+    expect(reg.get('resumed')).toBeUndefined();
+    const deadline = Date.now() + 2000;
+    while (changes.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+    expect(changes.at(-1)).toMatchObject({ type: 'session_upsert', summary: { id: 'resumed', live: false } });
+    await reg.shutdown();
   });
 });

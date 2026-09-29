@@ -258,6 +258,8 @@ describe('global shortcuts', () => {
   function renderApp(view: SessionViewState) {
     const sync = {
       open: vi.fn(async () => {}),
+      release: vi.fn(),
+      prepareCommands: vi.fn(async () => {}),
       create: vi.fn(async () => 'new-id'),
       abort: vi.fn(async () => {}),
       send: vi.fn(async () => true),

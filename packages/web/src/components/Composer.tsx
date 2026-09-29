@@ -24,6 +24,7 @@ export function Composer({
   commands,
   onSend,
   onAbort,
+  onCommandMenu,
   inputRef,
 }: {
   sessionId: string;
@@ -32,6 +33,8 @@ export function Composer({
   commands: SlashCommand[];
   onSend: (text: string) => Promise<boolean>;
   onAbort: () => void;
+  /** Called when the `/` menu opens — the session's MCP prompt commands can load then. */
+  onCommandMenu?: () => void;
   /** Lets the session view put focus back here (after a prompt is answered). */
   inputRef?: RefObject<HTMLTextAreaElement | null>;
 }) {
@@ -69,6 +72,12 @@ export function Composer({
   }, [text]);
 
   useEffect(() => setActive(0), [query]);
+
+  const typingCommand = query !== null;
+  // Once per opening of the menu, not on every keystroke inside it.
+  useEffect(() => {
+    if (typingCommand) onCommandMenu?.();
+  }, [typingCommand]);
 
   const canSend = !running && !disabled && text.trim() !== '';
 

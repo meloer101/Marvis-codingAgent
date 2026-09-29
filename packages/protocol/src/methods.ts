@@ -72,6 +72,12 @@ export interface SessionSnapshot {
   };
   pendingPlan?: { planId: string; title: string; body: string; yesMode?: PermissionMode };
   lastSeq: number;
+  /**
+   * Identifies the live host behind this snapshot; absent from a disk-only
+   * preview. A session resumed after its host was closed gets a new epoch and
+   * its `seq` starts over, so `seq`s only compare within one epoch.
+   */
+  epoch?: string;
 }
 
 export type SubscribeResult = { lastSeq: number } | { reset: true; snapshot: SessionSnapshot };
@@ -116,8 +122,9 @@ export const methods = {
   'session.open': method<{ id: string }, SessionSnapshot>(z.object({ id: z.string() })),
   /** Disk transcript only — no MCP / `AgentSession.create`. Used to render old sessions fast. */
   'session.preview': method<{ id: string }, SessionSnapshot>(z.object({ id: z.string() })),
-  'session.subscribe': method<{ id: string; sinceSeq?: number }, SubscribeResult>(
-    z.object({ id: z.string(), sinceSeq: z.number().optional() }),
+  /** Replays the gap after `sinceSeq` when `epoch` (if given) is still the live host's; else `reset`. */
+  'session.subscribe': method<{ id: string; sinceSeq?: number; epoch?: string }, SubscribeResult>(
+    z.object({ id: z.string(), sinceSeq: z.number().optional(), epoch: z.string().optional() }),
   ),
   'session.unsubscribe': method<{ id: string }, void>(z.object({ id: z.string() })),
   'session.send': method<{ id: string; text: string }, { runId: string }>(

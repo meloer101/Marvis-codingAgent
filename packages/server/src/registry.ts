@@ -41,7 +41,14 @@ export interface SessionRegistryOptions {
   buildConfig: SessionConfigFactory;
   /** Defaults for `session.preview` when the session is not live. */
   previewDefaults: () => Promise<{ modelRef: string; mode: PermissionMode }>;
+  /** Close a host nobody watches or waits on after this long idle. Default 10 minutes. */
+  idleMs?: number;
+  /** How often to look for idle hosts; `0` turns the sweep off (tests call `sweep()`). Default 1 minute. */
+  sweepMs?: number;
 }
+
+const DEFAULT_IDLE_MS = 10 * 60_000;
+const DEFAULT_SWEEP_MS = 60_000;
 
 /** Receives every session-list change (`registry.onChange`). */
 export type RegistryListener = (event: PushEvent) => void;
@@ -63,15 +70,25 @@ export class SessionRegistry {
   readonly #buildConfig: SessionConfigFactory;
   readonly #previewDefaults: SessionRegistryOptions['previewDefaults'];
   readonly #hosts = new Map<string, SessionHost>();
+  /** Resumes in flight, so two opens of one session share one `AgentSession`. */
+  readonly #resuming = new Map<string, Promise<SessionHost>>();
   readonly #listeners = new Set<RegistryListener>();
   /** Stamps every summary row computed; see `SessionSummary.rev`. */
   #rev = 0;
+  readonly #idleMs: number;
+  readonly #sweepTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(opts: SessionRegistryOptions) {
     this.#cwd = opts.cwd;
     this.#agentDir = opts.agentDir;
     this.#buildConfig = opts.buildConfig;
     this.#previewDefaults = opts.previewDefaults;
+    this.#idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
+    const sweepMs = opts.sweepMs ?? DEFAULT_SWEEP_MS;
+    if (sweepMs > 0) {
+      this.#sweepTimer = setInterval(() => this.sweep(), sweepMs);
+      this.#sweepTimer.unref?.();
+    }
   }
 
   get(id: string): SessionHost | undefined {
@@ -149,19 +166,36 @@ export class SessionRegistry {
     return host.snapshot();
   }
 
-  /**
-   * Return the live snapshot if the session is in memory, else resume it from
-   * disk with the model, mode and effort its metadata recorded. A recorded
-   * model that no longer resolves (provider removed, key gone) falls back to
-   * the defaults rather than making the session unopenable.
-   */
+  /** The live snapshot, resuming the session from disk first if it has no host. */
   async open(opts: { id: string }): Promise<SessionSnapshot> {
-    const live = this.#hosts.get(opts.id);
-    if (live) return live.snapshot();
-    const meta = await readSessionMeta(this.#agentDir, opts.id);
+    return (await this.ensure(opts.id)).snapshot();
+  }
+
+  /**
+   * The session's live host, resuming it from disk if it has none. Concurrent
+   * calls for one session share a single resume. Viewing a session never gets
+   * here (that is `preview`); the first call that acts on it does.
+   */
+  ensure(id: string): Promise<SessionHost> {
+    const live = this.#hosts.get(id);
+    if (live) return Promise.resolve(live);
+    const inflight = this.#resuming.get(id);
+    if (inflight) return inflight;
+    const resumed = this.#resume(id).finally(() => this.#resuming.delete(id));
+    this.#resuming.set(id, resumed);
+    return resumed;
+  }
+
+  /**
+   * Resume with the model, mode and effort the session's metadata recorded. A
+   * recorded model that no longer resolves (provider removed, key gone) falls
+   * back to the defaults rather than making the session unopenable.
+   */
+  async #resume(id: string): Promise<SessionHost> {
+    const meta = await readSessionMeta(this.#agentDir, id);
     const mode = restoredMode(meta);
     const resume = {
-      resumeId: opts.id,
+      resumeId: id,
       ...(mode ? { mode } : {}),
       ...(meta?.effort ? { effort: meta.effort } : {}),
     };
@@ -174,7 +208,20 @@ export class SessionRegistry {
     }
     const host = await this.#start(config, { hasMeta: meta !== null });
     this.#announce(host.id);
-    return host.snapshot();
+    return host;
+  }
+
+  /**
+   * Close every host that nobody is subscribed to, that isn't running or
+   * waiting on a prompt, and that has been idle for `idleMs`: each holds an
+   * `AgentSession` and its MCP processes, and closing it also flushes the
+   * session's memory writes. Its log stays on disk; the next action resumes it.
+   */
+  sweep(now = Date.now()): void {
+    for (const [id, host] of this.#hosts) {
+      if (host.listenerCount > 0 || host.running || host.pending) continue;
+      if (host.idleFor(now) >= this.#idleMs) void this.close(id);
+    }
   }
 
   /**
@@ -215,6 +262,7 @@ export class SessionRegistry {
   }
 
   async shutdown(): Promise<void> {
+    if (this.#sweepTimer) clearInterval(this.#sweepTimer);
     const hosts = [...this.#hosts.values()];
     this.#hosts.clear();
     await Promise.all(hosts.map((h) => h.close()));

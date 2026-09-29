@@ -97,6 +97,8 @@ export type Listener = (frame: ServerFrame) => void;
 export class SessionHost {
   /** Assigned after `attach`. */
   id = '';
+  /** This host instance: a session resumed after its host closed gets a new epoch, and `seq` restarts. */
+  readonly epoch = randomUUID();
 
   readonly #agentDir: string;
   readonly #cwd: string | undefined;
@@ -123,6 +125,10 @@ export class SessionHost {
 
   #busy = false;
   #currentRunId: string | undefined;
+  /** Settles when the current run (if any) has fully wound down. */
+  #runDone: Promise<void> = Promise.resolve();
+  /** Last event emitted, or last listener gone — what idle eviction measures from. */
+  #lastActive = Date.now();
 
   /**
    * Outstanding permission asks, oldest first. Parallel tool calls ask
@@ -187,6 +193,16 @@ export class SessionHost {
 
   get lastSeq(): number {
     return this.#seq;
+  }
+
+  /** Sockets subscribed right now. */
+  get listenerCount(): number {
+    return this.#listeners.size;
+  }
+
+  /** Ms since this host last emitted an event or lost its last subscriber. */
+  idleFor(now = Date.now()): number {
+    return now - this.#lastActive;
   }
 
   /** A title from the first message sent here, for a session whose log has none yet. */
@@ -357,7 +373,7 @@ export class SessionHost {
     if (!this.#metaSynced) this.#writeMeta();
     this.#firstInput ??= text;
     this.#emit({ type: 'run_start', runId, input: text });
-    void this.#execute(runId, text);
+    this.#runDone = this.#execute(runId, text);
     return { runId };
   }
 
@@ -433,7 +449,9 @@ export class SessionHost {
     this.#syncMode();
   }
 
+  /** Compaction replaces the history a running turn is still appending to: not while one runs. */
   async compact(): Promise<{ tokensBefore: number; tokensAfter: number } | null> {
+    if (this.#busy) throw new BusyError();
     return this.#requireSession().compactNow();
   }
 
@@ -445,7 +463,9 @@ export class SessionHost {
 
   addListener(listener: Listener): () => void {
     this.#listeners.add(listener);
-    return () => this.#listeners.delete(listener);
+    return () => {
+      if (this.#listeners.delete(listener) && this.#listeners.size === 0) this.#lastActive = Date.now();
+    };
   }
 
   /**
@@ -476,6 +496,7 @@ export class SessionHost {
       transcript: await this.#loadTranscript(),
       running: this.#busy,
       lastSeq: this.#seq,
+      epoch: this.epoch,
     };
     if (session.sessionUsage) snapshot.usage = session.sessionUsage;
     if (session.contextSnapshot) snapshot.context = session.contextSnapshot;
@@ -517,6 +538,12 @@ export class SessionHost {
   // -- teardown -------------------------------------------------------------
 
   async close(): Promise<void> {
+    // A run still going would keep using the session after it is torn down:
+    // stop it (any prompt settles as a deny) and let it wind down first.
+    if (this.#busy) {
+      this.abort();
+      await this.#runDone;
+    }
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = undefined;
     this.#pending = null;
@@ -561,6 +588,7 @@ export class SessionHost {
   }
 
   #push(event: WireEvent): void {
+    this.#lastActive = Date.now();
     const seq = ++this.#seq;
     const frame: ServerFrame = { t: 'evt', sessionId: this.id, seq, event };
     this.#ring.push({ seq, frame });

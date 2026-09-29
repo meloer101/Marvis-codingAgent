@@ -21,6 +21,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
 
   useEffect(() => {
     void sync.open(id);
+    return () => sync.release(id);
   }, [sync, id]);
 
   // Answering a prompt unmounts the dock, which drops focus to <body>; hand it
@@ -73,6 +74,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
           commands={commands}
           onSend={send}
           onAbort={() => void sync.abort(id)}
+          onCommandMenu={() => void sync.prepareCommands(id)}
           inputRef={composerRef}
         />
       </div>

@@ -282,7 +282,7 @@ class Connection {
       this.#replyError(frame.id, 'bad_request', `invalid params: ${parsed.error.message}`);
       return;
     }
-    const { id, sinceSeq } = parsed.data;
+    const { id, sinceSeq, epoch } = parsed.data;
     const host = this.opts.registry.get(id);
     if (!host) {
       this.#replyError(frame.id, 'not_found', `no live session "${id}"`);
@@ -296,8 +296,10 @@ class Connection {
     // Fast path: the ring still covers the gap — replay it, no snapshot.
     // Attaching the listener and reading the ring is synchronous, so no event
     // can slip through in between, and replayed (past) frames never overlap
-    // with the future frames the listener forwards.
-    if (sinceSeq !== undefined && host.canReplay(sinceSeq)) {
+    // with the future frames the listener forwards. `seq`s from another epoch
+    // (the host was closed and the session resumed since) mean nothing here.
+    const sameHost = epoch === undefined || epoch === host.epoch;
+    if (sinceSeq !== undefined && sameHost && host.canReplay(sinceSeq)) {
       const unsub = host.addListener((f) => this.#sendFrame(f));
       this.#subs.set(id, unsub);
       this.#replyOk(frame.id, { lastSeq: host.lastSeq });
