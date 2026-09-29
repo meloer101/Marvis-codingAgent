@@ -122,6 +122,7 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
         traceDir,
         traceId,
         cassettePath: task.cassettePath,
+        runIndex: i,
         ...(cfg.record ? { record: true } : {}),
         ...(cfg.live ? { live: true } : {}),
         ...(cfg.settings ? { settings: cfg.settings } : {}),

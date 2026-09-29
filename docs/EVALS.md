@@ -47,9 +47,11 @@ A task with `"mode": "plan"` and a `followUp` prompt runs two user turns:
 plan → approval (scripted) → implement. It is the only shape where a mid-session
 prompt change and a mode-stable tool list are observable, so it is where the
 `system-update` ablation has a signal; `plan-then-implement` is the one such
-task. It records a single trajectory (`"runs": 1`): the two halves diverge
-enough between live runs that several trajectories in one cassette cannot be
-replayed coherently.
+task. It records a single trajectory (`"runs": 1`). Until 2026-09-29 a
+cassette could not replay more than one: every replay followed the first
+recorded trajectory, since they all start with the same request. Entries are
+now tagged with their run and replay of run *i* serves run *i*'s, so a
+re-recorded task can go back to several runs.
 
 Measured on it (2026-09-19, `--ablation system-update`), on the first request
 after the mode switch — the turn where the strategies differ:
@@ -64,6 +66,10 @@ is re-processed; over a run, the arms came out at 94.9% vs 79.7% cached. The
 arms take different trajectories, so compare the *rates*, not the totals.
 
 ## Metrics
+
+Replayed runs of a task are distinct trajectories only when its cassette was
+recorded with run tags (`--record` since 2026-09-29); an older cassette replays
+its first trajectory every time, and counts as one.
 
 - **pass@k**: at least one of k trials passed. **pass^k**: all k passed. An agent
   users rely on needs consistency, so the regression gate is on pass^k: one flaky

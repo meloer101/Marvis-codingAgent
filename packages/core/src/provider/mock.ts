@@ -179,6 +179,13 @@ export interface CassetteEntry {
   /** Human-readable summary so a fixture diff is reviewable. */
   note: string;
   events: StreamEvent[];
+  /**
+   * Which recorded run (trajectory) this exchange belongs to, when a cassette
+   * holds several. Replay of run `i` serves only run `i`'s entries — without
+   * the tag every replay followed the first trajectory, since all of them
+   * start with the same request.
+   */
+  run?: number;
 }
 
 /**
@@ -254,6 +261,8 @@ export interface RecordingOptions {
    * side's `keyScrub` exactly.
    */
   keyScrub?: (s: string) => string;
+  /** Tag every entry with this run index (see `CassetteEntry.run`). */
+  run?: number;
 }
 
 /** Wraps a live provider and appends every exchange to a cassette file. */
@@ -271,7 +280,10 @@ export class RecordingProvider implements Provider {
     this.redact = pathRedactor(opts.redactPaths ?? []);
     const scrub = opts.keyScrub ?? ((s) => s);
     this.keyRedact = (s) => scrub(this.redact(s));
+    this.run = opts.run;
   }
+
+  private readonly run: number | undefined;
 
   async complete(req: ModelRequest): Promise<ModelResponse> {
     return drainStream(this.stream(req));
@@ -287,6 +299,7 @@ export class RecordingProvider implements Provider {
       key: requestKey(req, this.keyRedact),
       note: this.keyRedact(summarize(req)),
       events: events.map((ev) => mapEventStrings(ev, this.redact)),
+      ...(this.run !== undefined ? { run: this.run } : {}),
     });
   }
 
@@ -297,6 +310,8 @@ export class RecordingProvider implements Provider {
 }
 
 export interface ReplayOptions {
+  /** Replay the recorded run with this index (see `CassetteEntry.run`). */
+  run?: number;
   /**
    * When a request has no recording, fall back to sequential playback of
    * whatever is left. Off by default: a silent mismatch is how a "passing"
@@ -363,7 +378,13 @@ export class ReplayProvider implements Provider {
   async *stream(req: ModelRequest): AsyncIterable<StreamEvent> {
     const key = requestKey(req, this.keyRedact);
     const bucket = this.byKey.get(key);
-    let entry = bucket?.shift();
+    // A cassette tagged by run replays run `i` from run `i`'s entries only; an
+    // untagged one (recorded before the tag existed) serves the first match.
+    const at =
+      bucket?.findIndex(
+        (e) => e.run === undefined || this.opts.run === undefined || e.run === this.opts.run,
+      ) ?? -1;
+    let entry = at === -1 ? undefined : bucket!.splice(at, 1)[0];
 
     if (!entry && this.opts.allowSequentialFallback) {
       entry = this.order[this.sequentialCursor++];

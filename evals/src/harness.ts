@@ -108,6 +108,13 @@ export interface HarnessOptions {
    */
   verifyBeforeStop?: boolean;
 
+  /**
+   * Which run of the task this is. Recording tags the cassette with it and
+   * replay serves that run's trajectory, so `runs: 3` replays three recorded
+   * trajectories instead of the first one three times.
+   */
+  runIndex?: number;
+
   maxTurns?: number;
   /** Reasoning effort; omitted = the model's declared default. */
   reasoningEffort?: ReasoningEffort;
@@ -190,11 +197,13 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
       : new RecordingProvider(live.provider, opts.cassettePath, {
           redactPaths: [opts.workDir],
           keyScrub: evalKeyScrub,
+          ...(opts.runIndex !== undefined ? { run: opts.runIndex } : {}),
         });
   } else {
     provider = await ReplayProvider.load(opts.cassettePath, {
       redactPaths: [opts.workDir],
       keyScrub: evalKeyScrub,
+      ...(opts.runIndex !== undefined ? { run: opts.runIndex } : {}),
     });
   }
 

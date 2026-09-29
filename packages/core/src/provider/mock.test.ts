@@ -128,6 +128,37 @@ describe('ReplayProvider', () => {
     expect(res.content).toEqual([{ type: 'text', text: 'recorded' }]);
   });
 
+  it('replays each recorded run from its own entries, and an untagged cassette from the first', async () => {
+    const said = (text: string, run?: number) => ({
+      key: requestKey(req),
+      note: 'test',
+      events: [
+        {
+          type: 'message_end' as const,
+          response: {
+            model: 'm',
+            content: [{ type: 'text' as const, text }],
+            stopReason: 'end_turn' as const,
+            usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0 },
+          },
+        },
+      ],
+      ...(run !== undefined ? { run } : {}),
+    });
+    const tagged = [said('first', 0), said('second', 1), said('third', 2)];
+    for (const [run, want] of [[0, 'first'], [1, 'second'], [2, 'third']] as const) {
+      const res = await drainStream(ReplayProvider.fromEntries(tagged, { run }).stream(req));
+      expect(res.content).toEqual([{ type: 'text', text: want }]);
+    }
+    // A run that was never recorded is a miss, not another run's trajectory.
+    await expect(
+      drainStream(ReplayProvider.fromEntries(tagged, { run: 3 }).stream(req)),
+    ).rejects.toThrow(/No recorded response/);
+    const legacy = [said('first'), said('second')];
+    const res = await drainStream(ReplayProvider.fromEntries(legacy, { run: 1 }).stream(req));
+    expect(res.content).toEqual([{ type: 'text', text: 'first' }]);
+  });
+
   it('refuses to guess when the prompt has drifted from the recording', async () => {
     const provider = ReplayProvider.fromEntries([
       { key: 'stale-key', note: 'test', events: [] },
