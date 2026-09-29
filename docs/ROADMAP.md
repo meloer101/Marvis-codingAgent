@@ -89,11 +89,6 @@
   *(M)*
 - **MCP 工具逐个覆盖 `readOnly` / `concurrencySafe`**：MCP 工具目前一律按串行、非只读处理（和
   `bash` 同档）。在 `.mcp.json` 里逐工具覆盖，可以让已知安全的工具并行。目前没有使用方。*(S)*
-- **结构化错误覆盖面**：`--output-format json` / `stream-json` 下，早于输出 sink 的错误（比如
-  `buildSessionConfig` 深处抛出的未知 provider 名）和顶层 `unhandledRejection` 还是输出纯文本。*(S)*
-
-## D · Permissions, safety & sandboxing
-
 - **只读 shell 白名单继续扩充**：9-27 已加入 `od`、`xxd`、`hexdump`、`cmp`、`diff`、`sort`、`uniq`、`jq`、`cut`、
   校验和工具等（会写文件的参数形式被排除）。剩下：`for` 循环这类 shell 结构；`cd`（故意没加：`cd .git && cat config`
   会绕过敏感路径检查）；`grep -r` 仍会顺带读到 `.env` 的内容，参数检查拦不住。*(S)*

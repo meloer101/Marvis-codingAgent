@@ -14,7 +14,6 @@ import {
   resolveProjectMemoryDir,
   resolveStateDir,
   BUILTIN_PROVIDERS,
-  NoModelConfiguredError,
   ProviderError,
   ProviderRegistry,
   VERSION,
@@ -235,6 +234,12 @@ program
       },
     ) => {
       const cwd = resolvePath(opts.cwd);
+      // Until the output sink exists, a failure has nothing to report it in
+      // the requested format; this does, for every path that can fail early.
+      if (opts.outputFormat !== 'text') {
+        earlyFailure = (message) =>
+          failWithFormat(message, opts.outputFormat, opts.model ?? 'unknown', opts.progress);
+      }
 
       let config: AgentSessionConfig;
       try {
@@ -258,10 +263,9 @@ program
           ...(opts.resume ? { resumeId: opts.resume } : {}),
         });
       } catch (err) {
-        if (err instanceof NoModelConfiguredError) {
-          failWithFormat(err.message, opts.outputFormat, opts.model ?? 'unknown', opts.progress);
-        }
-        throw err;
+        // A bad --model, an unknown provider, unreadable settings: all of them
+        // happen before there is a sink, and a JSON caller still needs JSON.
+        failWithFormat(errorMessageOf(err), opts.outputFormat, opts.model ?? 'unknown', opts.progress);
       }
 
       const frontend = decideFrontend({
@@ -290,6 +294,9 @@ program
       }
 
       const sink = createSink(opts.outputFormat, config.model.ref, { progress: opts.progress });
+      // From here the sink reports failures itself (runOneshot writes an error
+      // result); a second JSON object would break the one-line contract.
+      earlyFailure = undefined;
       if (frontend === 'oneshot') {
         if (effectivePrompt === undefined) fail('no prompt given (and stdin was empty)');
         const interactive = process.stdin.isTTY && opts.outputFormat === 'text' && !opts.print;
@@ -703,10 +710,17 @@ function failWithFormat(
   process.exit(1);
 }
 
+/**
+ * Set by a JSON-format command until its output sink exists: how to report a
+ * failure that happens before then in the format the caller parses.
+ */
+let earlyFailure: ((message: string) => never) | undefined;
+
 async function main(): Promise<void> {
   try {
     await program.parseAsync(process.argv);
   } catch (err) {
+    earlyFailure?.(errorMessageOf(err));
     if (err instanceof ProviderError) {
       process.stderr.write(`\nhc: ${err.message}\n`);
       if (err.detail) process.stderr.write(`\x1b[2m${err.detail}\x1b[0m\n`);
@@ -721,6 +735,7 @@ async function main(): Promise<void> {
 // stack dump — which for `--output-format json` also means no valid JSON on
 // stdout for the caller to parse.
 process.on('unhandledRejection', (reason) => {
+  earlyFailure?.(reason instanceof Error ? reason.message : String(reason));
   const msg = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
   process.stderr.write(`\nhc: unhandled rejection: ${msg}\n`);
   process.exit(1);
