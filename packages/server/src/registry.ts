@@ -235,7 +235,7 @@ export class SessionRegistry {
     const host = await this.#spawn(spawnOpts);
     this.#announce(host.id);
     const snapshot = await host.snapshot();
-    const { runId } = host.send(text);
+    const { runId } = host.run(text);
     return { snapshot, runId };
   }
 

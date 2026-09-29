@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { Composer } from './Composer';
 import { PendingDock } from './PendingDock';
+import { QueuedMessages } from './QueuedMessages';
 import { allCommands } from '@/lib/slash';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { useAppStore } from '@/lib/store';
@@ -12,6 +13,7 @@ import { SyncProvider } from '@/lib/syncContext';
 
 afterEach(() => {
   cleanup();
+  localStorage.clear(); // composer drafts
   window.location.hash = '';
   useAppStore.setState({ status: 'closed', info: null, sessions: [], views: {}, slash: {}, error: null, helpOpen: false });
 });
@@ -74,10 +76,50 @@ describe('Composer', () => {
     window.removeEventListener('keydown', onWindowEsc);
   });
 
-  it('swaps send for stop while running', () => {
-    const { onAbort } = renderComposer({ running: true });
+  it('shows Stop while running, and queues what is sent meanwhile', () => {
+    const { textarea, onSend, onAbort } = renderComposer({ running: true });
+    expect(screen.queryByLabelText('Queue')).toBeNull(); // nothing typed yet
     fireEvent.click(screen.getByLabelText('Stop'));
     expect(onAbort).toHaveBeenCalled();
+    fireEvent.change(textarea, { target: { value: 'next' } });
+    fireEvent.click(screen.getByLabelText('Queue'));
+    expect(onSend).toHaveBeenCalledWith('next');
+  });
+
+  it('puts restored text in front of the draft, once', () => {
+    const onRestored = vi.fn();
+    const { textarea } = renderComposer({ restored: 'queued one', onRestored });
+    expect(textarea.value).toBe('queued one');
+    expect(onRestored).toHaveBeenCalledTimes(1);
+  });
+
+  it('Shift+Tab cycles the mode instead of moving focus', () => {
+    const onCycleMode = vi.fn();
+    const { textarea } = renderComposer({ onCycleMode });
+    fireEvent.keyDown(textarea, { key: 'Tab', shiftKey: true });
+    expect(onCycleMode).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('QueuedMessages', () => {
+  it('lists what waits, each to edit or remove', () => {
+    const onEdit = vi.fn();
+    const onRemove = vi.fn();
+    render(
+      <QueuedMessages
+        queue={[
+          { id: 'q1', text: 'first' },
+          { id: 'q2', text: 'second' },
+        ]}
+        onEdit={onEdit}
+        onRemove={onRemove}
+      />,
+    );
+    expect(screen.getByText('first')).toBeTruthy();
+    fireEvent.click(screen.getAllByLabelText('Edit queued message')[1]!);
+    fireEvent.click(screen.getAllByLabelText('Remove queued message')[0]!);
+    expect(onEdit).toHaveBeenCalledWith('q2');
+    expect(onRemove).toHaveBeenCalledWith('q1');
   });
 });
 
@@ -98,6 +140,7 @@ function dockView(over: Partial<SessionViewState> = {}): SessionViewState {
     running: true,
     hydrating: false,
     effortLevels: [],
+    queue: [],
     askId: 'a1',
     planId: null,
     ...over,

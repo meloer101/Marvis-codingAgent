@@ -19,6 +19,11 @@ export interface AppState {
   slash: Record<string, SlashCommandInfo[]>;
   /** The models on offer per workspace, loaded when a model picker opens. */
   models: Record<string, ModelInfo[]>;
+  /**
+   * Text to put back in a session's composer: queued messages a Stop handed
+   * back, or one taken out of the queue to edit. The composer takes it once.
+   */
+  restored: Record<string, string>;
   /** Last failed action, shown as a dismissible banner. */
   error: string | null;
   /** The `/help` panel. */
@@ -35,6 +40,7 @@ export const useAppStore = create<AppState>(() => ({
   views: {},
   slash: {},
   models: {},
+  restored: {},
   error: null,
   helpOpen: false,
   addProjectOpen: false,

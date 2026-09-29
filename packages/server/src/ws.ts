@@ -249,8 +249,11 @@ class Connection {
       }
       case 'session.abort': {
         const { id } = params as MethodParams<'session.abort'>;
-        this.#host(id).abort();
-        return undefined;
+        return this.#host(id).abort();
+      }
+      case 'session.unqueue': {
+        const { id, queuedId } = params as MethodParams<'session.unqueue'>;
+        return this.#host(id).unqueue(queuedId);
       }
       case 'session.setMode': {
         const { id, mode } = params as MethodParams<'session.setMode'>;

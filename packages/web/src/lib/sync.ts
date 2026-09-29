@@ -221,8 +221,39 @@ export class SessionSync {
     }
   }
 
-  abort(id: string): Promise<void> {
-    return this.#run(this.rpc.call('session.abort', { id }));
+  /** Stop the run; whatever was queued behind it goes back to the composer. */
+  async abort(id: string): Promise<void> {
+    try {
+      const { unqueued } = await this.rpc.call('session.abort', { id });
+      if (unqueued.length > 0) this.#restore(id, unqueued.map((q) => q.text).join('\n\n'));
+    } catch (err) {
+      this.#fail(err);
+    }
+  }
+
+  /** Take a message out of the queue: dropped, or back into the composer to `edit`. */
+  async unqueue(id: string, queuedId: string, opts: { edit?: boolean } = {}): Promise<void> {
+    try {
+      const taken = await this.rpc.call('session.unqueue', { id, queuedId });
+      if (taken && opts.edit) this.#restore(id, taken.text);
+    } catch (err) {
+      this.#fail(err);
+    }
+  }
+
+  /** The composer took the restored text. */
+  takeRestored(id: string): void {
+    this.#store.setState((s) => {
+      const { [id]: _taken, ...rest } = s.restored;
+      return { restored: rest };
+    });
+  }
+
+  #restore(id: string, text: string): void {
+    this.#store.setState((s) => {
+      const before = s.restored[id];
+      return { restored: { ...s.restored, [id]: before ? `${before}\n\n${text}` : text } };
+    });
   }
 
   setMode(id: string, mode: PermissionMode): Promise<void> {

@@ -28,6 +28,7 @@ const emptyState = (): AppState => ({
   views: {},
   slash: {},
   models: {},
+  restored: {},
   error: null,
   helpOpen: false,
   addProjectOpen: false,
@@ -80,6 +81,29 @@ async function until<T>(read: () => T | undefined | null | false, what: string, 
 }
 
 describe('SessionSync ↔ hc web --mock', () => {
+  it('queues a message sent mid-run; a second tab sees it, and Stop hands it back to the first', async () => {
+    const { server } = await boot();
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'server info');
+    const id = await a.sync.create();
+    const view = () => a.store.getState().views[id!];
+    expect(await a.sync.send(id!, 'set up a scratch file')).toBe(true);
+    await until(() => view()?.askId, 'first ask');
+
+    expect(await a.sync.send(id!, 'and then tidy up')).toBe(true);
+    await until(() => view()?.queue.length === 1, 'the queued message');
+    const b = tab(server);
+    await b.sync.open(id!);
+    await until(() => b.store.getState().views[id!]?.queue[0]?.text === 'and then tidy up', 'tab B sees the queue');
+
+    await a.sync.abort(id!);
+    await until(() => a.store.getState().restored[id!] === 'and then tidy up', 'the message handed back');
+    await until(() => b.store.getState().views[id!]?.queue.length === 0, 'tab B sees the queue emptied');
+    await until(() => !view()?.running, 'the run stopped');
+    a.sync.takeRestored(id!);
+    expect(a.store.getState().restored[id!]).toBeUndefined();
+  });
+
   it('runs a full turn with permission asks, and a second tab can answer', async () => {
     const { server, cwd } = await boot();
     const a = tab(server);

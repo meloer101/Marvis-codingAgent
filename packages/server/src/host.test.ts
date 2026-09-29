@@ -162,7 +162,7 @@ describe('SessionHost', () => {
   it('emits run_start before streaming and brackets the run with run_end', async () => {
     const { host, events } = await makeHost([{ text: 'done' }]);
     const settled = runSettled(host);
-    const { runId } = host.send('go');
+    const { runId } = host.run('go');
     const end = await settled;
 
     const ev = events();
@@ -170,14 +170,14 @@ describe('SessionHost', () => {
     expect(end).toMatchObject({ type: 'run_end', runId });
   });
 
-  it('rejects a second send while a run is active (busy)', async () => {
+  it('refuses to start a second run while one is active (busy)', async () => {
     const { host } = await makeHost([{ text: 'a' }, { text: 'b' }]);
     const settled = runSettled(host);
-    host.send('first');
-    expect(() => host.send('second')).toThrow(BusyError);
+    host.run('first');
+    expect(() => host.run('second')).toThrow(BusyError);
     await settled;
     // Once the run settles, the host frees up.
-    expect(() => host.send('third')).not.toThrow();
+    expect(() => host.run('third')).not.toThrow();
   });
 
   it('honours the first answer to an ask and ignores the rest (first-answer-wins)', async () => {
@@ -565,5 +565,102 @@ describe('SessionHost model', () => {
     await asked;
     expect(() => host.setModel('other/plain')).toThrow(BusyError);
     host.abort();
+  });
+});
+
+describe('SessionHost queue', () => {
+  /** Resolve once `n` runs have ended. */
+  function runsSettled(host: SessionHost, n: number): Promise<void> {
+    let left = n;
+    return new Promise((resolve) => {
+      const unsub = host.addListener((f) => {
+        if (f.t === 'evt' && (f.event.type === 'run_end' || f.event.type === 'run_error') && --left === 0) {
+          unsub();
+          resolve();
+        }
+      });
+    });
+  }
+
+  it('queues what is sent during a run and sends it, in order, when the run ends', async () => {
+    const { host, events } = await makeHost([{ text: 'a' }, { text: 'b' }, { text: 'c' }]);
+    const settled = runsSettled(host, 3);
+    expect(host.send('first')).toHaveProperty('runId');
+    const second = host.send('second');
+    const third = host.send('third');
+    expect(second).toMatchObject({ queued: { text: 'second' } });
+    await settled;
+
+    const ev = events();
+    const starts = ev.flatMap((e) => (e.type === 'run_start' ? [e.input] : []));
+    expect(starts).toEqual(['first', 'second', 'third']);
+    const queues = ev.flatMap((e) => (e.type === 'queue' ? [e.queue.map((q) => q.text)] : []));
+    expect(queues).toEqual([['second'], ['second', 'third'], ['third'], []]);
+    // Each queued message goes right after the run before it ends.
+    const second_start = ev.findIndex((e) => e.type === 'run_start' && e.input === 'second');
+    expect(ev[second_start - 2]?.type).toBe('run_end');
+    expect(ev[second_start - 1]).toMatchObject({ type: 'queue' });
+    expect((await host.snapshot()).queue).toBeUndefined();
+    expect('queued' in third).toBe(true);
+  });
+
+  it('abort stops what is queued too, handing it back instead of sending it', async () => {
+    const { host, events } = await makeHost(
+      [{ toolCalls: [{ name: 'write', input: { path: 'a.txt', content: 'x' } }] }, { text: 'done' }],
+      { mode: 'ask' },
+    );
+    const asked = firstEvent(host, 'ask');
+    const settled = runSettled(host);
+    host.send('go');
+    host.send('then this');
+    await asked;
+    expect((await host.snapshot()).queue?.map((q) => q.text)).toEqual(['then this']);
+    const { unqueued } = host.abort();
+    expect(unqueued.map((q) => q.text)).toEqual(['then this']);
+    await settled;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(events().filter((e) => e.type === 'run_start')).toHaveLength(1);
+    expect(host.running).toBe(false);
+  });
+
+  it('a message sent after Stop, while the run winds down, still goes', async () => {
+    const { host, events } = await makeHost(
+      [{ toolCalls: [{ name: 'write', input: { path: 'a.txt', content: 'x' } }] }, { text: 'after' }],
+      { mode: 'ask' },
+    );
+    const asked = firstEvent(host, 'ask');
+    const settled = runsSettled(host, 2);
+    host.send('go');
+    await asked;
+    host.abort();
+    host.send('one more'); // the run is still winding down
+    await settled;
+    expect(events().flatMap((e) => (e.type === 'run_start' ? [e.input] : []))).toEqual(['go', 'one more']);
+  });
+
+  it('unqueue takes a message back before it goes', async () => {
+    const { host, events } = await makeHost([{ text: 'a' }, { text: 'b' }]);
+    const settled = runSettled(host);
+    host.send('first');
+    const sent = host.send('drop me');
+    if (!('queued' in sent)) throw new Error('expected it to be queued');
+    expect(host.unqueue(sent.queued.id)).toMatchObject({ text: 'drop me' });
+    expect(host.unqueue(sent.queued.id)).toBeNull();
+    await settled;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(events().filter((e) => e.type === 'run_start')).toHaveLength(1);
+  });
+
+  it('close sends nothing that was queued', async () => {
+    const { host, events, registry } = await makeHost(
+      [{ toolCalls: [{ name: 'write', input: { path: 'a.txt', content: 'x' } }] }, { text: 'b' }],
+      { mode: 'ask' },
+    );
+    const asked = firstEvent(host, 'ask');
+    host.send('go');
+    host.send('never');
+    await asked;
+    await registry.close(host.id);
+    expect(events().filter((e) => e.type === 'run_start')).toHaveLength(1);
   });
 });

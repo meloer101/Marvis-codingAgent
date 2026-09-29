@@ -12,7 +12,7 @@
 
 import type { AgentStopReason, ContextSnapshot, ReasoningEffort, ToolResult } from '@harness-code/core';
 import { EventBuffer, entriesFromTranscript, foldReducer, initialFoldState } from '@harness-code/protocol';
-import type { FoldAction, FoldState, SessionSnapshot, WireEvent } from '@harness-code/protocol';
+import type { FoldAction, FoldState, QueuedMessage, SessionSnapshot, WireEvent } from '@harness-code/protocol';
 
 // `entriesFromTranscript` now lives in `@harness-code/protocol` (shared with the
 // TUI); re-exported here so existing importers of this module keep working.
@@ -30,6 +30,8 @@ export interface SessionViewState extends FoldState {
   /** Ids of the pending requests, for `ask.answer` / `plan.answer`. */
   askId: string | null;
   planId: string | null;
+  /** Messages waiting for the run to end, oldest first. */
+  queue: readonly QueuedMessage[];
 }
 
 const STOP_NOTICES: Partial<Record<AgentStopReason, string>> = {
@@ -187,6 +189,9 @@ export class SessionModel {
           this.#state = { ...this.#state, planId: null };
         }
         return true;
+      case 'queue':
+        this.#state = { ...this.#state, queue: event.queue };
+        return true;
       case 'mode':
         this.#dispatch({ type: 'SET_MODE', mode: event.mode });
         return true;
@@ -241,7 +246,7 @@ export class SessionModel {
   }
 
   #dispatch(action: FoldAction): void {
-    const { id, workspaceId, running, hydrating, askId, planId, effortLevels } = this.#state;
+    const { id, workspaceId, running, hydrating, askId, planId, effortLevels, queue } = this.#state;
     this.#state = {
       ...foldReducer(this.#state, action),
       id,
@@ -251,6 +256,7 @@ export class SessionModel {
       askId,
       planId,
       effortLevels,
+      queue,
     };
   }
 }
@@ -288,5 +294,6 @@ export function stateFromSnapshot(
     hydrating: opts.hydrating ?? false,
     askId: s.pendingAsk?.askId ?? null,
     planId: s.pendingPlan?.planId ?? null,
+    queue: s.queue ?? [],
   };
 }

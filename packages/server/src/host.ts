@@ -10,8 +10,9 @@
  *    buffered and flushed as one event every ~30 ms, and immediately before any
  *    non-delta event — the same rule as `packages/protocol`'s `EventBuffer`,
  *    moved to the server so every socket sees ~30 frames/s.
- *  - **Busy flag.** One run at a time: `send` rejects with a `busy` error while
- *    a run is active.
+ *  - **Busy flag and queue.** One run at a time: a message sent while one is
+ *    going waits in a queue every client sees, and goes when the run ends.
+ *    Abort empties the queue, handing its messages back to the caller.
  *  - **Run lifecycle.** `run_start` / `run_end` / `run_error` bracket each run.
  *  - **Pending ask/plan.** Live on the host, not the socket, so a reload
  *    mid-prompt shows the prompt again; the first answer wins and every client
@@ -36,7 +37,7 @@ import type {
 } from '@harness-code/core';
 import { alwaysAllowFor, loadTranscript, sessionTitleFrom, updateSessionMeta } from '@harness-code/core';
 import type { AlwaysAllow, SessionMetaPatch } from '@harness-code/core';
-import type { ServerFrame, SessionSnapshot, WireEvent } from '@harness-code/protocol';
+import type { QueuedMessage, SendResult, ServerFrame, SessionSnapshot, WireEvent } from '@harness-code/protocol';
 
 /** The current run's events plus enough history to serve a reconnect gap. */
 const RING_CAPACITY = 5000;
@@ -136,6 +137,10 @@ export class SessionHost {
   readonly #listeners = new Set<Listener>();
 
   #busy = false;
+  /** Set by `close`: a run ending then sends nothing more. */
+  #closing = false;
+  /** Messages sent while a run was going, oldest first; the next goes when the run ends. */
+  readonly #queue: QueuedMessage[] = [];
   #currentRunId: string | undefined;
   /** Settles when the current run (if any) has fully wound down. */
   #runDone: Promise<void> = Promise.resolve();
@@ -407,11 +412,45 @@ export class SessionHost {
   // -- control --------------------------------------------------------------
 
   /**
+   * Send a message: start a run for it, or — while one is going — queue it to
+   * be sent when that run ends.
+   */
+  send(text: string): SendResult {
+    if (!this.#busy) return this.run(text);
+    const queued: QueuedMessage = { id: randomUUID(), text };
+    this.#queue.push(queued);
+    this.#emitQueue();
+    return { queued };
+  }
+
+  /** Take a queued message back before it goes; null when it is no longer queued. */
+  unqueue(queuedId: string): QueuedMessage | null {
+    const i = this.#queue.findIndex((q) => q.id === queuedId);
+    if (i === -1) return null;
+    const [taken] = this.#queue.splice(i, 1);
+    this.#emitQueue();
+    return taken ?? null;
+  }
+
+  #emitQueue(): void {
+    this.#emit({ type: 'queue', queue: this.#queue.map((q) => ({ ...q })) });
+  }
+
+  /** A run ended: send the oldest queued message, if any. */
+  #sendNext(): void {
+    if (this.#closing) return;
+    const next = this.#queue.shift();
+    if (!next) return;
+    this.#emitQueue();
+    this.run(next.text);
+  }
+
+  /**
    * Start a run for `text`. Returns immediately with the run id; events stream
    * asynchronously and the run is bracketed by `run_start` / `run_end` (or
    * `run_error`). Throws `BusyError` if a run is already active.
    */
-  send(text: string): { runId: string } {
+  run(text: string): { runId: string } {
     if (this.#busy) throw new BusyError();
     const runId = randomUUID();
     this.#busy = true;
@@ -466,6 +505,7 @@ export class SessionHost {
         this.#runAbort = undefined;
       }
       this.#busy = false;
+      this.#sendNext();
     }
   }
 
@@ -481,8 +521,14 @@ export class SessionHost {
     });
   }
 
-  /** Abort the in-flight run; settle any pending ask/plan as a deny. */
-  abort(): void {
+  /**
+   * Abort the in-flight run; settle any pending ask/plan as a deny. Stopping
+   * stops what was queued behind it too: those messages are returned (for the
+   * composer they came from), not sent.
+   */
+  abort(): { unqueued: QueuedMessage[] } {
+    const unqueued = this.#queue.splice(0);
+    if (unqueued.length > 0) this.#emitQueue();
     // Queued asks were never announced: settle them silently, then the head.
     for (const queued of this.#asks.splice(1)) queued.resolve({ decision: 'deny', reason: 'Aborted' });
     if (this.#pendingAsk) this.#settleAsk('abort', { decision: 'deny', reason: 'Aborted' });
@@ -494,6 +540,7 @@ export class SessionHost {
     }
     this.#runAbort?.abort();
     this.#session?.abort();
+    return { unqueued };
   }
 
   setMode(mode: PermissionMode): void {
@@ -609,6 +656,7 @@ export class SessionHost {
         ...(this.#pendingAsk.always ? { alwaysAllow: this.#pendingAsk.always.label } : {}),
       };
     }
+    if (this.#queue.length > 0) snapshot.queue = this.#queue.map((q) => ({ ...q }));
     if (this.#pendingPlan) {
       snapshot.pendingPlan = {
         planId: this.#pendingPlan.planId,
@@ -637,6 +685,7 @@ export class SessionHost {
   // -- teardown -------------------------------------------------------------
 
   async close(): Promise<void> {
+    this.#closing = true;
     // A run still going would keep using the session after it is torn down:
     // stop it (any prompt settles as a deny) and let it wind down first.
     if (this.#busy) {

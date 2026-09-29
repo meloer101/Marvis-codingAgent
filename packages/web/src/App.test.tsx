@@ -52,6 +52,7 @@ describe('App', () => {
           running: false,
           hydrating: false,
           effortLevels: [],
+          queue: [],
           askId: null,
           planId: null,
         },

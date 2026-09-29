@@ -187,4 +187,13 @@ describe('SessionModel effort', () => {
     feed(m, [{ type: 'model', modelRef: 'mock/m', effortLevels: ['low', 'max'], effort: 'max' }]);
     expect(m.state).toMatchObject({ modelRef: 'mock/m', effortLevels: ['low', 'max'], effort: 'max', context });
   });
+
+  it('follows the queue from the snapshot and its events', () => {
+    const m = new SessionModel(snapshot({ running: true, queue: [{ id: 'q1', text: 'later' }] }));
+    expect(m.state.queue).toEqual([{ id: 'q1', text: 'later' }]);
+    feed(m, [{ type: 'queue', queue: [] }]);
+    expect(m.state.queue).toEqual([]);
+    feed(m, [{ type: 'notice', notice: { kind: 'error', level: 'info', text: 'x' } }]);
+    expect(m.state.queue).toEqual([]); // folding other events keeps it
+  });
 });

@@ -134,6 +134,15 @@ export interface SessionSummary {
   rev: number;
 }
 
+/** A message sent while a run was going, waiting to be sent when it ends. */
+export interface QueuedMessage {
+  id: string;
+  text: string;
+}
+
+/** What `session.send` did: started a run, or queued the message behind the one going. */
+export type SendResult = { runId: string } | { queued: QueuedMessage };
+
 export interface SessionSnapshot {
   id: string;
   /** The workspace the session belongs to; absent only from hosts built outside a workspace (tests). */
@@ -154,6 +163,8 @@ export interface SessionSnapshot {
     alwaysAllow?: string;
   };
   pendingPlan?: { planId: string; title: string; body: string; yesMode?: PermissionMode };
+  /** Messages waiting for the run to end, oldest first; absent when none. */
+  queue?: QueuedMessage[];
   /** Current reasoning effort; absent when the model has no reasoning channel. */
   effort?: ReasoningEffort;
   /** Levels the model offers, Faster→Smarter; empty (or absent) without reasoning. */
@@ -282,10 +293,24 @@ export const methods = {
     z.object({ id: sessionIdSchema, sinceSeq: z.number().optional(), epoch: z.string().optional() }),
   ),
   'session.unsubscribe': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
-  'session.send': method<{ id: string; text: string }, { runId: string }>(
+  /**
+   * Send a message: it starts a run, or — while one is going — waits in the
+   * session's queue and is sent when the run ends (every client sees the
+   * queue, as `queue` events).
+   */
+  'session.send': method<{ id: string; text: string }, SendResult>(
     z.object({ id: sessionIdSchema, text: z.string() }),
   ),
-  'session.abort': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
+  /**
+   * Stop the run; a pending prompt settles as a deny. The queue is emptied too:
+   * what was waiting comes back, for the client that stopped to put it back
+   * in its composer.
+   */
+  'session.abort': method<{ id: string }, { unqueued: QueuedMessage[] }>(z.object({ id: sessionIdSchema })),
+  /** Take a queued message back before it is sent (to drop or edit it); null when it already went. */
+  'session.unqueue': method<{ id: string; queuedId: string }, QueuedMessage | null>(
+    z.object({ id: sessionIdSchema, queuedId: z.string().max(128) }),
+  ),
   'session.setMode': method<{ id: string; mode: PermissionMode }, void>(
     z.object({ id: sessionIdSchema, mode: permissionModeSchema }),
   ),

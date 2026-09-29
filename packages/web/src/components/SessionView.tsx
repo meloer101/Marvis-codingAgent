@@ -8,6 +8,7 @@ import type { PermissionMode } from '@harness-code/core';
 import { Composer } from '@/components/Composer';
 import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerControls';
 import { PendingDock } from '@/components/PendingDock';
+import { QueuedMessages } from '@/components/QueuedMessages';
 import { SessionHeader } from '@/components/SessionHeader';
 import { Transcript } from '@/components/Transcript';
 import { ContextButton } from '@/components/UsagePanel';
@@ -75,6 +76,11 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
       <Transcript view={view} />
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
         <PendingDock view={view} />
+        <QueuedMessages
+          queue={view.queue}
+          onEdit={(queuedId) => void sync.unqueue(id, queuedId, { edit: true })}
+          onRemove={(queuedId) => void sync.unqueue(id, queuedId)}
+        />
         <SessionComposer view={view} onSend={send} inputRef={composerRef} commands={commands} connected={connected} />
       </div>
     </div>
@@ -99,6 +105,7 @@ function SessionComposer({
   const workspaceModes = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId)?.defaults.modes);
   const serverModes = useAppStore((s) => s.info?.modes);
   const models = useAppStore((s) => (view.workspaceId ? s.models[view.workspaceId] : undefined));
+  const restored = useAppStore((s) => s.restored[view.id]);
   const modes = workspaceModes ?? serverModes ?? FALLBACK_MODES;
 
   const setMode = (mode: PermissionMode): void => void sync.setMode(id, mode);
@@ -114,6 +121,8 @@ function SessionComposer({
       onCommandMenu={() => void sync.prepareCommands(id)}
       onCycleMode={() => setMode(nextPermissionMode(view.mode, { includeAuto: modes.includes('auto') }))}
       inputRef={inputRef}
+      {...(restored !== undefined ? { restored } : {})}
+      onRestored={() => sync.takeRestored(id)}
       controls={
         <>
           <ModeChip mode={view.mode} modes={modes} onChange={setMode} />

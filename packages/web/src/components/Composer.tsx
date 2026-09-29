@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode, RefObject } from 'react';
-import { ArrowUp, Square } from 'lucide-react';
+import { ArrowUp, ListEnd, Square } from 'lucide-react';
 
 import { SlashMenu } from '@/components/SlashMenu';
 import { Button } from '@/components/ui/button';
@@ -14,8 +14,9 @@ const draftKey = (id: string) => `hc.draft.${id}`;
  * Enter sends, Shift+Enter is a newline, and Enter while an IME is composing
  * (Chinese/Japanese input) only confirms the candidate. Typing `/` at the
  * start opens the command menu (↑/↓ to move, Enter or Tab to complete), and
- * Shift+Tab switches the permission mode. While a run is going the send
- * button becomes Stop; the draft survives reloads per session. The footer
+ * Shift+Tab switches the permission mode. While a run is going Stop joins
+ * the send button, and what is sent waits in the session's queue; the draft
+ * survives reloads per session. The footer
  * holds what the next message runs under (`controls`) and, before the send
  * button, `trailing` (the context meter).
  */
@@ -31,6 +32,8 @@ export function Composer({
   inputRef,
   controls,
   trailing,
+  restored,
+  onRestored,
 }: {
   sessionId: string;
   running: boolean;
@@ -46,6 +49,9 @@ export function Composer({
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   controls?: ReactNode;
   trailing?: ReactNode;
+  /** Text handed back to edit (queued messages a Stop returned); put in front of the draft, then `onRestored`. */
+  restored?: string;
+  onRestored?: () => void;
 }) {
   const [text, setText] = useState(() => platform.storage.get(draftKey(sessionId)) ?? '');
   const [active, setActive] = useState(0);
@@ -82,13 +88,20 @@ export function Composer({
 
   useEffect(() => setActive(0), [query]);
 
+  useEffect(() => {
+    if (restored === undefined) return;
+    setText((draft) => (draft.trim() ? `${restored}\n\n${draft}` : restored));
+    onRestored?.();
+    ref.current?.focus();
+  }, [restored]);
+
   const typingCommand = query !== null;
   // Once per opening of the menu, not on every keystroke inside it.
   useEffect(() => {
     if (typingCommand) onCommandMenu?.();
   }, [typingCommand]);
 
-  const canSend = !running && !disabled && text.trim() !== '';
+  const canSend = !disabled && text.trim() !== '';
 
   const submit = async (): Promise<void> => {
     if (!canSend) return;
@@ -147,17 +160,32 @@ export function Composer({
             setDismissed(false);
           }}
           onKeyDown={onKeyDown}
-          placeholder={running ? 'Running… you can type the next message' : 'Message hc — Enter to send, / for commands'}
+          placeholder={
+            running ? 'Running… what you send now waits its turn' : 'Message hc — Enter to send, / for commands'
+          }
           className="max-h-60 min-h-11 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm outline-none placeholder:text-muted-foreground"
           disabled={disabled}
         />
         <div className="flex items-center gap-1 px-2 pb-2">
           <div className="flex min-w-0 flex-1 items-center gap-0.5">{controls}</div>
           {trailing}
-          {running ? (
+          {running && (
             <Button size="icon-sm" variant="secondary" className="rounded-lg" onClick={onAbort} aria-label="Stop" title="Stop (Esc)">
               <Square className="size-3.5 fill-current" />
             </Button>
+          )}
+          {running ? (
+            canSend && (
+              <Button
+                size="icon-sm"
+                className="rounded-lg"
+                onClick={() => void submit()}
+                aria-label="Queue"
+                title="Queue — sent when this turn ends"
+              >
+                <ListEnd />
+              </Button>
+            )
           ) : (
             <Button size="icon-sm" className="rounded-lg" onClick={() => void submit()} disabled={!canSend} aria-label="Send" title="Send">
               <ArrowUp />
