@@ -1,12 +1,14 @@
 /**
  * `startServer` — the local `hc web` host: a `node:http` server that serves the
  * SPA bundle and upgrades `/ws` to the RPC + event socket. It binds `127.0.0.1`
- * only and mints a fresh token per start; the token rides the URL fragment so it
- * never lands in logs (docs/web.md, "Security").
+ * only and authenticates with the token it is given (`hc web` passes the one it
+ * keeps in `~/.agent/web`) or a fresh random one; the token rides the URL
+ * fragment so it never lands in logs (docs/web.md, "Security").
  *
  * The public surface is intentionally tiny: `startServer(opts)` →
- * `{ url, token, port, close }`. Everything else (the registry, the WS layer,
- * static serving) is wired here so the CLI and tests share one entry point.
+ * `{ url, token, port, bootId, close }`. Everything else (the registry, the WS
+ * layer, static serving) is wired here so the CLI and tests share one entry
+ * point.
  */
 
 import { createServer } from 'node:http';

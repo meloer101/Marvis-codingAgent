@@ -2,7 +2,7 @@
  * `--mock` mode: a `SessionConfigFactory` backed by a `ScriptedProvider`
  * (`@harness-code/core`) that replays a fixed script instead of calling a real
  * model. Frontend development and demos cost nothing and stay deterministic
- * for screenshots (docs/web.md's build plan, M2 "mock 模式").
+ * for screenshots (`hc web --mock`, docs/web.md "Running it").
  *
  * The script, consumed across two sends, covers every UI surface: streamed
  * thinking + text, a `bash` tool, `write` + `edit` file tools (each asks for

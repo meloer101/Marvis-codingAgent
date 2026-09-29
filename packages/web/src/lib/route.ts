@@ -1,9 +1,9 @@
 /**
- * v1 routing is just the URL hash (docs/web-frontend.md, M3): `#/` is the
- * session list, `#/s/<id>` is one session. No router library — this also works
- * unchanged under a `file://` Electron shell later.
+ * Routing is just the URL hash (docs/web.md, "The web app"): `#/` is the draft
+ * for a new session, `#/s/<id>` is one session. No router library — this also
+ * works unchanged under a `file://` desktop shell later.
  *
- * The server hands the token over as `#token=…` on first load; `token.ts` (M4)
+ * The server hands the token over as `#token=…` on first load; `token.ts`
  * strips it, and until then anything that is not a route parses as home.
  */
 

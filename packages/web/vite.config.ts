@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 /**
- * Dev flow (docs/web-frontend.md, M3): run `hc web --no-open --dev-origin
+ * Dev flow (docs/web.md, "Running it"): run `hc web --no-open --dev-origin
  * http://localhost:5173 --port 4317` in one terminal and `vite` in another.
  * The page talks to its own origin, so `/ws` is proxied to the hc server;
  * `HC_WEB_PORT` overrides the target port.
