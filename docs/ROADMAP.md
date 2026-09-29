@@ -91,8 +91,6 @@
   `bash` 同档）。在 `.mcp.json` 里逐工具覆盖，可以让已知安全的工具并行。目前没有使用方。*(S)*
 - **结构化错误覆盖面**：`--output-format json` / `stream-json` 下，早于输出 sink 的错误（比如
   `buildSessionConfig` 深处抛出的未知 provider 名）和顶层 `unhandledRejection` 还是输出纯文本。*(S)*
-- **`.env` 按 `process.cwd()` 加载，而不是 `--cwd`**（`packages/cli/src/index.ts` 的 `loadDotEnv`）：
-  对另一个目录运行时，读到的是当前目录的 `.env`。*(S, minor)*
 
 ## D · Permissions, safety & sandboxing
 

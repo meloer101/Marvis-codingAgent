@@ -44,10 +44,10 @@ import type {
   TraceSummary,
 } from '@harness-code/core';
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
 
+import { loadDotEnvFor } from './dotenv.js';
 import { buildPrompt, decideFrontend, readStdin } from './dispatch.js';
 import { printUsage } from './format.js';
 import { runOneshot } from './oneshot.js';
@@ -62,42 +62,8 @@ import {
   runAutoModeReset,
 } from './auto-mode.js';
 
-/**
- * Minimal `.env` loader: `KEY=value` per line, `#` comments, optional quotes.
- * Hand-rolled instead of pulling in `dotenv` — the format is small and this
- * avoids one more dependency for something this simple. Variables already
- * present in the real environment win, matching the usual dotenv convention:
- * `.env` is a convenience default, not an override.
- */
-function loadDotEnv(path: string): void {
-  let raw: string;
-  try {
-    raw = readFileSync(path, 'utf8');
-  } catch {
-    return; // no .env file; that is the normal case, not an error
-  }
-  for (const rawLine of raw.split('\n')) {
-    const line = rawLine.trim();
-    if (line === '' || line.startsWith('#')) continue;
-    const eq = line.indexOf('=');
-    if (eq === -1) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (key !== '' && process.env[key] === undefined) {
-      process.env[key] = value;
-    }
-  }
-}
-
-loadDotEnv(resolvePath(process.cwd(), '.env'));
-
 const program = new Command();
+program.hook('preAction', (_program, action) => loadDotEnvFor(action.opts()['cwd']));
 
 program
   .name('hc')
