@@ -309,56 +309,109 @@ program
     },
   );
 
+/** `hc web`'s port unless `--port` says otherwise — fixed, so bookmarks and saved tabs keep working. */
+const DEFAULT_WEB_PORT = 4317;
+
 program
   .command('web')
   .description('Start the local web UI server (WebSocket + HTTP) and open it in a browser')
   .option('--cwd <dir>', 'workspace root the sessions operate in', process.cwd())
-  .option('--port <n>', 'port to bind on 127.0.0.1 (0 picks a free one)', (v) => parseInt(v, 10), 0)
+  .option('--port <n>', `port to bind on 127.0.0.1 (default ${DEFAULT_WEB_PORT}; 0 picks a free one)`, (v) =>
+    parseInt(v, 10),
+  )
   .option('--no-open', 'do not open the browser automatically')
   .option('--dev-origin <url>', 'also allow this Origin through the WS handshake (Vite dev server)')
   .option('-m, --model <ref>', 'default provider/model for new sessions')
   .option('--mock', 'replay a fixed scripted session instead of calling a real model')
+  .option('--rotate-token', 'replace the saved access token (open pages must reopen the new URL)')
   .action(
     async (opts: {
       cwd: string;
-      port: number;
+      port?: number;
       open: boolean;
       devOrigin?: string;
       model?: string;
       mock?: boolean;
+      rotateToken?: boolean;
     }) => {
       const cwd = resolvePath(opts.cwd);
-      const { startServer } = await import('@harness-code/server');
-      const server = await startServer({
-        cwd,
-        port: opts.port,
-        ...(opts.devOrigin ? { devOrigin: opts.devOrigin } : {}),
-        ...(opts.model ? { model: opts.model } : {}),
-        ...(opts.mock ? { mock: true } : {}),
-      });
+      const server = await import('@harness-code/server');
+      const stateDir = server.webStateDir();
+      // A mock server is a throwaway demo: its own random token, no instance
+      // record, never reused. A real one keeps its token across restarts.
+      const persistent = !opts.mock;
+      const pageUrl = (port: number, token: string): string =>
+        opts.devOrigin
+          ? `${opts.devOrigin.replace(/\/+$/, '')}/#token=${token}`
+          : `http://127.0.0.1:${port}/#token=${token}`;
 
-      // With a Vite dev server in front, the page lives on the dev origin and
-      // proxies `/ws` back here — hand the token to that URL instead.
-      const devUrl = opts.devOrigin
-        ? `${opts.devOrigin.replace(/\/+$/, '')}/#token=${server.token}`
+      // Already running for this workspace? Open that one instead of a second.
+      if (persistent && opts.port === undefined && !opts.devOrigin && !opts.rotateToken) {
+        const running = await server.findRunningInstance(stateDir);
+        if (running && running.cwd === cwd && running.version === VERSION) {
+          const url = pageUrl(running.port, await server.loadOrCreateToken(stateDir));
+          console.log(`hc web is already running for ${cwd}`);
+          console.log(`  ${url}`);
+          if (opts.open) openBrowser(url);
+          return;
+        }
+      }
+
+      const token = persistent
+        ? opts.rotateToken
+          ? await server.rotateToken(stateDir)
+          : await server.loadOrCreateToken(stateDir)
         : undefined;
+      const start = (port: number) =>
+        server.startServer({
+          cwd,
+          port,
+          ...(token ? { token } : {}),
+          ...(opts.devOrigin ? { devOrigin: opts.devOrigin } : {}),
+          ...(opts.model ? { model: opts.model } : {}),
+          ...(opts.mock ? { mock: true } : {}),
+        });
+      let running: Awaited<ReturnType<typeof start>>;
+      try {
+        running = await start(opts.port ?? DEFAULT_WEB_PORT);
+      } catch (err) {
+        // The default port is taken (another workspace's hc web, another app):
+        // any free port will do. An explicit --port is a hard requirement.
+        if (opts.port !== undefined || (err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err;
+        running = await start(0);
+      }
+      // Only the server on the default port is the one `hc web` finds again.
+      const recorded = persistent && running.port === DEFAULT_WEB_PORT;
+      if (recorded) {
+        await server.writeInstance(stateDir, {
+          pid: process.pid,
+          port: running.port,
+          version: VERSION,
+          bootId: running.bootId,
+          cwd,
+          startedAt: Date.now(),
+        });
+      }
 
       console.log(`hc web serving ${cwd}`);
-      console.log(`  ${server.url}`);
-      if (devUrl) console.log(`  dev: ${devUrl}`);
+      console.log(`  ${running.url}`);
+      if (opts.devOrigin) console.log(`  dev: ${pageUrl(running.port, running.token)}`);
       if (opts.mock) console.log('  (mock mode — scripted responses, no API calls)');
       console.log('press Ctrl+C to stop');
 
-      if (opts.open) openBrowser(devUrl ?? server.url);
+      if (opts.open) openBrowser(pageUrl(running.port, running.token));
 
       let closing = false;
       const shutdown = (): void => {
         if (closing) return;
         closing = true;
-        void server.close().then(
-          () => process.exit(0),
-          () => process.exit(1),
-        );
+        void (recorded ? server.clearInstance(stateDir, process.pid) : Promise.resolve())
+          .catch(() => {})
+          .then(() => running.close())
+          .then(
+            () => process.exit(0),
+            () => process.exit(1),
+          );
       };
       process.on('SIGINT', shutdown);
       process.on('SIGTERM', shutdown);

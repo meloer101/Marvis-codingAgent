@@ -29,6 +29,7 @@ import type { PermissionMode } from '@harness-code/core';
 import type { ServerInfo } from '@harness-code/protocol';
 
 import { createStaticHandler, resolveStaticDir } from './http.js';
+import type { HealthInfo } from './instance.js';
 import { mockConfigFactory } from './mock.js';
 import { SessionRegistry } from './registry.js';
 import type { SessionConfigFactory } from './registry.js';
@@ -51,6 +52,8 @@ export interface StartServerOptions {
   buildConfig?: SessionConfigFactory;
   /** Override the static bundle directory (tests / non-standard layouts). */
   staticDir?: string;
+  /** The auth token; a fresh random one when omitted. `hc web` passes the persisted one. */
+  token?: string;
 }
 
 export interface RunningServer {
@@ -58,13 +61,15 @@ export interface RunningServer {
   url: string;
   token: string;
   port: number;
+  /** New every start (`ServerInfo.bootId`, the health endpoint). */
+  bootId: string;
   close(): Promise<void>;
 }
 
 export async function startServer(opts: StartServerOptions): Promise<RunningServer> {
   const { cwd } = opts;
   const projectRoot = await findProjectRoot(cwd);
-  const token = randomBytes(32).toString('hex');
+  const token = opts.token ?? randomBytes(32).toString('hex');
   const bootId = randomUUID();
 
   // `--mock` sessions record into a throwaway dir (removed on close) so a demo
@@ -105,14 +110,26 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   });
 
   const staticDir = opts.staticDir ?? resolveStaticDir();
+  // Filled in once the port is known; the handler checks every request against it.
+  const hosts = new Set<string>();
+  const health = (): HealthInfo => ({ app: 'hc-web', version: VERSION, bootId, pid: process.pid });
   const httpServer = createServer(
-    createStaticHandler(staticDir ? { staticDir } : {}),
+    createStaticHandler({ ...(staticDir ? { staticDir } : {}), allowedHosts: hosts, health }),
   );
 
-  const port = await listen(httpServer, opts.port ?? 0);
+  let port: number;
+  try {
+    port = await listen(httpServer, opts.port ?? 0);
+  } catch (err) {
+    // Typically EADDRINUSE: undo what was set up so the caller can retry elsewhere.
+    await registry.shutdown();
+    if (mockDir) await rm(mockDir, { recursive: true, force: true });
+    throw err;
+  }
   const origins = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
   if (opts.devOrigin) origins.add(opts.devOrigin);
-  const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+  hosts.add(`127.0.0.1:${port}`);
+  hosts.add(`localhost:${port}`);
 
   const wss = attachWsServer({
     httpServer,
@@ -129,6 +146,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     url,
     token,
     port,
+    bootId,
     close: async () => {
       // Terminate live sockets first, otherwise `httpServer.close` waits for
       // every open connection to drain and never resolves.
@@ -177,4 +195,13 @@ export { attachWsServer } from './ws.js';
 export type { WsServerOptions } from './ws.js';
 export { createStaticHandler, resolveStaticDir } from './http.js';
 export { mockConfigFactory } from './mock.js';
+export {
+  clearInstance,
+  findRunningInstance,
+  loadOrCreateToken,
+  rotateToken,
+  webStateDir,
+  writeInstance,
+} from './instance.js';
+export type { HealthInfo, InstanceRecord } from './instance.js';
 export type { SessionConfigFactory, SessionRegistryOptions } from './registry.js';

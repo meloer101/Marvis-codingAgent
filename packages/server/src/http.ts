@@ -41,7 +41,11 @@ const CONTENT_TYPES: Record<string, string> = {
  * A permissive-enough CSP for a self-hosted SPA that talks to its own origin
  * over WS. `connect-src` allows ws/wss so the socket connects; everything else
  * is same-origin. `style-src 'unsafe-inline'` covers bundlers that inject a
- * `<style>` tag.
+ * `<style>` tag. `img-src` stays same-origin (+ data:) on purpose: it is what
+ * stops a prompt-injected markdown image from carrying data off to another
+ * host. `frame-ancestors 'none'` (and X-Frame-Options for older browsers)
+ * keeps other sites from framing the page to trick clicks onto its approve
+ * buttons.
  */
 const CSP = [
   "default-src 'self'",
@@ -52,6 +56,7 @@ const CSP = [
   "font-src 'self' data:",
   "base-uri 'self'",
   "form-action 'self'",
+  "frame-ancestors 'none'",
 ].join('; ');
 
 export function resolveStaticDir(): string | undefined {
@@ -67,6 +72,15 @@ export function resolveStaticDir(): string | undefined {
 export interface StaticHandlerOptions {
   /** Directory the SPA bundle lives in; `undefined` while the web package is unbuilt. */
   staticDir?: string | undefined;
+  /**
+   * Accepted `Host` header values (loopback `host:port`); anything else gets a
+   * 403, so a DNS-rebinding page can't read responses as "same origin". The
+   * set may be filled in after construction (the port is known only once
+   * bound). Omitted: no check (tests).
+   */
+  allowedHosts?: ReadonlySet<string>;
+  /** Body of `GET /__hc/health` — how `hc web` recognizes a server it can reuse. */
+  health?: () => unknown;
 }
 
 export type RequestHandler = (req: IncomingMessage, res: ServerResponse) => void;
@@ -85,10 +99,23 @@ export function createStaticHandler(opts: StaticHandlerOptions): RequestHandler 
   async function serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
     res.setHeader('Content-Security-Policy', CSP);
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+
+    if (opts.allowedHosts && !opts.allowedHosts.has(req.headers.host ?? '')) {
+      res.writeHead(403);
+      res.end('forbidden');
+      return;
+    }
 
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405);
       res.end('method not allowed');
+      return;
+    }
+
+    if (opts.health && (req.url ?? '').split('?')[0] === '/__hc/health') {
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : JSON.stringify(opts.health()));
       return;
     }
 

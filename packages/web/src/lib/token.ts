@@ -1,8 +1,9 @@
 /**
- * The server hands the auth token over as `#token=…` on the URL it prints
- * (docs/web.md, "Security"). On load we move it into `sessionStorage` — so a
- * reload keeps working — and scrub it from the address bar so it doesn't end
- * up in screenshots, history, or a copied link.
+ * The server hands the auth token over as `#token=…` on the URL it prints. On
+ * load we move it into `localStorage` — so reloads, new tabs and bookmarks keep
+ * working (`hc web` keeps one token across restarts, on a fixed port, so the
+ * origin and the token both stay put) — and scrub it from the address bar so
+ * it doesn't end up in screenshots, history, or a copied link.
  */
 
 const KEY = 'hc.token';
@@ -33,5 +34,13 @@ export function takeToken(env: TokenEnv = defaultEnv()): string | null {
 }
 
 function defaultEnv(): TokenEnv {
-  return { location: window.location, history: window.history, storage: window.sessionStorage };
+  return {
+    location: window.location,
+    history: window.history,
+    storage: {
+      // A tab opened before the token moved to localStorage still has it here.
+      getItem: (key) => window.localStorage.getItem(key) ?? window.sessionStorage.getItem(key),
+      setItem: (key, value) => window.localStorage.setItem(key, value),
+    },
+  };
 }
