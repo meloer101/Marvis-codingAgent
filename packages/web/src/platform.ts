@@ -10,11 +10,27 @@ export interface PlatformStorage {
   remove(key: string): void;
 }
 
+export type NotifyPermission = 'granted' | 'denied' | 'default' | 'unsupported';
+
+export interface NotifyOptions {
+  body?: string;
+  /** Notifications sharing a tag replace each other — how several open tabs show just one. */
+  tag?: string;
+  /** Runs after the notification brings the app to the front. */
+  onClick?: () => void;
+}
+
 export interface Platform {
   /** Open a URL outside the app (new tab in a browser, system browser in Electron). */
   openExternal(url: string): void;
-  /** Surface a notification when the page is not focused (e.g. an ask is pending). */
-  notify(title: string, body?: string): void;
+  /**
+   * Surface a system notification — only while the app is not in front, and
+   * only once permission was granted (`requestNotifyPermission`).
+   */
+  notify(title: string, opts?: NotifyOptions): void;
+  notifyPermission(): NotifyPermission;
+  /** Ask for permission. Browsers (Safari above all) only allow this from a click. */
+  requestNotifyPermission(): Promise<NotifyPermission>;
   /** Durable per-user key/value storage (composer drafts, UI prefs). */
   storage: PlatformStorage;
 }
@@ -51,17 +67,25 @@ export function createBrowserPlatform(): Platform {
     openExternal(url) {
       window.open(url, '_blank', 'noopener,noreferrer');
     },
-    notify(title, body) {
-      if (typeof Notification === 'undefined' || document.hasFocus()) return;
-      const show = (): void => {
-        new Notification(title, body === undefined ? {} : { body });
+    notify(title, opts = {}) {
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+      if (document.visibilityState === 'visible' && document.hasFocus()) return;
+      const n = new Notification(title, {
+        ...(opts.body !== undefined ? { body: opts.body } : {}),
+        ...(opts.tag !== undefined ? { tag: opts.tag } : {}),
+      });
+      n.onclick = () => {
+        window.focus();
+        opts.onClick?.();
+        n.close();
       };
-      if (Notification.permission === 'granted') show();
-      else if (Notification.permission === 'default') {
-        void Notification.requestPermission().then((p) => {
-          if (p === 'granted') show();
-        });
-      }
+    },
+    notifyPermission() {
+      return typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+    },
+    async requestNotifyPermission() {
+      if (typeof Notification === 'undefined') return 'unsupported';
+      return Notification.requestPermission();
     },
     storage: browserStorage(),
   };

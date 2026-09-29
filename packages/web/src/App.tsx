@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, MessageSquarePlus, WifiOff, X } from 'lucide-react';
+import type { SessionSummary } from '@harness-code/protocol';
 
 import { HelpDialog } from '@/components/HelpDialog';
 import { SessionSidebar } from '@/components/SessionSidebar';
 import { SessionView } from '@/components/SessionView';
 import { Button } from '@/components/ui/button';
+import { attentionChanges, documentTitle, notificationsOn } from '@/lib/attention';
 import { parseRoute, routeToHash } from '@/lib/route';
 import type { Route } from '@/lib/route';
 import { allCommands } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
+import { platform } from '@/platform';
 
 function useRoute(): Route {
   const [route, setRoute] = useState(() => parseRoute(window.location.hash));
@@ -21,10 +24,35 @@ function useRoute(): Route {
   return route;
 }
 
+/**
+ * Keeps the tab title on what waits for the user, and notifies (while the app
+ * is not in front) when a session starts waiting on them or finishes a run.
+ */
+function useAttention(): void {
+  const sessions = useAppStore((s) => s.sessions);
+  const prev = useRef<SessionSummary[] | null>(null);
+  useEffect(() => {
+    document.title = documentTitle(sessions);
+    const before = prev.current;
+    prev.current = sessions;
+    if (!before || !notificationsOn()) return;
+    for (const change of attentionChanges(before, sessions)) {
+      platform.notify(change.kind === 'needs-you' ? 'Waiting for you' : 'Finished', {
+        body: change.title,
+        tag: `hc:${change.id}:${change.kind}`,
+        onClick: () => {
+          window.location.hash = routeToHash({ kind: 'session', id: change.id });
+        },
+      });
+    }
+  }, [sessions]);
+}
+
 export function App() {
   const sync = useSync();
   const route = useRoute();
   const activeId = route.kind === 'session' ? route.id : null;
+  useAttention();
 
   const newSession = async (): Promise<void> => {
     const id = await sync.create();

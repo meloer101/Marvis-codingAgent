@@ -1,5 +1,6 @@
 import { Loader2, MessageSquarePlus } from 'lucide-react';
 
+import { NotifyToggle } from '@/components/NotifyToggle';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { relativeTime } from '@/lib/format';
 import { routeToHash } from '@/lib/route';
@@ -67,7 +68,10 @@ export function SessionSidebar({ activeId, onNew }: { activeId: string | null; o
         </ul>
       </nav>
       <div className="flex items-center justify-between border-t px-3 py-2">
-        <ThemeToggle />
+        <div className="flex items-center gap-0.5">
+          <ThemeToggle />
+          <NotifyToggle />
+        </div>
         <span
           className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground"
           title={connected ? 'Connected' : 'Disconnected'}
