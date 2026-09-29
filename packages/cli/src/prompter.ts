@@ -24,10 +24,10 @@ import type { Interface } from 'node:readline';
 
 import type { AskHandler, PermissionEngine, PermissionMode, PromptOption } from '@harness-code/core';
 import {
+  alwaysAllowFor,
   askOptions,
   offerAutoSwitch,
   planOptions,
-  toolDisplayName,
 } from '@harness-code/core';
 
 import { ESCAPE_TIMEOUT_MS, menuCapable, menuTitle, selectMenu } from './menu.js';
@@ -38,7 +38,7 @@ export type ConfirmChoice = 'once' | 'always' | 'deny' | 'auto';
 export interface ConfirmRequest {
   title: string;
   detail: string;
-  /** Names the tool in "don't ask again for …", e.g. "Bash". Falls back to a generic phrase. */
+  /** What "don't ask again for …" covers, e.g. "`npm test` commands"; without it that row is left out. */
   alwaysLabel?: string;
   /** Offer "yes, and switch to auto mode". */
   offerAuto?: boolean;
@@ -169,7 +169,7 @@ class ReadlinePrompter implements Prompter {
       if (req.signal?.aborted) return { choice: 'deny', feedback: '用户中断' };
 
       const options = askOptions({
-        toolLabel: req.alwaysLabel ?? 'this tool',
+        always: req.alwaysLabel,
         offerAuto: req.offerAuto === true,
       });
       const header = ['', menuTitle(req.title), ...req.detail.split('\n').map((l) => `    ${l}`)];
@@ -181,7 +181,7 @@ class ReadlinePrompter implements Prompter {
         (raw, byNumber) => {
           if (byNumber && byNumber.value !== 'deny') return byNumber.value;
           if (raw === 'y' || raw === 'yes') return 'once';
-          if (raw === 'a' || raw === 'always') return 'always';
+          if (req.alwaysLabel !== undefined && (raw === 'a' || raw === 'always')) return 'always';
           if (req.offerAuto && (raw === 's' || raw === 'auto')) return 'auto';
           return undefined;
         },
@@ -260,8 +260,8 @@ export interface InteractiveAskOptions {
 
 /**
  * Turn a {@link Prompter} into an {@link AskHandler}: show the call, map the
- * choice, and on "always" append a whole-tool allow rule to the engine so the
- * same tool isn't asked again this session.
+ * choice, and on "always" append the call's {@link alwaysAllowFor} rules to the
+ * engine so calls like it aren't asked again this session.
  */
 export function interactiveAskHandler(
   engine: Pick<PermissionEngine, 'addAllowRule'>,
@@ -270,7 +270,7 @@ export function interactiveAskHandler(
 ): AskHandler {
   return async ({ toolName, input, reason, forcedByRule, signal }) => {
     opts.onBeforePrompt?.();
-    const label = toolDisplayName(toolName);
+    const always = alwaysAllowFor(toolName, input);
     const offerAuto = offerAutoSwitch({
       mode: opts.getMode?.() ?? 'ask',
       autoAvailable: opts.getAutoAvailable?.() ?? false,
@@ -280,14 +280,16 @@ export function interactiveAskHandler(
     const res = await prompter.confirm({
       title: reason.startsWith('mcp__') ? reason : capitalize(reason),
       detail: describeToolInput(toolName, input),
-      alwaysLabel: label,
+      ...(always ? { alwaysLabel: always.label } : {}),
       offerAuto,
       ...(signal ? { signal } : {}),
     });
     if (res.choice === 'once') return { decision: 'allow' };
     if (res.choice === 'always') {
-      engine.addAllowRule(label);
-      opts.echo?.(`+ allow ${label} (this session)`);
+      if (always) {
+        for (const rule of always.rules) engine.addAllowRule(rule);
+        opts.echo?.(`+ allow ${always.rules.join(', ')} (this session)`);
+      }
       return { decision: 'allow' };
     }
     if (res.choice === 'auto') {

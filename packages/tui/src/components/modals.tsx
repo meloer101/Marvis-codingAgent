@@ -8,7 +8,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-import { askOptions, describeToolInput, planOptions, toolDisplayName } from '@harness-code/core';
+import { askOptions, describeToolInput, planOptions } from '@harness-code/core';
 import type { AskChoice, PermissionMode, PlanChoice } from '@harness-code/core';
 
 import { Markdown } from '../markdown/render.js';
@@ -51,7 +51,7 @@ export function PermissionModal({
 }) {
   const lines = describeToolInput(ask.toolName, ask.input).split('\n');
   const hidden = Math.max(0, lines.length - PREVIEW_LINES);
-  const options = askOptions({ toolLabel: toolDisplayName(ask.toolName), offerAuto: offerAuto === true });
+  const options = askOptions({ always: ask.alwaysAllow, offerAuto: offerAuto === true });
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Text bold>{askTitle(ask.toolName)}</Text>

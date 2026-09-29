@@ -43,6 +43,8 @@ export interface PendingAsk {
   input: unknown;
   reason: string;
   forcedByRule?: boolean;
+  /** What "always allow" would cover ("`npm test` commands"); absent when it isn't offered. */
+  alwaysAllow?: string;
 }
 
 export interface PendingPlan {

@@ -33,7 +33,8 @@ import type {
   SlashCommandInfo,
   Usage,
 } from '@harness-code/core';
-import { loadTranscript } from '@harness-code/core';
+import { alwaysAllowFor, loadTranscript } from '@harness-code/core';
+import type { AlwaysAllow } from '@harness-code/core';
 import type { ServerFrame, SessionSnapshot, WireEvent } from '@harness-code/protocol';
 
 /** The current run's events plus enough history to serve a reconnect gap. */
@@ -68,6 +69,8 @@ interface PendingAsk {
   input: unknown;
   reason: string;
   forcedByRule?: boolean;
+  /** What "always allow" adds and how it reads; absent when it isn't offered. */
+  always?: AlwaysAllow;
   resolve: (decision: PermissionDecision) => void;
 }
 
@@ -192,12 +195,14 @@ export class SessionHost {
   }): Promise<PermissionDecision> =>
     new Promise<PermissionDecision>((resolve) => {
       const askId = randomUUID();
+      const always = alwaysAllowFor(req.toolName, req.input);
       this.#asks.push({
         askId,
         toolName: req.toolName,
         input: req.input,
         reason: req.reason,
         ...(req.forcedByRule ? { forcedByRule: true } : {}),
+        ...(always ? { always } : {}),
         resolve,
       });
       if (this.#asks.length === 1) this.#announceAsk();
@@ -233,7 +238,8 @@ export class SessionHost {
   answerAsk(askId: string, decision: 'once' | 'always' | 'deny' | 'auto', feedback?: string): void {
     const p = this.#pendingAsk;
     if (!p || p.askId !== askId) return;
-    if (decision === 'always') this.#requireSession().engine.addAllowRule(p.toolName);
+    // An `always` the ask didn't offer (an older client) is a plain yes.
+    if (decision === 'always') for (const rule of p.always?.rules ?? []) this.#requireSession().engine.addAllowRule(rule);
     if (decision === 'auto') this.setMode('auto');
     const verdict: PermissionDecision =
       decision === 'deny'
@@ -273,6 +279,7 @@ export class SessionHost {
       input: head.input,
       reason: head.reason,
       ...(head.forcedByRule ? { forcedByRule: true } : {}),
+      ...(head.always ? { alwaysAllow: head.always.label } : {}),
     });
   }
 
@@ -418,6 +425,7 @@ export class SessionHost {
         input: this.#pendingAsk.input,
         reason: this.#pendingAsk.reason,
         ...(this.#pendingAsk.forcedByRule ? { forcedByRule: true } : {}),
+        ...(this.#pendingAsk.always ? { alwaysAllow: this.#pendingAsk.always.label } : {}),
       };
     }
     if (this.#pendingPlan) {

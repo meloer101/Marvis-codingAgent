@@ -12,20 +12,24 @@ describe('toolDisplayName', () => {
 
 describe('askOptions', () => {
   it('offers yes / yes for the session / no-with-reason, in that order', () => {
-    const opts = askOptions({ toolLabel: 'Bash' });
+    const opts = askOptions({ always: '`npm test` commands' });
     expect(opts.map((o) => o.value)).toEqual(['once', 'always', 'deny']);
-    expect(opts[1]!.label).toBe("Yes, and don't ask again for Bash this session");
+    expect(opts[1]!.label).toBe("Yes, and don't ask again for `npm test` commands this session");
     expect(opts[2]).toMatchObject({ input: true, hint: '(esc)' });
   });
 
+  it('leaves out "don\'t ask again" when there is nothing safe to allow', () => {
+    expect(askOptions({}).map((o) => o.value)).toEqual(['once', 'deny']);
+  });
+
   it('slots the auto-mode switch in before the No when offered', () => {
-    const opts = askOptions({ toolLabel: 'Bash', offerAuto: true });
+    const opts = askOptions({ always: 'Bash', offerAuto: true });
     expect(opts.map((o) => o.value)).toEqual(['once', 'always', 'auto', 'deny']);
     expect(opts[2]!.label).toBe('Yes, and switch to auto mode');
   });
 
   it('only the last row takes typed input', () => {
-    expect(askOptions({ toolLabel: 'x', offerAuto: true }).filter((o) => o.input)).toHaveLength(1);
+    expect(askOptions({ always: 'x', offerAuto: true }).filter((o) => o.input)).toHaveLength(1);
   });
 });
 

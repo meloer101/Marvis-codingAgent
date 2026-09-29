@@ -52,16 +52,29 @@ describe('ReadlinePrompter.confirm', () => {
 
   it('takes 2 as always', async () => {
     const h = harness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd' });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash' });
     await tick();
     h.send('2');
     expect(await p).toEqual({ choice: 'always' });
     h.close();
   });
 
+  it('leaves out the always row, and its "a" shortcut, when nothing can be allowed for the session', async () => {
+    const h = harness();
+    const p = h.prompter.confirm({ title: 'T', detail: 'd' });
+    await tick();
+    expect(h.out()).not.toContain("don't ask again");
+    expect(h.out()).toContain('2. No, and tell the agent what to do differently');
+    h.send('a');
+    await tick();
+    h.send('');
+    expect(await p).toEqual({ choice: 'deny' });
+    h.close();
+  });
+
   it('numbers the auto-mode row 3 and the No row 4 when auto is offered', async () => {
     const h = harness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd', offerAuto: true });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash', offerAuto: true });
     await tick();
     h.send('3');
     expect(await p).toEqual({ choice: 'auto' });
@@ -70,7 +83,7 @@ describe('ReadlinePrompter.confirm', () => {
 
   it('treats the No number as a deny and still asks why', async () => {
     const h = harness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd' });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash' });
     await tick();
     h.send('3');
     await tick();
@@ -81,7 +94,7 @@ describe('ReadlinePrompter.confirm', () => {
 
   it('maps "a" to always', async () => {
     const h = harness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd' });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash' });
     await tick();
     h.send('a');
     expect(await p).toEqual({ choice: 'always' });
@@ -90,7 +103,7 @@ describe('ReadlinePrompter.confirm', () => {
 
   it('treats "n" as deny and captures the follow-up reason', async () => {
     const h = harness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd' });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash' });
     await tick();
     h.send('n');
     await tick();
@@ -101,7 +114,7 @@ describe('ReadlinePrompter.confirm', () => {
 
   it('deny with an empty reason omits feedback', async () => {
     const h = harness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd' });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash' });
     await tick();
     h.send('n');
     await tick();
@@ -124,7 +137,7 @@ describe('ReadlinePrompter.confirm', () => {
 
   it('maps "s" to auto when offered', async () => {
     const h = harness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd', offerAuto: true });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash', offerAuto: true });
     await tick();
     expect(h.out()).toContain('3. Yes, and switch to auto mode');
     h.send('s');
@@ -170,16 +183,44 @@ describe('interactiveAskHandler', () => {
     });
   });
 
-  it('"always" -> allow and appends a whole-tool rule', async () => {
+  it('"always" -> allow and appends a rule for the command\'s prefix, not the whole tool', async () => {
     const added: string[] = [];
     const engine = { addAllowRule: (r: string) => added.push(r) };
     const echoed: string[] = [];
-    const ask = interactiveAskHandler(engine, fakePrompter({ choice: 'always' }), {
-      echo: (l) => echoed.push(l),
-    });
-    expect(await ask({ toolName: 'bash', input: {}, reason: 'r' })).toEqual({ decision: 'allow' });
-    expect(added).toEqual(['Bash']);
-    expect(echoed[0]).toContain('allow Bash');
+    let offered: string | undefined;
+    const prompter = fakePrompter({ choice: 'always' });
+    const ask = interactiveAskHandler(
+      engine,
+      {
+        ...prompter,
+        confirm: async (req) => {
+          offered = req.alwaysLabel;
+          return prompter.confirm(req);
+        },
+      },
+      { echo: (l) => echoed.push(l) },
+    );
+    const input = { command: 'npm test 2>&1 | tail -5' };
+    expect(await ask({ toolName: 'bash', input, reason: 'r' })).toEqual({ decision: 'allow' });
+    expect(offered).toBe('`npm test` commands');
+    expect(added).toEqual(['Bash(npm test:*)']);
+    expect(echoed[0]).toContain('allow Bash(npm test:*)');
+  });
+
+  it('does not offer "always" for a command no rule can safely cover', async () => {
+    let offered: string | undefined = 'unset';
+    const ask = interactiveAskHandler(
+      { addAllowRule: () => {} },
+      {
+        ...fakePrompter({ choice: 'once' }),
+        confirm: async (req) => {
+          offered = req.alwaysLabel;
+          return { choice: 'once' };
+        },
+      },
+    );
+    await ask({ toolName: 'bash', input: { command: 'find . -name x | xargs rm' }, reason: 'r' });
+    expect(offered).toBeUndefined();
   });
 
   it('"deny" -> deny, threading the feedback into the reason for the model', async () => {
@@ -298,7 +339,7 @@ describe('ReadlinePrompter with an arrow-key menu', () => {
 
   it('allows for the session on 2', async () => {
     const h = await menuHarness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd' });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash' });
     await tick();
     await h.press('2');
     expect(await p).toEqual({ choice: 'always' });
@@ -307,7 +348,7 @@ describe('ReadlinePrompter with an arrow-key menu', () => {
 
   it('switches to auto mode from its own row', async () => {
     const h = await menuHarness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd', offerAuto: true });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash', offerAuto: true });
     await tick();
     await h.press('3');
     expect(await p).toEqual({ choice: 'auto' });
@@ -316,7 +357,7 @@ describe('ReadlinePrompter with an arrow-key menu', () => {
 
   it('denies with the reason typed on the last row — no follow-up question', async () => {
     const h = await menuHarness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd' });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash' });
     await tick();
     await h.press('3');
     await h.press('use the test db');
@@ -328,7 +369,7 @@ describe('ReadlinePrompter with an arrow-key menu', () => {
 
   it('denies on Esc with no feedback', async () => {
     const h = await menuHarness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd' });
+    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash' });
     await tick();
     await h.press('\x1b');
     await new Promise((r) => setTimeout(r, 40));

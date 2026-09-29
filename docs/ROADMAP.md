@@ -97,9 +97,9 @@
   `{ rule, justification?, examples?: { match?, notMatch? } }`。justification 出现在 deny / ask 的
   原因里（包括应该改用什么做法），examples 在规则加载时校验；再提供 `hc permissions check "<cmd>"`，
   输出 JSON 裁决（`execpolicy/README.md`）。*(S–M)*
-- **[codex] "始终允许"时提议前缀规则**：从 AST 第一段推导出 `Bash(<prefix>:*)`，而不是放行整个工具；
-  拒绝过宽的前缀（`python`、`node`、`sh`、`rm`、heredoc），经确认后写入项目设置
-  （`execpolicy/src/amend.rs`、`prompts/templates/permissions/approval_policy/on_request.md`）。*(M)*
+- **"始终允许"的规则跨会话保留**：9-29 起"始终允许"只加该命令的前缀规则（`alwaysAllowFor`），但仍只在本会话
+  有效。剩下：提供一个"并记住"的选项，把规则写入项目设置（写哪个文件、要不要 gitignore 需要先定），参考 codex
+  的 `execpolicy/src/amend.rs`。*(S)*
 - **[codex] 沙箱拒绝后升级重试**：在 `bash` 里识别 `sandbox-exec` 的写入拒绝。交互模式下提供"不带
   沙箱重试"（批准结果在会话内缓存），否则告诉模型失败原因。codex 的流程是：审批 → 选择沙箱 → 执行
   → 升级重试，并允许模型带着给用户看的理由申请升级（`core/src/tools/orchestrator.rs`、

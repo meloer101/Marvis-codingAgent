@@ -6,6 +6,7 @@
 
 import type { PermissionMode } from './types.js';
 import { planApprovalLabel } from './cycle.js';
+import type { AlwaysAllow } from './always-allow.js';
 
 export interface PromptOption<V extends string = string> {
   value: V;
@@ -31,11 +32,16 @@ export function toolDisplayName(toolName: string): string {
   return toolName.includes('__') ? toolName : capitalize(toolName);
 }
 
-/** Options for a tool-permission prompt. `toolLabel` is a {@link toolDisplayName}. */
-export function askOptions(opts: { toolLabel: string; offerAuto?: boolean }): PromptOption<AskChoice>[] {
+/**
+ * Options for a tool-permission prompt. `always` is what "don't ask again"
+ * would cover (an {@link AlwaysAllow} label); without one the row is left out.
+ */
+export function askOptions(opts: { always?: string | undefined; offerAuto?: boolean }): PromptOption<AskChoice>[] {
   return [
     { value: 'once', label: 'Yes' },
-    { value: 'always', label: `Yes, and don't ask again for ${opts.toolLabel} this session` },
+    ...(opts.always !== undefined
+      ? [{ value: 'always' as const, label: `Yes, and don't ask again for ${opts.always} this session` }]
+      : []),
     ...(opts.offerAuto
       ? [{ value: 'auto' as const, label: 'Yes, and switch to auto mode' }]
       : []),

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { ClipboardList, ShieldQuestion } from 'lucide-react';
 import { planApprovalLabel } from '@harness-code/core/browser';
 
@@ -9,6 +9,19 @@ import { Button } from '@/components/ui/button';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
+
+/** "`npm test` commands" with the backticked part set as code. */
+function withCode(text: string): ReactNode[] {
+  return text.split('`').map((part, i) =>
+    i % 2 === 1 ? (
+      <code key={i} className="font-mono">
+        {part}
+      </code>
+    ) : (
+      part
+    ),
+  );
+}
 
 /**
  * Human-in-the-loop prompts, docked above the composer (opencode-style, no
@@ -59,7 +72,7 @@ export function PendingDock({ view }: { view: SessionViewState }) {
     };
     if (pendingAsk && askId) {
       if (key === 'y') hit(() => void sync.answerAsk(view.id, askId, 'once'));
-      else if (key === 'a') hit(() => void sync.answerAsk(view.id, askId, 'always'));
+      else if (key === 'a' && pendingAsk.alwaysAllow) hit(() => void sync.answerAsk(view.id, askId, 'always'));
       else if (key === 's' && offerAuto) hit(() => void sync.answerAsk(view.id, askId, 'auto'));
       else if (key === 'n' || e.key === 'Escape') hit(() => void sync.answerAsk(view.id, askId, 'deny', feedback));
     } else if (pendingPlan && planId) {
@@ -104,9 +117,12 @@ export function PendingDock({ view }: { view: SessionViewState }) {
           <Button size="sm" onClick={() => void sync.answerAsk(view.id, askId, 'once')}>
             Allow once<Key>y</Key>
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void sync.answerAsk(view.id, askId, 'always')}>
-            Always allow<Key>a</Key>
-          </Button>
+          {pendingAsk.alwaysAllow && (
+            <Button size="sm" variant="outline" onClick={() => void sync.answerAsk(view.id, askId, 'always')}>
+              <span>Always allow {withCode(pendingAsk.alwaysAllow)}</span>
+              <Key>a</Key>
+            </Button>
+          )}
           {offerAuto && (
             <Button size="sm" variant="outline" onClick={() => void sync.answerAsk(view.id, askId, 'auto')}>
               Yes, auto mode<Key>s</Key>

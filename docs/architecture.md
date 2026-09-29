@@ -216,6 +216,12 @@ six modes: `ask`, `plan`, `acceptEdits`, `readOnly`, `yolo`, `auto`.
 - **OS sandbox.** On macOS a `sandbox-exec` profile confines child processes to
   workspace and temp-dir writes — the layer that catches what textual review misses (e.g. a
   legitimate tool doing `echo x > /outside`).
+- **"Don't ask again" stays narrow.** Approving a call for the session adds a
+  rule for that kind of call only (`alwaysAllowFor`): a command's prefix
+  (`Bash(npm test:*)`, `Bash(pnpm run build:*)`, `Bash(python scripts/gen.py:*)`),
+  the exact command where a prefix would reach further (`rm`, `curl`, `cd`,
+  `time`), a fetch's host — never the whole `Bash` tool. Commands no rule can
+  hold (`sh`, `xargs`, `sudo`, loops, unreviewable text) are not offered it.
 - **Non-interactive safety.** With no one to answer, an `ask` verdict
   deterministically *denies* rather than hanging — the precondition for scripting.
 - **Auto mode.** The engine stays synchronous and may return `{ decision: 'classify' }`.

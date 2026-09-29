@@ -16,6 +16,7 @@ const ASK = {
   toolName: 'bash',
   input: { command: 'git push origin main' },
   reason: 'bash needs approval',
+  alwaysAllow: '`git push` commands',
 };
 
 async function mountAsk(offerAuto = false) {
@@ -38,7 +39,7 @@ describe('PermissionModal', () => {
     expect(frame).toContain('bash needs approval');
     expect(frame).toContain('Do you want to proceed?');
     expect(frame).toContain('❯ 1. Yes');
-    expect(frame).toContain("2. Yes, and don't ask again for Bash this session");
+    expect(frame).toContain("2. Yes, and don't ask again for `git push` commands this session");
     expect(frame).toContain('3. No, and tell the agent what to do differently (esc)');
     expect(frame).not.toContain('auto mode');
   });
@@ -54,6 +55,15 @@ describe('PermissionModal', () => {
     const { press, onAnswer } = await mountAsk();
     await press(ENTER);
     expect(onAnswer).toHaveBeenCalledExactlyOnceWith('once', undefined);
+  });
+
+  it('leaves out "don\'t ask again" when the ask offers nothing to allow', async () => {
+    const { alwaysAllow: _omitted, ...ask } = ASK;
+    const app = render(<PermissionModal ask={ask} theme={DARK} onAnswer={vi.fn()} />);
+    await settle();
+    const frame = app.lastFrame() ?? '';
+    expect(frame).not.toContain("don't ask again");
+    expect(frame).toContain('2. No, and tell the agent what to do differently');
   });
 
   it('allows for the session on 2', async () => {

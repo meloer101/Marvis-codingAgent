@@ -177,6 +177,27 @@ describe('SessionHost', () => {
     expect(host.pending).toBe(false);
   });
 
+  it('"always" allows the asked kind of command, so the next one like it is not asked', async () => {
+    const { host, events } = await makeHost(
+      [
+        { toolCalls: [{ name: 'bash', input: { command: 'node missing.js' } }] },
+        { toolCalls: [{ name: 'bash', input: { command: 'node missing.js --again' } }] },
+        { text: 'done' },
+      ],
+      { mode: 'ask' },
+    );
+    const askP = firstEvent(host, 'ask');
+    const settled = runSettled(host);
+    host.send('go');
+    const ask = await askP;
+    expect(ask).toMatchObject({ alwaysAllow: '`node missing.js` commands' });
+
+    host.answerAsk(ask.askId, 'always');
+    await settled;
+
+    expect(events().filter((e) => e.type === 'ask')).toHaveLength(1);
+  });
+
   it('settles a pending ask as deny on abort and broadcasts resolved{by:abort}', async () => {
     const { host, events } = await makeHost(
       [{ toolCalls: [{ name: 'write', input: { path: 'note.txt', content: 'hi' } }] }, { text: 'done' }],

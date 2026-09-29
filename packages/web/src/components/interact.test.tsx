@@ -88,7 +88,12 @@ function dockView(over: Partial<SessionViewState> = {}): SessionViewState {
     mode: 'ask',
     entries: [],
     live: { thinking: '', text: '', tools: [] },
-    pendingAsk: { toolName: 'bash', input: { command: 'rm -rf /' }, reason: 'bash needs approval' },
+    pendingAsk: {
+      toolName: 'bash',
+      input: { command: 'npm test' },
+      reason: 'bash needs approval',
+      alwaysAllow: '`npm test` commands',
+    },
     pendingPlan: null,
     running: true,
     hydrating: false,
@@ -121,6 +126,20 @@ describe('PendingDock', () => {
     expect(sync.answerAsk).toHaveBeenCalledWith('s1', 'a1', 'deny', '');
     fireEvent.keyDown(dock, { key: 'Escape' });
     expect(sync.answerAsk).toHaveBeenCalledTimes(4);
+  });
+
+  it('names what "always allow" covers, and leaves it out when the ask offers nothing', () => {
+    const offered = renderDock(dockView());
+    expect(screen.getByRole('button', { name: /Always allow npm test commands/ })).toBeTruthy();
+    cleanup();
+
+    const sync = renderDock(
+      dockView({ pendingAsk: { toolName: 'bash', input: { command: 'sudo make install' }, reason: 'r' } }),
+    );
+    expect(screen.queryByText(/Always allow/)).toBeNull();
+    fireEvent.keyDown(sync.dock, { key: 'a' });
+    expect(sync.answerAsk).not.toHaveBeenCalled();
+    expect(offered.answerAsk).not.toHaveBeenCalled();
   });
 
   it('passes typed feedback along with a deny', () => {

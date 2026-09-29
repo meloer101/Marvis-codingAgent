@@ -5,6 +5,7 @@
  * loop and routes key presses back through `answerAsk` / `answerPlan`.
  */
 
+import { alwaysAllowFor } from '@harness-code/core';
 import type { AskHandler, Notice, PermissionDecision, PermissionMode } from '@harness-code/core';
 
 import type { PendingAsk, PendingPlan } from './reducer.js';
@@ -13,21 +14,24 @@ export class UiStore {
   pendingAsk: PendingAsk | null = null;
   pendingPlan: PendingPlan | null = null;
   private notices: Notice[] = [];
-  private askLabel = '';
+  /** The rules "always allow" adds for the pending ask. */
+  private askRules: string[] = [];
   private resolveAsk: ((d: PermissionDecision) => void) | null = null;
   private resolvePlan: ((r: { approved: boolean; feedback?: string; mode?: PermissionMode }) => void) | null =
     null;
 
-  constructor(private readonly addAllow: (label: string) => void) {}
+  constructor(private readonly addAllow: (rule: string) => void) {}
 
   readonly ask: AskHandler = (req) =>
     new Promise<PermissionDecision>((resolve) => {
-      this.askLabel = req.toolName;
+      const always = alwaysAllowFor(req.toolName, req.input);
+      this.askRules = always?.rules ?? [];
       this.resolveAsk = resolve;
       this.pendingAsk = {
         toolName: req.toolName,
         input: req.input,
         reason: req.reason,
+        ...(always ? { alwaysAllow: always.label } : {}),
         ...(req.forcedByRule ? { forcedByRule: true } : {}),
       };
       req.signal?.addEventListener(
@@ -66,7 +70,7 @@ export class UiStore {
     this.resolveAsk = null;
     this.pendingAsk = null;
     if (!resolve) return;
-    if (v === 'always') this.addAllow(this.askLabel);
+    if (v === 'always') for (const rule of this.askRules) this.addAllow(rule);
     resolve(
       v === 'deny'
         ? { decision: 'deny', reason: feedback ? `User declined: ${feedback}` : 'User declined' }

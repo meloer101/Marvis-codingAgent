@@ -18,3 +18,21 @@ describe('UiStore.pushNotice', () => {
     expect(store.drainNotices().map((n) => n.kind)).toEqual(['auto-mode', 'skill-loaded']);
   });
 });
+
+describe('UiStore.answerAsk', () => {
+  it('"always" adds the rules for the asked command, not the whole tool', async () => {
+    const added: string[] = [];
+    const store = new UiStore((rule) => added.push(rule));
+    const decision = store.ask({ toolName: 'bash', input: { command: 'npm test | tail -5' }, reason: 'r' });
+    expect(store.pendingAsk?.alwaysAllow).toBe('`npm test` commands');
+    store.answerAsk('always');
+    expect(await decision).toEqual({ decision: 'allow' });
+    expect(added).toEqual(['Bash(npm test:*)']);
+  });
+
+  it('offers nothing to always-allow when no rule can safely cover the command', () => {
+    const store = new UiStore(() => {});
+    void store.ask({ toolName: 'bash', input: { command: 'sudo make install' }, reason: 'r' });
+    expect(store.pendingAsk?.alwaysAllow).toBeUndefined();
+  });
+});

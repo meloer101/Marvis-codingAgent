@@ -32,7 +32,7 @@ export async function runTui(config: RunTuiOptions): Promise<void> {
   // (and anything else outside React) targets whatever session `/resume` has
   // swapped in — `App` keeps `current` in sync with its session state.
   const sessionRef: { current: AgentSession | undefined } = { current: undefined };
-  const store = new UiStore((label) => sessionRef.current?.engine.addAllowRule(label));
+  const store = new UiStore((rule) => sessionRef.current?.engine.addAllowRule(rule));
 
   const createSession = (resumeId?: string): Promise<AgentSession> =>
     AgentSession.create({

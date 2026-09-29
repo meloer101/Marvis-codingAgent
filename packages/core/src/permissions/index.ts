@@ -39,6 +39,8 @@ export {
   planApprovalLabel,
 } from './cycle.js';
 export { askOptions, planOptions, toolDisplayName } from './prompt-options.js';
+export { alwaysAllowFor } from './always-allow.js';
+export type { AlwaysAllow } from './always-allow.js';
 export type { AskChoice, PlanChoice, PromptOption } from './prompt-options.js';
 export { createPermissionHooks, nonInteractiveAskHandler } from './hooks.js';
 export type { AutoModeHookOptions, AutoModeNotice } from './hooks.js';
