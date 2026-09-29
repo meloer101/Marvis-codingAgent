@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -135,6 +135,25 @@ describe('PermissionEngine', () => {
       (await e.evaluate({ toolName: 'write', input: { path: '.env.local', content: 'X=1' }, readOnly: false }))
         .decision,
     ).toBe('deny');
+  });
+
+  it('treats cd to the workspace root as a no-op, and any other cd as a command', async () => {
+    const e = engine({ mode: 'acceptEdits', allow: ['Bash(npm:*)'] });
+    const bash = async (command: string) =>
+      (await e.evaluate({ toolName: 'bash', input: { command }, readOnly: false })).decision;
+    expect(await bash(`cd ${root} && npm test`)).toBe('allow');
+    expect(await bash(`cd "${root}/" && npm test 2>&1 | tail -5`)).toBe('allow');
+    expect(await bash(`cd ${await realpath(root)}; cat src/a.ts`)).toBe('allow');
+    expect(await bash('cd . && npm test')).toBe('allow');
+    expect(await bash(`cd ${root}`)).toBe('allow');
+    // Anywhere else still counts: a subdirectory can walk around the sensitive-path check.
+    expect(await bash('cd src && npm test')).not.toBe('allow');
+    expect(await bash(`cd ${tmpdir()} && npm test`)).not.toBe('allow');
+    expect(await bash('cd ~ && npm test')).not.toBe('allow');
+    expect(await bash('cd - && npm test')).not.toBe('allow');
+    // And it unlocks nothing the rest of the command couldn't do on its own.
+    expect(await bash(`cd ${root} && rm -f src/a.ts`)).not.toBe('allow');
+    expect(await bash(`cd ${root} && cat .env`)).toBe('deny');
   });
 
   it('lets a rule that names the sensitive file itself through', async () => {

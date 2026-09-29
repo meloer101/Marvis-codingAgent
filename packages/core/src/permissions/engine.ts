@@ -1,3 +1,6 @@
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, resolve } from 'node:path';
+
 import { inspectBash } from './bash-ast.js';
 import { isDroppedAutoAllow } from './auto-allow.js';
 import { KNOWN_TOOLS, PLANS_DIR_PREFIX, READ_ONLY_TOOLS } from './defaults.js';
@@ -246,8 +249,18 @@ export class PermissionEngine {
       return { decision: 'allow' };
     }
 
+    // `cd <the workspace root>` changes nothing — every relative path after it
+    // means what it meant before — but agents prefix it out of habit
+    // (`cd /abs/workspace && npm test`), and it alone made an allowed command
+    // ask. It is dropped here, for the allow and read-only checks only (deny
+    // rules, ask rules and the sensitive-file check above still see it). Only
+    // the root: `cd .git && cat config` would slip past the sensitive-path
+    // check, so a `cd` anywhere else still counts.
+    const effective = await this.withoutNoOpCd(segs);
+    if (segs.length > 0 && effective.length === 0) return { decision: 'allow' };
+
     const allow = this.effectiveAllow();
-    if (segs.length > 0 && segs.every((seg) => allow.some((r) => ruleMatchesBash(r, seg)))) {
+    if (effective.length > 0 && effective.every((seg) => allow.some((r) => ruleMatchesBash(r, seg)))) {
       return { decision: 'allow' };
     }
 
@@ -265,11 +278,29 @@ export class PermissionEngine {
     // anything the command before it could not.
     const readOnly = (seg: string[]): boolean =>
       !inspected.hasWriteRedirect && isReadOnlyBashSegment(seg);
-    if (segs.length > 0 && segs.every((seg) => readOnly(seg) || allow.some((r) => ruleMatchesBash(r, seg)))) {
+    if (effective.length > 0 && effective.every((seg) => readOnly(seg) || allow.some((r) => ruleMatchesBash(r, seg)))) {
       return { decision: 'allow' };
     }
 
     return this.modeDefault('bash', false);
+  }
+
+  /** `segments` minus any `cd <path>` whose path is the workspace root itself. */
+  private async withoutNoOpCd(segments: string[][]): Promise<string[][]> {
+    const out: string[][] = [];
+    for (const seg of segments) {
+      if (seg.length === 2 && seg[0] === 'cd' && (await this.isWorkspaceRoot(seg[1] as string))) continue;
+      out.push(seg);
+    }
+    return out;
+  }
+
+  private async isWorkspaceRoot(target: string): Promise<boolean> {
+    // `-`, `~` and variables resolve somewhere the parser can't see.
+    if (target === '' || target.startsWith('-') || target.startsWith('~') || target.includes('$')) return false;
+    const abs = isAbsolute(target) ? target : resolve(this.workspaceRoot, target);
+    const real = (p: string): Promise<string> => realpath(p).catch(() => resolve(p));
+    return (await real(abs)) === (await real(this.workspaceRoot));
   }
 
   /**
