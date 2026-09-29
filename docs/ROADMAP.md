@@ -246,6 +246,34 @@
 - 运行中切换 `/model`（v1 只读显示）；更丰富的 `/mcp` `/skills` 浮层。
 - Windows 打磨（老控制台回退到 REPL；cmd.exe 下的 TUI 标为不支持）。
 
+## Web
+
+目标：对齐 Claude Code 桌面端 / Codex（ChatGPT 桌面端的 Codex 模式）的基线体验，做到用户愿意替代终端的日常主力界面。
+浏览器优先，桌面壳最后做；一个 `hc web` 管多个项目。现状见 [`web.md`](./web.md)。硬约束：不改任何模型可见的内容
+（工具 schema、system prompt、默认消息形状），否则 eval cassette 全部失效。
+
+- **M1 多项目与会话管理**：工作区注册表（`~/.agent/web/workspaces.json`，`workspace.list/add/remove`，目录补全）；
+  registry 按工作区划分，各自的 projectRoot / stateDir / settings / MCP，`.env` 按工作区传入而不是写进全局
+  `process.env`；`session.update{title, pinned, archived}`、`session.delete`；在另一个目录跑 `hc web` 时把该目录
+  加入正在运行的实例；侧栏按项目分组、搜索、右键菜单、未读；首页带项目选择。*(L)*
+- **M2 会话控制与输入框**：`model.list`（ref、上下文窗口、effort 档位、价格）、`session.setModel`（在原会话内切换，
+  运行中拒绝）、`session.setEffort` + effort 事件；输入框底栏放模式 chip（Shift+Tab）、模型、effort、上下文环；
+  server 端消息排队（运行中可继续发，结束后自动发出）；@文件：`fs.search` + `session.send{attachments}`，core 用
+  `read` 工具读入并记入先读后写台账；内置 / 命令补 `/model /effort /mode /cost /skills`，skills 进 / 菜单；
+  头部可改标题，上下文细分和用量弹层；命令面板。*(L)*
+- **M3 转录可读性**：连续只读工具调用合并成一行摘要，Normal/Verbose 切换；bash 流式输出
+  （`tool_call_progress`）、退出码和耗时、ANSI；子代理在 task 卡里嵌套实时展示；任务清单（由最近一次 `todo` 输入
+  推导）；复制、重试；diff 行号、词级高亮、语法着色、去掉 400 行截断。*(L)*
+- **M4 审查闭环**：`server/src/git.ts`（status / diff / 按文件暂存、还原 / commit / push / 用 `gh` 建 PR），
+  写或 bash 之后推送 `git_status`；三栏布局，右侧面板 Changes / Files / Tasks；只看本会话改动；diff 上的行评论攒成
+  一条消息发给 agent；`fs.read` 文件查看（路径守卫、敏感文件拒绝）；打开到 VS Code / Cursor / Zed。git/fs 相关
+  RPC 从一开始就带 `{workspaceId, sessionId?}`，给 worktree 留口。*(L)*
+- **M5 终端**：node-pty（optional 依赖，≥1.2 自带预编译，打包时 external）+ xterm.js，Ctrl+` 开关、多标签、
+  重连后恢复 scrollback；功能由 `server.info.capabilities.terminal` 控制。*(M)*
+- **MVP 之后**：P1 每会话 git worktree（选 base 分支、`.worktreeinclude`、归档即清理）、运行中插话（B 节的
+  steering）、分屏、块级暂存/还原；P2 图片附件（provider 加 image 内容块）、rewind / 编辑历史消息 / fork、后台进程、
+  统计与 trace 视图、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）；P3 桌面壳。
+
 ## Other
 
 - **可写子代理**：`explore` 的只读隔离已验证有效；未声明 `tools` 的自定义 agent 会继承父级的写工具。
