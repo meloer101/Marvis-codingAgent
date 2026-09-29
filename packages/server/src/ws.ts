@@ -11,7 +11,7 @@
  *    the socket.
  *  - **RPC dispatch + subscribe.** Client frames are validated with the exact
  *    zod schemas from `@harness-code/protocol`'s method table, dispatched to
- *    the registry/host, and answered. `session.subscribe` either replays the
+ *    the workspace hub / session host, and answered. `session.subscribe` either replays the
  *    gap since `sinceSeq` from the host ring or answers `{ reset, snapshot }`.
  */
 
@@ -31,13 +31,14 @@ import { methods } from '@harness-code/protocol';
 import { WebSocket, WebSocketServer } from 'ws';
 
 import { BusyError, InvalidRequestError, SessionNotFoundError } from './host.js';
+import { WorkspaceNotFoundError } from './hub.js';
+import type { WorkspaceHub } from './hub.js';
 import { SessionPreviewNotFoundError } from './registry.js';
 import type { SessionHost } from './host.js';
-import type { SessionRegistry } from './registry.js';
 
 export interface WsServerOptions {
   httpServer: HttpServer;
-  registry: SessionRegistry;
+  hub: WorkspaceHub;
   /** The per-server secret; the first frame must present it. */
   token: string;
   /** Exact `Origin` values allowed to upgrade (own origin, plus any dev origin). */
@@ -176,7 +177,7 @@ class Connection {
     this.#replyOk(frame.id, { ok: true });
     // Session-list changes reach every authenticated socket, subscribed or not:
     // the sidebar badges every session, not just the ones this tab has open.
-    this.#unwatch = this.opts.registry.onChange((event) => this.#send({ t: 'push', event }));
+    this.#unwatch = this.opts.hub.onChange((event) => this.#send({ t: 'push', event }));
   }
 
   async #dispatch(frame: ClientFrame): Promise<void> {
@@ -209,20 +210,22 @@ class Connection {
   }
 
   #invoke(method: MethodName, params: unknown): Promise<unknown> | unknown {
-    const { registry } = this.opts;
+    const { hub } = this.opts;
     switch (method) {
       case 'server.info':
         return this.opts.serverInfo();
+      case 'workspace.list':
+        return hub.workspaces();
       case 'session.list':
-        return registry.list();
+        return hub.list();
       case 'session.create':
-        return registry.create(params as MethodParams<'session.create'>);
+        return hub.create(params as MethodParams<'session.create'>);
       case 'session.start':
-        return registry.start(params as MethodParams<'session.start'>);
+        return hub.start(params as MethodParams<'session.start'>);
       case 'session.open':
-        return registry.open(params as MethodParams<'session.open'>);
+        return hub.open((params as MethodParams<'session.open'>).id);
       case 'session.preview':
-        return registry.preview(params as MethodParams<'session.preview'>);
+        return hub.preview((params as MethodParams<'session.preview'>).id);
       case 'session.unsubscribe':
       case 'session.subscribe':
         // Handled before dispatch; unreachable.
@@ -256,7 +259,7 @@ class Connection {
       }
       case 'session.close': {
         const { id } = params as MethodParams<'session.close'>;
-        return registry.close(id);
+        return hub.close(id);
       }
       case 'ask.answer': {
         const { sessionId, askId, decision, feedback } = params as MethodParams<'ask.answer'>;
@@ -276,7 +279,7 @@ class Connection {
   }
 
   #host(id: string): SessionHost {
-    const host = this.opts.registry.get(id);
+    const host = this.opts.hub.host(id);
     if (!host) throw new SessionNotFoundError(id);
     return host;
   }
@@ -290,7 +293,7 @@ class Connection {
       return;
     }
     const { id, sinceSeq, epoch } = parsed.data;
-    const host = this.opts.registry.get(id);
+    const host = this.opts.hub.host(id);
     if (!host) {
       this.#replyError(frame.id, 'not_found', `no live session "${id}"`);
       return;
@@ -376,6 +379,7 @@ function mapError(err: unknown): { code: ErrorCode; message: string } {
   if (err instanceof InvalidRequestError) return { code: 'bad_request', message: err.message };
   if (err instanceof SessionNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof SessionPreviewNotFoundError) return { code: 'not_found', message: err.message };
+  if (err instanceof WorkspaceNotFoundError) return { code: 'not_found', message: err.message };
   const message = err instanceof Error ? err.message : String(err);
   return { code: 'internal', message };
 }

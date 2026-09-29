@@ -371,6 +371,8 @@ program
           cwd,
           port,
           ...(token ? { token } : {}),
+          // The projects a real server hosts are remembered across restarts.
+          ...(persistent ? { workspaceStore: server.fileWorkspaceStore(server.workspacesFile(stateDir)) } : {}),
           ...(opts.devOrigin ? { devOrigin: opts.devOrigin } : {}),
           ...(opts.model ? { model: opts.model } : {}),
           ...(opts.mock ? { mock: true } : {}),

@@ -235,6 +235,29 @@ describe('ws transport', () => {
     client.close();
   });
 
+  it('lists the workspaces, and refuses ids that are not ids', async () => {
+    const server = await boot();
+    const client = await Client.open(wsUrl(server), `http://127.0.0.1:${server.port}`);
+    await client.call('auth', { token: server.token });
+
+    const listed = await client.call('workspace.list');
+    const workspaces = (listed as { result: Array<{ id: string; root: string; defaults: unknown }> }).result;
+    expect(workspaces).toHaveLength(1);
+    expect(workspaces[0]!.id).toMatch(/^[0-9a-f]{12}$/);
+    expect(workspaces[0]!.defaults).toMatchObject({ modes: expect.any(Array), effortLevels: expect.any(Array) });
+
+    // Ids end up in file paths: nothing but an id's own characters gets through.
+    expect(await client.call('session.preview', { id: '../../etc/passwd' })).toMatchObject({
+      ok: false,
+      error: { code: 'bad_request' },
+    });
+    expect(await client.call('session.start', { text: 'x', workspaceId: 'ffffffffffff' })).toMatchObject({
+      ok: false,
+      error: { code: 'not_found' },
+    });
+    client.close();
+  });
+
   it('serves server.info once authed', async () => {
     const server = await boot();
     const client = await Client.open(wsUrl(server), `http://127.0.0.1:${server.port}`);

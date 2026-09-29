@@ -347,6 +347,7 @@ export class SessionSync {
   }
 
   #onPush(event: PushEvent): void {
+    if (event.type === 'workspaces') return; // the workspace list arrives with the sidebar's projects
     this.#store.setState((s) => ({ sessions: applySessionPush(s.sessions, event) }));
     if (event.type !== 'session_upsert') return;
     const { id, live } = event.summary;

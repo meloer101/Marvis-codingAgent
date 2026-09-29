@@ -111,6 +111,7 @@ export class SessionHost {
 
   readonly #agentDir: string;
   readonly #cwd: string | undefined;
+  readonly #workspaceId: string | undefined;
   readonly #onSummaryChange: (() => void) | undefined;
   #session: AgentSession | undefined;
   /** The first message sent here — the list title until the log has one. */
@@ -164,9 +165,16 @@ export class SessionHost {
    * `onSummaryChange`: called after any event that may change the session's list
    * row, so the registry can push the new row to every client.
    */
-  constructor(opts: { agentDir: string; cwd?: string; hasMeta?: boolean; onSummaryChange?: () => void }) {
+  constructor(opts: {
+    agentDir: string;
+    cwd?: string;
+    workspaceId?: string;
+    hasMeta?: boolean;
+    onSummaryChange?: () => void;
+  }) {
     this.#agentDir = opts.agentDir;
     this.#cwd = opts.cwd;
+    this.#workspaceId = opts.workspaceId;
     this.#metaExists = opts.hasMeta === true;
     this.#onSummaryChange = opts.onSummaryChange;
   }
@@ -548,6 +556,7 @@ export class SessionHost {
       epoch: this.epoch,
       effortLevels: [...session.effortLevels],
     };
+    if (this.#workspaceId) snapshot.workspaceId = this.#workspaceId;
     if (session.effort) snapshot.effort = session.effort;
     if (session.sessionUsage) snapshot.usage = session.sessionUsage;
     if (session.contextSnapshot) snapshot.context = session.contextSnapshot;

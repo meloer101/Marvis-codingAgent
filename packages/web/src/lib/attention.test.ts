@@ -5,6 +5,7 @@ import { attentionChanges, documentTitle } from './attention';
 
 const row = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => ({
   id,
+  workspaceId: 'w1',
   mtimeMs: 1,
   title: `title ${id}`,
   live: true,

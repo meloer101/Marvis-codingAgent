@@ -5,7 +5,7 @@
  */
 
 import type { WireEvent } from './events.js';
-import type { SessionSummary } from './methods.js';
+import type { SessionSummary, Workspace } from './methods.js';
 
 /** client → server */
 export type ClientFrame = { t: 'req'; id: number; method: string; params: unknown };
@@ -18,7 +18,9 @@ export type ClientFrame = { t: 'req'; id: number; method: string; params: unknow
  */
 export type PushEvent =
   | { type: 'session_upsert'; summary: SessionSummary }
-  | { type: 'session_removed'; id: string; rev: number };
+  | { type: 'session_removed'; id: string; rev: number }
+  /** The whole workspace list, whenever a workspace is added or removed. */
+  | { type: 'workspaces'; workspaces: Workspace[] };
 
 /** server → client */
 export type ServerFrame =

@@ -30,20 +30,28 @@ import {
   projectEnv,
 } from '@harness-code/core';
 import type { PermissionMode } from '@harness-code/core';
-import type { ServerInfo } from '@harness-code/protocol';
+import type { ServerInfo, WorkspaceDefaults } from '@harness-code/protocol';
 
 import { createStaticHandler, resolveStaticDir } from './http.js';
+import { WorkspaceHub } from './hub.js';
+import type { WorkspaceSetupFactory } from './hub.js';
 import type { HealthInfo } from './instance.js';
 import { MOCK_MODEL_REF, mockConfigFactory, mockEffortOptions } from './mock.js';
-import { SessionRegistry } from './registry.js';
 import type { SessionConfigFactory } from './registry.js';
+import { memoryWorkspaceStore } from './workspaces.js';
+import type { WorkspaceStore } from './workspaces.js';
 import { attachWsServer } from './ws.js';
 
 const PERMISSION_MODES: PermissionMode[] = ['ask', 'plan', 'acceptEdits', 'readOnly', 'yolo', 'auto'];
 
 export interface StartServerOptions {
-  /** Workspace root this server hosts sessions for. */
+  /** The workspace it starts with (added to the remembered ones, and made the most recent). */
   cwd: string;
+  /**
+   * Where the hosted workspaces are remembered; in memory (forgotten on close)
+   * when omitted. `hc web` passes `~/.agent/web/workspaces.json`.
+   */
+  workspaceStore?: WorkspaceStore;
   /** TCP port; `0` (the default) picks a free one. */
   port?: number;
   /** An extra `Origin` to allow through the WS handshake — the Vite dev server. */
@@ -71,52 +79,26 @@ export interface RunningServer {
 }
 
 export async function startServer(opts: StartServerOptions): Promise<RunningServer> {
-  const { cwd } = opts;
-  const projectRoot = await findProjectRoot(cwd);
   const token = opts.token ?? randomBytes(32).toString('hex');
   const bootId = randomUUID();
 
-  // `--mock` sessions record into a throwaway dir (removed on close) so a demo
-  // never touches the project's real `.agent/` — see `mockConfigFactory`.
-  const mockDir = opts.mock && !opts.buildConfig ? await mkdtemp(join(tmpdir(), 'hc-web-mock-')) : undefined;
-  // The project's own environment — the real one, its `.env`, `~/.agent/.env` —
-  // for provider keys and MCP `${VAR}`s, never merged into `process.env`.
-  const env = projectEnv(cwd);
-  const agentDir = mockDir ?? (await resolveStateDir(cwd, { env }));
+  const hub = new WorkspaceHub({ store: opts.workspaceStore ?? memoryWorkspaceStore(), setup: workspaceSetups(opts) });
+  const launchId = await hub.init(opts.cwd);
 
-  const buildConfig = resolveConfigFactory(opts, env, mockDir);
-
+  /** Kept for older clients: the launch workspace's defaults. */
   const serverInfo = async (): Promise<ServerInfo> => {
-    const { settings } = await loadSettings(cwd);
-    const providers = new ProviderRegistry({ settings, env });
+    const launch = await hub.workspace(launchId);
     return {
       version: VERSION,
       bootId,
-      cwd,
-      projectRoot,
-      // A mock server's sessions all run the scripted model, whatever settings say.
-      defaultModel: opts.mock && !opts.buildConfig ? MOCK_MODEL_REF : (opts.model ?? settings.model ?? ''),
-      defaultMode: settings.permissions?.mode ?? 'ask',
-      models: providers.list(),
-      modes: PERMISSION_MODES.filter(
-        (m) =>
-          m !== 'auto' ||
-          isAutoModeAvailable(settings, providers, opts.model ?? settings.model).available,
-      ),
+      cwd: launch.root,
+      projectRoot: launch.projectRoot,
+      defaultModel: launch.defaults.model,
+      defaultMode: launch.defaults.mode,
+      models: [],
+      modes: launch.defaults.modes,
     };
   };
-
-  const registry = new SessionRegistry({
-    cwd,
-    agentDir,
-    buildConfig,
-    previewDefaults: async () => {
-      const info = await serverInfo();
-      return { modelRef: info.defaultModel, mode: info.defaultMode };
-    },
-    effortFor: async (modelRef) =>
-      opts.mock && !opts.buildConfig ? mockEffortOptions() : modelEffort(modelRef, (await loadSettings(cwd)).settings),
-  });
 
   const staticDir = opts.staticDir ?? resolveStaticDir();
   // Filled in once the port is known; the handler checks every request against it.
@@ -131,8 +113,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     port = await listen(httpServer, opts.port ?? 0);
   } catch (err) {
     // Typically EADDRINUSE: undo what was set up so the caller can retry elsewhere.
-    await registry.shutdown();
-    if (mockDir) await rm(mockDir, { recursive: true, force: true });
+    await hub.shutdown();
     throw err;
   }
   const origins = new Set([`http://127.0.0.1:${port}`, `http://localhost:${port}`]);
@@ -142,7 +123,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
 
   const wss = attachWsServer({
     httpServer,
-    registry,
+    hub,
     token,
     allowedOrigins: origins,
     allowedHosts: hosts,
@@ -161,32 +142,91 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       // every open connection to drain and never resolves.
       for (const client of wss.clients) client.terminate();
       wss.close();
-      await registry.shutdown();
+      await hub.shutdown();
       await new Promise<void>((resolve, reject) => {
         httpServer.close((err) => (err ? reject(err) : resolve()));
       });
-      if (mockDir) await rm(mockDir, { recursive: true, force: true });
     },
   };
 }
 
-/** Pick the session factory: explicit injection > `--mock` > the real config assembly. */
-function resolveConfigFactory(
-  opts: StartServerOptions,
-  env: NodeJS.ProcessEnv,
-  mockDir?: string,
-): SessionConfigFactory {
-  if (opts.buildConfig) return opts.buildConfig;
-  if (opts.mock) return mockConfigFactory(opts.cwd, mockDir);
-  return (o) =>
-    buildSessionConfig({
-      cwd: opts.cwd,
-      env,
-      ...(o.model ?? opts.model ? { modelRef: o.model ?? opts.model } : {}),
-      ...(o.mode ? { mode: o.mode } : {}),
-      ...(o.effort ? { reasoningEffort: o.effort } : {}),
-      ...(o.resumeId ? { resumeId: o.resumeId } : {}),
-    });
+/**
+ * How each workspace is set up: explicit injection (tests) > `--mock` > the
+ * real config assembly. Every workspace gets its own environment — the real
+ * one, its `.env`, `~/.agent/.env` — for provider keys and MCP `${VAR}`s,
+ * never merged into `process.env`.
+ */
+function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
+  const mock = opts.mock === true && !opts.buildConfig;
+  return async (root) => {
+    const env = projectEnv(root);
+    const projectRoot = await findProjectRoot(root);
+    // `--mock` sessions record into a throwaway dir (removed on close) so a
+    // demo never touches the project's real `.agent/` — see `mockConfigFactory`.
+    const mockDir = mock ? await mkdtemp(join(tmpdir(), 'hc-web-mock-')) : undefined;
+    const agentDir = mockDir ?? (await resolveStateDir(root, { env }));
+
+    const defaults = async (): Promise<WorkspaceDefaults> => {
+      if (mock) {
+        // The scripted model reasons, but has no classifier behind it: no auto mode.
+        const { levels, initial } = mockEffortOptions();
+        return {
+          model: MOCK_MODEL_REF,
+          mode: 'ask',
+          modes: PERMISSION_MODES.filter((m) => m !== 'auto'),
+          effortLevels: [...levels],
+          ...(initial ? { effort: initial } : {}),
+        };
+      }
+      const { settings } = await loadSettings(root);
+      const providers = new ProviderRegistry({ settings, env });
+      const model = opts.model ?? settings.model ?? '';
+      const { levels, initial } = model ? modelEffort(model, settings) : { levels: [], initial: undefined };
+      let keyProblem: string | undefined;
+      try {
+        if (model) providers.resolve(model); // no network: only whether it could be used
+      } catch (err) {
+        keyProblem = err instanceof Error ? err.message : String(err);
+      }
+      return {
+        model,
+        mode: settings.permissions?.mode ?? 'ask',
+        modes: PERMISSION_MODES.filter(
+          (m) => m !== 'auto' || isAutoModeAvailable(settings, providers, model || undefined).available,
+        ),
+        effortLevels: [...levels],
+        ...(initial ? { effort: initial } : {}),
+        ...(keyProblem ? { keyProblem } : {}),
+      };
+    };
+
+    const buildConfig: SessionConfigFactory =
+      opts.buildConfig ??
+      (mock
+        ? mockConfigFactory(root, mockDir)
+        : (o) =>
+            buildSessionConfig({
+              cwd: root,
+              env,
+              ...(o.model ?? opts.model ? { modelRef: o.model ?? opts.model } : {}),
+              ...(o.mode ? { mode: o.mode } : {}),
+              ...(o.effort ? { reasoningEffort: o.effort } : {}),
+              ...(o.resumeId ? { resumeId: o.resumeId } : {}),
+            }));
+
+    return {
+      projectRoot,
+      agentDir,
+      buildConfig,
+      defaults,
+      previewDefaults: async () => {
+        const d = await defaults();
+        return { modelRef: d.model, mode: d.mode };
+      },
+      effortFor: mock ? () => mockEffortOptions() : async (ref) => modelEffort(ref, (await loadSettings(root)).settings),
+      ...(mockDir ? { dispose: () => rm(mockDir, { recursive: true, force: true }) } : {}),
+    };
+  };
 }
 
 /** Bind `127.0.0.1` only and resolve with the actual port (handles `port: 0`). */
@@ -203,6 +243,10 @@ function listen(server: HttpServer, port: number): Promise<number> {
 }
 
 export { SessionRegistry } from './registry.js';
+export { WorkspaceHub, WorkspaceNotFoundError } from './hub.js';
+export type { WorkspaceSetup, WorkspaceSetupFactory } from './hub.js';
+export { fileWorkspaceStore, memoryWorkspaceStore, workspaceId, workspacesFile } from './workspaces.js';
+export type { WorkspaceRecord, WorkspaceStore } from './workspaces.js';
 export { SessionHost, BusyError, SessionNotFoundError } from './host.js';
 export type { Listener } from './host.js';
 export { attachWsServer } from './ws.js';

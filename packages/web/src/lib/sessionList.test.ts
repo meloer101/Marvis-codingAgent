@@ -5,6 +5,7 @@ import { applySessionPush, mergeSessionList } from './sessionList';
 
 const row = (id: string, rev: number, over: Partial<SessionSummary> = {}): SessionSummary => ({
   id,
+  workspaceId: 'w1',
   mtimeMs: 1000,
   title: id,
   live: false,

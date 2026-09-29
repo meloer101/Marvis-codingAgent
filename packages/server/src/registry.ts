@@ -9,7 +9,9 @@
  * tests and `--mock` can substitute a `ScriptedProvider`.
  */
 
-import { AgentSession, UNTITLED_SESSION } from '@harness-code/core';
+import { access } from 'node:fs/promises';
+
+import { AgentSession, UNTITLED_SESSION, sessionPath } from '@harness-code/core';
 import { listSessionIds, loadTranscript, readSessionMeta, readSessionSummary } from '@harness-code/core';
 import type {
   AgentSessionConfig,
@@ -44,6 +46,13 @@ function restoredMode(meta: SessionMeta | null): PermissionMode | undefined {
 export interface SessionRegistryOptions {
   cwd: string;
   agentDir: string;
+  /** Stamped on every summary and snapshot; empty outside a workspace (tests). */
+  workspaceId?: string;
+  /**
+   * Hands out `rev`s. Registries of one server share a counter so that revs
+   * compare across workspaces; a registry on its own counts for itself.
+   */
+  nextRev?: () => number;
   buildConfig: SessionConfigFactory;
   /** Defaults for `session.preview` when the session is not live. */
   previewDefaults: () => Promise<{ modelRef: string; mode: PermissionMode }>;
@@ -79,6 +88,8 @@ export class SessionPreviewNotFoundError extends Error {
 export class SessionRegistry {
   readonly #cwd: string;
   readonly #agentDir: string;
+  readonly #workspaceId: string;
+  readonly #nextRev: () => number;
   readonly #buildConfig: SessionConfigFactory;
   readonly #previewDefaults: SessionRegistryOptions['previewDefaults'];
   readonly #effortFor: NonNullable<SessionRegistryOptions['effortFor']>;
@@ -86,7 +97,7 @@ export class SessionRegistry {
   /** Resumes in flight, so two opens of one session share one `AgentSession`. */
   readonly #resuming = new Map<string, Promise<SessionHost>>();
   readonly #listeners = new Set<RegistryListener>();
-  /** Stamps every summary row computed; see `SessionSummary.rev`. */
+  /** The counter behind `#nextRev` when none is shared. */
   #rev = 0;
   readonly #idleMs: number;
   readonly #sweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -94,6 +105,8 @@ export class SessionRegistry {
   constructor(opts: SessionRegistryOptions) {
     this.#cwd = opts.cwd;
     this.#agentDir = opts.agentDir;
+    this.#workspaceId = opts.workspaceId ?? '';
+    this.#nextRev = opts.nextRev ?? (() => ++this.#rev);
     this.#buildConfig = opts.buildConfig;
     this.#previewDefaults = opts.previewDefaults;
     this.#effortFor = opts.effortFor ?? (() => ({ levels: [], initial: undefined }));
@@ -107,6 +120,17 @@ export class SessionRegistry {
 
   get(id: string): SessionHost | undefined {
     return this.#hosts.get(id);
+  }
+
+  /** Whether `id` is one of this registry's sessions: live, being resumed, or logged on disk. */
+  async has(id: string): Promise<boolean> {
+    if (this.#hosts.has(id) || this.#resuming.has(id)) return true;
+    try {
+      await access(sessionPath(this.#agentDir, id));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -124,8 +148,8 @@ export class SessionRegistry {
    * All rows share one `rev`, taken before reading anything: a change pushed
    * while the list is being built outranks it.
    */
-  async list(): Promise<SessionSummary[]> {
-    const rev = ++this.#rev;
+  async list(stamp?: number): Promise<SessionSummary[]> {
+    const rev = stamp ?? this.#nextRev();
     const ids = new Set((await listSessionIds(this.#agentDir)).map((s) => s.id));
     for (const id of this.#hosts.keys()) ids.add(id);
     const rows: SessionSummary[] = [];
@@ -150,6 +174,7 @@ export class SessionRegistry {
       disk && disk.title !== UNTITLED_SESSION ? disk.title : (host?.title ?? disk?.title ?? NEW_SESSION_TITLE);
     return {
       id,
+      workspaceId: this.#workspaceId,
       mtimeMs: disk?.mtimeMs ?? Date.now(),
       title,
       live: host !== undefined,
@@ -162,7 +187,7 @@ export class SessionRegistry {
   /** Push `id`'s current row (or its removal) to every `onChange` listener. */
   #announce(id: string): void {
     if (this.#listeners.size === 0) return;
-    const rev = ++this.#rev;
+    const rev = this.#nextRev();
     void this.#summary(id, rev).then(
       (summary) => {
         const event: PushEvent = summary ? { type: 'session_upsert', summary } : { type: 'session_removed', id, rev };
@@ -282,6 +307,7 @@ export class SessionRegistry {
       const effort = meta?.effort && levels.includes(meta.effort) ? meta.effort : initial;
       return {
         id: opts.id,
+        ...(this.#workspaceId ? { workspaceId: this.#workspaceId } : {}),
         modelRef,
         mode: restoredMode(meta) ?? defaults.mode,
         transcript,
@@ -331,6 +357,7 @@ export class SessionRegistry {
     const host: SessionHost = new SessionHost({
       agentDir: this.#agentDir,
       cwd: this.#cwd,
+      ...(this.#workspaceId ? { workspaceId: this.#workspaceId } : {}),
       hasMeta: opts.hasMeta,
       onSummaryChange: () => this.#announce(host.id),
     });

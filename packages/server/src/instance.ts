@@ -27,14 +27,16 @@ export function webStateDir(home: string = homedir()): string {
   return join(home, '.agent', 'web');
 }
 
-async function ensureDir(dir: string): Promise<void> {
+/** Create `dir` (and parents) private to the user. */
+export async function ensureDir(dir: string): Promise<void> {
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await chmod(dir, 0o700).catch(() => {
     // Not ours to fix (e.g. Windows): the file itself is still 0600.
   });
 }
 
-async function writePrivate(path: string, content: string): Promise<void> {
+/** Write `content` to `path` atomically (temp file + rename), readable by the user only. */
+export async function writePrivate(path: string, content: string): Promise<void> {
   const tmp = `${path}.${randomUUID()}.tmp`;
   await writeFile(tmp, content, { encoding: 'utf8', mode: 0o600 });
   await rename(tmp, path);

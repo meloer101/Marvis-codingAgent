@@ -38,9 +38,42 @@ export interface ServerInfo {
   modes: PermissionMode[];
 }
 
+/** Where a new session in a workspace starts, and what its model offers. */
+export interface WorkspaceDefaults {
+  /** `provider/model` new sessions use. */
+  model: string;
+  /** The permission mode they start in. */
+  mode: PermissionMode;
+  /** Modes on offer (`auto` only where it is available). */
+  modes: PermissionMode[];
+  /** The default model's starting effort; absent without reasoning. */
+  effort?: ReasoningEffort;
+  effortLevels: ReasoningEffort[];
+  /** Why the default model can't be used as configured (typically a missing API key). */
+  keyProblem?: string;
+}
+
+/** A project `hc web` hosts sessions for. */
+export interface Workspace {
+  /** Stable: derived from the root path. */
+  id: string;
+  /** The directory sessions run in. */
+  root: string;
+  /** Display name (the directory's name). */
+  name: string;
+  /** Where its `.agent/` settings live (the nearest ancestor with `.git`/`.agent`, else the root). */
+  projectRoot: string;
+  lastUsedAt: number;
+  /** The directory no longer exists; its sessions are unavailable until it does. */
+  missing?: boolean;
+  defaults: WorkspaceDefaults;
+}
+
 /** One row of `session.list` — cheap enough to compute for every session on disk. */
 export interface SessionSummary {
   id: string;
+  /** The workspace the session belongs to. */
+  workspaceId: string;
   mtimeMs: number;
   /** First user message, truncated. */
   title: string;
@@ -58,6 +91,8 @@ export interface SessionSummary {
 
 export interface SessionSnapshot {
   id: string;
+  /** The workspace the session belongs to; absent only from hosts built outside a workspace (tests). */
+  workspaceId?: string;
   modelRef: string;
   mode: PermissionMode;
   /** Full display history (distinct from the model's context window). */
@@ -121,6 +156,15 @@ const reasoningEffortSchema: z.ZodType<ReasoningEffort> = z.enum([
   'ultra',
 ]);
 
+/**
+ * Session ids end up in file paths (`sessions/<id>.jsonl`): only the characters
+ * a generated id uses get through, so no request can reach outside a sessions
+ * directory.
+ */
+const sessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, 'not a session id');
+/** Workspace ids are hex digests. */
+const workspaceIdSchema = z.string().regex(/^[0-9a-f]{1,64}$/, 'not a workspace id');
+
 interface MethodSpec<P = unknown, R = unknown> {
   /** Validates `ClientFrame.params` for this method — same schema on client and server. */
   params: z.ZodType<P>;
@@ -135,8 +179,14 @@ function method<P, R>(params: z.ZodType<P>): MethodSpec<P, R> {
 export const methods = {
   'server.info': method<void, ServerInfo>(z.void()),
   'session.list': method<void, SessionSummary[]>(z.void()),
-  'session.create': method<{ model?: string; mode?: PermissionMode; effort?: ReasoningEffort }, SessionSnapshot>(
+  'workspace.list': method<void, Workspace[]>(z.void()),
+  /** Created in `workspaceId` (default: the most recently used workspace). */
+  'session.create': method<
+    { workspaceId?: string; model?: string; mode?: PermissionMode; effort?: ReasoningEffort },
+    SessionSnapshot
+  >(
     z.object({
+      workspaceId: workspaceIdSchema.optional(),
       model: z.string().optional(),
       mode: permissionModeSchema.optional(),
       effort: reasoningEffortSchema.optional(),
@@ -149,30 +199,31 @@ export const methods = {
    * replays the startup notices and then the run.
    */
   'session.start': method<
-    { text: string; model?: string; mode?: PermissionMode; effort?: ReasoningEffort },
+    { text: string; workspaceId?: string; model?: string; mode?: PermissionMode; effort?: ReasoningEffort },
     { snapshot: SessionSnapshot; runId: string }
   >(
     z.object({
       text: z.string(),
+      workspaceId: workspaceIdSchema.optional(),
       model: z.string().optional(),
       mode: permissionModeSchema.optional(),
       effort: reasoningEffortSchema.optional(),
     }),
   ),
-  'session.open': method<{ id: string }, SessionSnapshot>(z.object({ id: z.string() })),
+  'session.open': method<{ id: string }, SessionSnapshot>(z.object({ id: sessionIdSchema })),
   /** Disk transcript only — no MCP / `AgentSession.create`. Used to render old sessions fast. */
-  'session.preview': method<{ id: string }, SessionSnapshot>(z.object({ id: z.string() })),
+  'session.preview': method<{ id: string }, SessionSnapshot>(z.object({ id: sessionIdSchema })),
   /** Replays the gap after `sinceSeq` when `epoch` (if given) is still the live host's; else `reset`. */
   'session.subscribe': method<{ id: string; sinceSeq?: number; epoch?: string }, SubscribeResult>(
-    z.object({ id: z.string(), sinceSeq: z.number().optional(), epoch: z.string().optional() }),
+    z.object({ id: sessionIdSchema, sinceSeq: z.number().optional(), epoch: z.string().optional() }),
   ),
-  'session.unsubscribe': method<{ id: string }, void>(z.object({ id: z.string() })),
+  'session.unsubscribe': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
   'session.send': method<{ id: string; text: string }, { runId: string }>(
-    z.object({ id: z.string(), text: z.string() }),
+    z.object({ id: sessionIdSchema, text: z.string() }),
   ),
-  'session.abort': method<{ id: string }, void>(z.object({ id: z.string() })),
+  'session.abort': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
   'session.setMode': method<{ id: string; mode: PermissionMode }, void>(
-    z.object({ id: z.string(), mode: permissionModeSchema }),
+    z.object({ id: sessionIdSchema, mode: permissionModeSchema }),
   ),
   /**
    * Change the reasoning effort; it applies from the next message (a run in
@@ -180,20 +231,20 @@ export const methods = {
    * model doesn't offer, or a model without reasoning.
    */
   'session.setEffort': method<{ id: string; effort: ReasoningEffort }, void>(
-    z.object({ id: z.string(), effort: reasoningEffortSchema }),
+    z.object({ id: sessionIdSchema, effort: reasoningEffortSchema }),
   ),
   'session.compact': method<
     { id: string },
     { tokensBefore: number; tokensAfter: number } | null
-  >(z.object({ id: z.string() })),
-  'session.slashCommands': method<{ id: string }, SlashCommandInfo[]>(z.object({ id: z.string() })),
-  'session.close': method<{ id: string }, void>(z.object({ id: z.string() })),
+  >(z.object({ id: sessionIdSchema })),
+  'session.slashCommands': method<{ id: string }, SlashCommandInfo[]>(z.object({ id: sessionIdSchema })),
+  'session.close': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
   'ask.answer': method<
     { sessionId: string; askId: string; decision: AskDecision; feedback?: string },
     void
   >(
     z.object({
-      sessionId: z.string(),
+      sessionId: sessionIdSchema,
       askId: z.string(),
       decision: z.enum(['once', 'always', 'deny', 'auto']),
       feedback: z.string().optional(),
@@ -204,7 +255,7 @@ export const methods = {
     void
   >(
     z.object({
-      sessionId: z.string(),
+      sessionId: sessionIdSchema,
       planId: z.string(),
       approved: z.boolean(),
       feedback: z.string().optional(),

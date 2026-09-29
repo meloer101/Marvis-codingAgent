@@ -14,8 +14,11 @@ function newestFirst(rows: SessionSummary[]): SessionSummary[] {
   return rows.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
+/** The pushes that change the session list. */
+export type SessionPush = Extract<PushEvent, { type: 'session_upsert' | 'session_removed' }>;
+
 /** Apply one pushed change. Stale pushes (an older `rev` than the row held) are dropped. */
-export function applySessionPush(list: SessionSummary[], event: PushEvent): SessionSummary[] {
+export function applySessionPush(list: SessionSummary[], event: SessionPush): SessionSummary[] {
   const id = event.type === 'session_upsert' ? event.summary.id : event.id;
   const rev = event.type === 'session_upsert' ? event.summary.rev : event.rev;
   const current = list.find((s) => s.id === id);
