@@ -21,10 +21,6 @@
 3. **H「按"没有进展"触发的 step-back 提示」**：9 月上旬最多的失败（#7）。9 月下旬没出现在第一个错误里，但仍在。
 
 ### 待决定（产品取舍，不是工程量）
-- **`.env.example` 这类模板文件要不要从敏感文件中豁免？** `isSensitivePath`
-  （`packages/core/src/permissions/paths.ts`）对所有以 `.env` 开头的文件名一律拒绝，`read` /
-  `edit` / `write` 以及 bash 参数（`cat .env.example`）都会被拒。eval 任务 `edit-env-example-ok`
-  已经存在，只等决定。
 - **主会话要不要开启 `finalSummaryTurn`？** 最后一回合去掉工具、强制给出总结，目前只有子代理开启
   （`subagents/run.ts`）。决定开启的话，要测量效果。*(S)*
 - **项目里的会话和 trace 要不要也移出仓库？** 现在只有"不是项目的目录"写到 `~/.agent/projects/`；在项目里仍写
@@ -138,6 +134,11 @@
   有 3 个大任务（MIPS 解释器、MIPS 上的 Doom、细胞分割）到第 40 轮还在修 bug（#14）。用 `--ak max_turns=100`
   重跑这几个任务，看是回合上限卡住了还是本来就做不出来；同时留意更多回合会不会让其他任务"做完不停"（#8）。
   *(S)* — **measure**
+- **coding-e2e（`evals/e2e/`，9-29 建）**：19 个端到端编码任务，通过真实的 `hc agent` + deepseek-flash 运行，按最终状态由隐藏检查打分，另有 `claude -p` 评委判断"谎报完成"。每个版本都从"提交 + 补丁"冻结构建。
+  - 首轮爬坡的目标是权限摩擦：被拒调用从 1.88 次/运行降到 0.81（占工具调用的 13.4% → 5.7%），pass 从 54/57 升到 57/57。
+  - 剩余的被拒都是小类，候选改法：写重定向到临时目录（`… > /tmp/x`）视为安全；`time <cmd>` 按 `<cmd>` 判断。
+  - pass 已经饱和，要继续用它衡量能力，需要更难的任务。
+  - 结果和每轮改动见 `.claude/hillclimb/coding-e2e/RESULTS.md`。*(S)*
 - **失败模式统计**：见下表。每次 Harbor 运行后用 `evals/harbor/digest.py` 逐条读、更新计数。
 - **[codex] 可选的全量调试包**：只在开启时，写出有序的原始事件和精确的请求 / 响应内容，离线还原每次
   请求"模型实际看到了什么"（`rollout-trace/README.md`）。能方便 Harbor 事后分析和 H 节的测量；
@@ -183,9 +184,8 @@
 | 8 | 做完了不停，跑到回合上限 | 任务已经能通过，仍继续打磨直到 40 轮 | 0 | 2 | — | 回合数 | fix landed（turn-budget nudge）；9 月下旬到 40 轮的 3 条都是没做完（#14），不是做完不停 |
 | 4 | 交付物投入过晚 | 第一次写真正的输出之前，做了很多轮探索或 scratch 工作 | 0 | 1 | 1（`largest-eigenval`） | grader `first-touch` | fix landed, unproven |
 | 6 | 回合预算 nudge 伤害迭代 / 优化类任务 | 优化类任务在 nudge 下锁定已选的复杂方案 | 0 | 1 次翻转 | — | 需要 nudge 开关和优化类 capability 任务 | observed |
-| 2 | `.env.example` 被当成密钥 → 过度拒绝 | 对 `.env.example` 的读写被拒 | 0 | 0 | — | 任务 `edit-env-example-ok` | 任务已有，等 §0 的决定 |
 | 9 | 盲目重试同一条失败命令 | — | 0 | 0 | 0 | 工具错误数 | fix landed（step-back 提示）, unproven |
-| 5 | Scratch 文件蔓延 | 工作区里留下辅助和调试文件 | 0 | 0 | 多条都建了多个 scratch 文件，但**结束前基本都清理了**；有几条的清理被权限引擎拒绝（见下表） | grader `scratch-sprawl` | fix landed；"结束前清理"生效，"复用同一个文件"没有 |
+| 5 | Scratch 文件蔓延 | 工作区里留下辅助和调试文件 | 0 | 0 | 多条都建了多个 scratch 文件，但**结束前基本都清理了**；有几条的清理被权限引擎拒绝（见下表） | grader `scratch-sprawl` | 9-29 改法：临时文件写到系统临时目录、不再要求删除（`f6568ec`）。coding-e2e 上 scratch-sprawl 失败 7→0、被拒的删除 49→0；Harbor 上未测 |
 | 10 | 快到上限时纠结细枝末节 | — | 0 | 0 | 0 | — | observed |
 
 **摩擦（不直接导致失败，但每条都在浪费回合），9 月下旬全量的 70 条有效轨迹：**
