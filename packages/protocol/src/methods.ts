@@ -69,6 +69,40 @@ export interface Workspace {
   defaults: WorkspaceDefaults;
 }
 
+/** What adding a directory as a workspace would mean (`workspace.inspect`) — read from disk, nothing started. */
+export interface WorkspaceInspection {
+  /** The path asked about, `~` expanded and made absolute. */
+  path: string;
+  exists: boolean;
+  isDirectory: boolean;
+  /** The directory with symlinks resolved — the root it would have. */
+  root?: string;
+  /** Where its `.agent/` settings live. */
+  projectRoot?: string;
+  git: boolean;
+  /**
+   * It has no project marker of its own and would share a state dir with
+   * other such directories: adding it creates `<root>/.agent/` (`createMarker`).
+   */
+  needsMarker: boolean;
+  /** Already a workspace, or inside one (their sessions are the same). */
+  workspace?: { id: string; name: string };
+  /** Why it can't be added. */
+  problem?: string;
+  /** Servers its `.mcp.json` would start with every session — what runs, never secrets. */
+  mcpServers: Array<{ name: string; transport: 'stdio' | 'http' | 'sse'; command?: string; url?: string }>;
+  /** Project settings worth reading before trusting it (YOLO default, pre-approved calls, redirected providers). */
+  warnings: string[];
+}
+
+/** One completion for a directory path. */
+export interface DirSuggestion {
+  path: string;
+  /** The path with the home directory shown as `~`. */
+  label: string;
+  git: boolean;
+}
+
 /** One row of `session.list` — cheap enough to compute for every session on disk. */
 export interface SessionSummary {
   id: string;
@@ -164,6 +198,7 @@ const reasoningEffortSchema: z.ZodType<ReasoningEffort> = z.enum([
 const sessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, 'not a session id');
 /** Workspace ids are hex digests. */
 const workspaceIdSchema = z.string().regex(/^[0-9a-f]{1,64}$/, 'not a workspace id');
+const pathSchema = z.string().min(1).max(4096);
 
 interface MethodSpec<P = unknown, R = unknown> {
   /** Validates `ClientFrame.params` for this method — same schema on client and server. */
@@ -180,6 +215,18 @@ export const methods = {
   'server.info': method<void, ServerInfo>(z.void()),
   'session.list': method<void, SessionSummary[]>(z.void()),
   'workspace.list': method<void, Workspace[]>(z.void()),
+  'workspace.inspect': method<{ path: string }, WorkspaceInspection>(z.object({ path: pathSchema })),
+  /**
+   * Add a directory as a workspace (or return the one already covering it).
+   * `createMarker` confirms creating `<root>/.agent/` where `needsMarker` says so.
+   */
+  'workspace.add': method<{ path: string; createMarker?: boolean }, Workspace>(
+    z.object({ path: pathSchema, createMarker: z.boolean().optional() }),
+  ),
+  /** Stop hosting a workspace (its files stay). `busy` while one of its sessions runs; the last one stays. */
+  'workspace.remove': method<{ id: string }, void>(z.object({ id: workspaceIdSchema })),
+  /** Directories completing a path prefix (`~` allowed), for the add dialog. */
+  'fs.suggestDirs': method<{ prefix: string }, DirSuggestion[]>(z.object({ prefix: z.string().max(4096) })),
   /** Created in `workspaceId` (default: the most recently used workspace). */
   'session.create': method<
     { workspaceId?: string; model?: string; mode?: PermissionMode; effort?: ReasoningEffort },

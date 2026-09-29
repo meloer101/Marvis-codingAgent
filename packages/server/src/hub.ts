@@ -17,9 +17,10 @@
  *    already covering it.
  */
 
-import { realpath, stat } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { mkdir, realpath, stat } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 
+import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir } from '@harness-code/core';
 import type { EffortOptions, PermissionMode } from '@harness-code/core';
 import type {
   PushEvent,
@@ -27,10 +28,12 @@ import type {
   SessionSummary,
   Workspace,
   WorkspaceDefaults,
+  WorkspaceInspection,
 } from '@harness-code/protocol';
 
-import { InvalidRequestError } from './host.js';
+import { BusyError, InvalidRequestError } from './host.js';
 import type { SessionHost } from './host.js';
+import { inspectDirectory } from './inspect.js';
 import { SessionPreviewNotFoundError, SessionRegistry } from './registry.js';
 import type { RegistryListener, SessionConfigFactory } from './registry.js';
 import { workspaceId } from './workspaces.js';
@@ -59,6 +62,8 @@ export interface WorkspaceHubOptions {
   idleMs?: number;
   /** How often to sweep every registry for idle hosts; `0` turns it off. Default 1 minute. */
   sweepMs?: number;
+  /** The home directory (tests). */
+  home?: string;
 }
 
 /** A request named a workspace this server doesn't host. The WS layer maps it to `not_found`. */
@@ -82,6 +87,7 @@ export class WorkspaceHub {
   readonly #store: WorkspaceStore;
   readonly #setup: WorkspaceSetupFactory;
   readonly #idleMs: number | undefined;
+  readonly #home: string | undefined;
   readonly #entries = new Map<string, Entry>();
   readonly #listeners = new Set<RegistryListener>();
   /** Session id → workspace id, learned from lists, creations and lookups. */
@@ -93,6 +99,7 @@ export class WorkspaceHub {
     this.#store = opts.store;
     this.#setup = opts.setup;
     this.#idleMs = opts.idleMs;
+    this.#home = opts.home;
     const sweepMs = opts.sweepMs ?? DEFAULT_SWEEP_MS;
     if (sweepMs > 0) {
       this.#sweepTimer = setInterval(() => this.sweep(), sweepMs);
@@ -128,6 +135,66 @@ export class WorkspaceHub {
     const entry = this.#entries.get(id);
     if (!entry) throw new WorkspaceNotFoundError(id);
     return this.#describe(entry);
+  }
+
+  /** What adding `path` as a workspace would mean (nothing is changed). */
+  async inspect(path: string): Promise<WorkspaceInspection> {
+    const found = await inspectDirectory(path, this.#home !== undefined ? { home: this.#home } : {});
+    if (found.problem || !found.root) return found;
+    const root = found.root;
+    // One state dir for every project: more workspaces would only mix their sessions.
+    if (process.env[STATE_DIR_ENV] && this.#entries.size > 0 && !this.#entries.has(workspaceId(root))) {
+      return { ...found, problem: `${STATE_DIR_ENV} is set, so every project would share one state directory` };
+    }
+    const agentDir = found.needsMarker
+      ? join(root, AGENT_DIR)
+      : await resolveStateDir(root, { env: projectEnv(root, this.#home !== undefined ? { home: this.#home } : {}) });
+    const covering =
+      this.#entries.get(workspaceId(root)) ?? [...this.#entries.values()].find((e) => e.setup.agentDir === agentDir);
+    return covering
+      ? { ...found, workspace: { id: covering.record.id, name: nameOf(covering.record.root) } }
+      : found;
+  }
+
+  /**
+   * Host `path` as a workspace, or return the one already covering it. A
+   * directory that `needsMarker` gets its `.agent/` only with `createMarker`.
+   */
+  async add(path: string, opts: { createMarker?: boolean } = {}): Promise<Workspace> {
+    const found = await this.inspect(path);
+    if (found.problem || !found.root) throw new InvalidRequestError(found.problem ?? `can't add ${path}`);
+    const known = found.workspace && this.#entries.get(found.workspace.id);
+    if (known) {
+      await this.#touch(known);
+      this.#announceWorkspaces();
+      return this.#describe(known);
+    }
+    if (found.needsMarker) {
+      if (!opts.createMarker) {
+        throw new InvalidRequestError(
+          `${found.root} is not a project of its own; adding it creates ${join(found.root, AGENT_DIR)}`,
+        );
+      }
+      await mkdir(join(found.root, AGENT_DIR), { recursive: true });
+    }
+    const entry = await this.#ensure(found.root);
+    await this.#touch(entry);
+    this.#announceWorkspaces();
+    return this.#describe(entry);
+  }
+
+  /** Stop hosting a workspace: its live sessions close, its files stay. */
+  async remove(id: string): Promise<void> {
+    const entry = this.#entries.get(id);
+    if (!entry) throw new WorkspaceNotFoundError(id);
+    if (this.#entries.size === 1) throw new InvalidRequestError('the last workspace stays');
+    if (entry.registry.hasRunning()) throw new BusyError(`a session in ${nameOf(entry.record.root)} is running`);
+    this.#entries.delete(id);
+    for (const [session, workspace] of this.#sessionIndex) if (workspace === id) this.#sessionIndex.delete(session);
+    await this.#save();
+    await entry.registry.shutdown();
+    await entry.setup.dispose?.();
+    this.#announceWorkspaces();
   }
 
   /** Every workspace's sessions, newest first, all stamped with one `rev`. */
@@ -265,6 +332,19 @@ export class WorkspaceHub {
     return entry;
   }
 
+  /** Push the whole workspace list (after an add or a remove). */
+  #announceWorkspaces(): void {
+    if (this.#listeners.size === 0) return;
+    void this.workspaces().then(
+      (workspaces) => {
+        for (const listener of this.#listeners) listener({ type: 'workspaces', workspaces });
+      },
+      () => {
+        // The next workspace.list (every reconnect) is the fallback.
+      },
+    );
+  }
+
   #forward(workspace: string, event: PushEvent): void {
     if (event.type === 'session_upsert') this.#sessionIndex.set(event.summary.id, workspace);
     for (const listener of this.#listeners) listener(event);
@@ -274,7 +354,7 @@ export class WorkspaceHub {
     return {
       id: entry.record.id,
       root: entry.record.root,
-      name: basename(entry.record.root) || entry.record.root,
+      name: nameOf(entry.record.root),
       projectRoot: entry.setup.projectRoot,
       lastUsedAt: entry.record.lastUsedAt,
       ...(entry.missing ? { missing: true } : {}),
@@ -293,6 +373,10 @@ export class WorkspaceHub {
   async #save(): Promise<void> {
     await this.#store.save([...this.#entries.values()].map((e) => e.record));
   }
+}
+
+function nameOf(root: string): string {
+  return basename(root) || root;
 }
 
 async function isDirectory(path: string): Promise<boolean> {

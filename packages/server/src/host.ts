@@ -54,8 +54,8 @@ const SUMMARY_EVENTS: ReadonlySet<WireEvent['type']> = new Set([
 
 /** Thrown by `send` when a run is already active. The WS layer maps it to `busy`. */
 export class BusyError extends Error {
-  constructor() {
-    super('a run is already active for this session');
+  constructor(message = 'a run is already active for this session') {
+    super(message);
     this.name = 'BusyError';
   }
 }

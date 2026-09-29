@@ -32,6 +32,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 
 import { BusyError, InvalidRequestError, SessionNotFoundError } from './host.js';
 import { WorkspaceNotFoundError } from './hub.js';
+import { suggestDirs } from './inspect.js';
 import type { WorkspaceHub } from './hub.js';
 import { SessionPreviewNotFoundError } from './registry.js';
 import type { SessionHost } from './host.js';
@@ -216,6 +217,16 @@ class Connection {
         return this.opts.serverInfo();
       case 'workspace.list':
         return hub.workspaces();
+      case 'workspace.inspect':
+        return hub.inspect((params as MethodParams<'workspace.inspect'>).path);
+      case 'workspace.add': {
+        const { path, createMarker } = params as MethodParams<'workspace.add'>;
+        return hub.add(path, createMarker !== undefined ? { createMarker } : {});
+      }
+      case 'workspace.remove':
+        return hub.remove((params as MethodParams<'workspace.remove'>).id);
+      case 'fs.suggestDirs':
+        return suggestDirs((params as MethodParams<'fs.suggestDirs'>).prefix);
       case 'session.list':
         return hub.list();
       case 'session.create':

@@ -13,6 +13,7 @@ import type { AgentSessionConfig, ResolvedModel } from '@harness-code/core';
 import type { PushEvent } from '@harness-code/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { BusyError, InvalidRequestError } from './host.js';
 import { WorkspaceHub, WorkspaceNotFoundError } from './hub.js';
 import type { WorkspaceSetupFactory } from './hub.js';
 import { SessionPreviewNotFoundError } from './registry.js';
@@ -63,8 +64,12 @@ const setups: WorkspaceSetupFactory = async (root) => {
   };
 };
 
-async function hubOn(store: WorkspaceStore, launch: string): Promise<{ hub: WorkspaceHub; launchId: string }> {
-  const hub = new WorkspaceHub({ store, setup: setups, sweepMs: 0 });
+async function hubOn(
+  store: WorkspaceStore,
+  launch: string,
+  home?: string,
+): Promise<{ hub: WorkspaceHub; launchId: string }> {
+  const hub = new WorkspaceHub({ store, setup: setups, sweepMs: 0, ...(home ? { home } : {}) });
   cleanups.push(() => hub.shutdown());
   return { hub, launchId: await hub.init(launch) };
 }
@@ -174,5 +179,55 @@ describe('WorkspaceHub', () => {
       await new Promise((r) => setTimeout(r, 10));
     }
     expect(events.find((e) => e.type === 'session_upsert')).toMatchObject({ summary: { workspaceId: launchId } });
+  });
+});
+
+describe('WorkspaceHub add / remove', () => {
+  it('adds a project, pushing the new list; adding it (or a folder inside it) again returns it', async () => {
+    const [a, b] = [await project('a'), await project('b')];
+    const { hub, launchId } = await hubOn(memoryWorkspaceStore(), a);
+    const events: PushEvent[] = [];
+    hub.onChange((e) => events.push(e));
+
+    const added = await hub.add(b);
+    expect(added).toMatchObject({ root: b, name: b.split('/').at(-1) });
+    await mkdir(join(b, 'src'));
+    expect((await hub.inspect(join(b, 'src'))).workspace?.id).toBe(added.id);
+    expect((await hub.add(join(b, 'src'))).id).toBe(added.id);
+    expect((await hub.inspect(a)).workspace?.id).toBe(launchId);
+
+    const deadline = Date.now() + 2000;
+    while (!events.some((e) => e.type === 'workspaces') && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const pushed = events.find((e) => e.type === 'workspaces');
+    expect(pushed?.type === 'workspaces' && pushed.workspaces.map((w) => w.root).sort()).toEqual([a, b].sort());
+  });
+
+  it('only creates a .agent/ marker when told to', async () => {
+    const home = await tempDir('hc-hub-home-');
+    await mkdir(join(home, '.agent'));
+    const notes = join(home, 'notes');
+    await mkdir(notes);
+    const a = await project('a');
+    const { hub } = await hubOn(memoryWorkspaceStore(), a, home);
+    await expect(hub.add(notes)).rejects.toBeInstanceOf(InvalidRequestError);
+    const added = await hub.add(notes, { createMarker: true });
+    expect(added.root).toBe(notes);
+    expect((await hub.inspect(notes)).needsMarker).toBe(false); // it has its own marker now
+  });
+
+  it('removes a workspace but never the last one, nor one with a session running', async () => {
+    const [a, b] = [await project('a'), await project('b')];
+    const { hub, launchId } = await hubOn(memoryWorkspaceStore(), a);
+    const added = await hub.add(b);
+    const running = await hub.start({ workspaceId: added.id, text: 'hi' });
+    // While its run is going it stays.
+    if (hub.host(running.snapshot.id)?.running) await expect(hub.remove(added.id)).rejects.toBeInstanceOf(BusyError);
+    await runToEnd(hub, running.snapshot.id);
+    await hub.remove(added.id);
+    expect((await hub.workspaces()).map((w) => w.id)).toEqual([launchId]);
+    expect(hub.host(running.snapshot.id)).toBeUndefined(); // its live session closed with it
+    await expect(hub.remove(launchId)).rejects.toThrow(/last workspace/);
   });
 });

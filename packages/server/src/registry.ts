@@ -122,6 +122,12 @@ export class SessionRegistry {
     return this.#hosts.get(id);
   }
 
+  /** Whether any of its live sessions is in the middle of a run. */
+  hasRunning(): boolean {
+    for (const host of this.#hosts.values()) if (host.running) return true;
+    return false;
+  }
+
   /** Whether `id` is one of this registry's sessions: live, being resumed, or logged on disk. */
   async has(id: string): Promise<boolean> {
     if (this.#hosts.has(id) || this.#resuming.has(id)) return true;
