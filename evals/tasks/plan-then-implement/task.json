@@ -10,7 +10,7 @@
     "plan-mode",
     "feature"
   ],
-  "runs": 1,
+  "runs": 3,
   "allow": [
     "Bash(npm:*)",
     "Bash(node:*)"
