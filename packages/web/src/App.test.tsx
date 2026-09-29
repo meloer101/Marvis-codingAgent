@@ -64,6 +64,6 @@ describe('App', () => {
     });
     expect(screen.getByText('hello there')).toBeTruthy();
     expect(screen.getByText('General Kenobi')).toBeTruthy();
-    expect(screen.getByText('mock/mock-model')).toBeTruthy();
+    expect(screen.getByLabelText('Model').textContent).toBe('mock-model');
   });
 });

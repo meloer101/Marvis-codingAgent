@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { AlertTriangle, ChevronDown, Folder, Loader2 } from 'lucide-react';
 
+import { nextPermissionMode } from '@harness-code/core/browser';
 import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
 import type { Workspace } from '@harness-code/protocol';
 
 import { Composer } from '@/components/Composer';
-import { EffortPicker, ModelLabel, ModePicker } from '@/components/SessionHeader';
+import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerControls';
 import { UserMessage } from '@/components/Transcript';
 import { relativeTime } from '@/lib/format';
 import { routeToHash } from '@/lib/route';
@@ -20,21 +21,34 @@ const RECENT = 5;
 /**
  * A session that doesn't exist yet: the home screen, in one project (the
  * route's, else the most recently used). Nothing is created until the first
- * message is sent (`session.start`), with the project, mode and effort picked
- * here; while the session starts (MCP servers connecting can take a moment)
- * the message already shows, then the view becomes the session's own.
+ * message is sent (`session.start`), with the project, mode, model and effort
+ * picked here; while the session starts (MCP servers connecting can take a
+ * moment) the message already shows, then the view becomes the session's own.
  */
 export function DraftView({ workspaceId }: { workspaceId?: string }) {
   const sync = useSync();
   const workspaces = useAppStore((s) => s.workspaces);
   const connected = useAppStore((s) => s.status === 'open');
   const workspace = workspaces.find((w) => w.id === workspaceId) ?? workspaces[0];
-  // Choices reset with the project: its modes and its model's effort levels differ.
-  const [choice, setChoice] = useState<{ workspaceId?: string; mode?: PermissionMode; effort?: ReasoningEffort }>({});
+  const models = useAppStore((s) => (workspace ? s.models[workspace.id] : undefined));
+  // Choices reset with the project: its modes, models and their effort levels differ.
+  const [choice, setChoice] = useState<{
+    workspaceId?: string;
+    mode?: PermissionMode;
+    model?: string;
+    effort?: ReasoningEffort;
+  }>({});
   const [starting, setStarting] = useState<string | null>(null);
   const own = choice.workspaceId === workspace?.id ? choice : {};
   const mode = own.mode ?? workspace?.defaults.mode ?? 'ask';
-  const effort = own.effort ?? workspace?.defaults.effort;
+  const modes = workspace?.defaults.modes ?? [mode];
+  // A model picked here brings its own effort levels and key status.
+  const picked = own.model ? models?.find((m) => m.ref === own.model) : undefined;
+  const modelRef = picked?.ref ?? workspace?.defaults.model ?? '';
+  const effortLevels = picked ? picked.effortLevels : (workspace?.defaults.effortLevels ?? []);
+  const effort = own.effort ?? (picked ? picked.defaultEffort : workspace?.defaults.effort);
+  const keyProblem = picked ? picked.problem : workspace?.defaults.keyProblem;
+  const choose = (patch: typeof choice): void => setChoice({ ...own, workspaceId: workspace?.id, ...patch });
 
   const send = async (text: string): Promise<boolean> => {
     const command = /^\/(\S+)\s*$/.exec(text.trim())?.[1];
@@ -47,7 +61,8 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
     const id = await sync.startSession(text, {
       ...(workspace ? { workspaceId: workspace.id } : {}),
       mode,
-      ...(effort && workspace?.defaults.effortLevels.includes(effort) ? { effort } : {}),
+      ...(picked ? { model: picked.ref } : {}),
+      ...(effort && effortLevels.includes(effort) ? { effort } : {}),
     });
     if (!id) {
       setStarting(null);
@@ -61,19 +76,10 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4 text-sm">
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 text-sm">
         {workspace && <ProjectPicker workspaces={workspaces} current={workspace} />}
-        {workspace && <ModelLabel modelRef={workspace.defaults.model} />}
-        <ModePicker
-          mode={mode}
-          {...(workspace ? { modes: workspace.defaults.modes } : {})}
-          onChange={(m) => setChoice({ ...own, workspaceId: workspace?.id, mode: m })}
-        />
-        <EffortPicker
-          effort={effort}
-          levels={workspace?.defaults.effortLevels ?? []}
-          onChange={(e) => setChoice({ ...own, workspaceId: workspace?.id, effort: e })}
-        />
+        <span className="text-muted-foreground/60">/</span>
+        <span className="text-[13px] font-medium text-muted-foreground">New session</span>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {starting === null ? (
@@ -89,7 +95,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
         )}
       </div>
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
-        {workspace?.defaults.keyProblem && starting === null && <KeyProblem message={workspace.defaults.keyProblem} />}
+        {keyProblem && starting === null && <KeyProblem message={keyProblem} />}
         <Composer
           key={`draft-${workspace?.id ?? ''}`}
           sessionId={`new-${workspace?.id ?? ''}`}
@@ -98,6 +104,22 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
           commands={BUILTIN_COMMANDS}
           onSend={send}
           onAbort={() => {}}
+          onCycleMode={() => choose({ mode: nextPermissionMode(mode, { includeAuto: modes.includes('auto') }) })}
+          controls={
+            workspace && (
+              <>
+                <ModeChip mode={mode} modes={modes} onChange={(m) => choose({ mode: m })} />
+                <ModelPicker
+                  modelRef={modelRef}
+                  models={models}
+                  onOpen={() => void sync.loadModels(workspace.id)}
+                  // The effort goes back to the new model's own default.
+                  onChange={(m) => choose({ model: m, effort: undefined })}
+                />
+                <EffortPicker effort={effort} levels={effortLevels} onChange={(e) => choose({ effort: e })} />
+              </>
+            )
+          }
         />
       </div>
     </div>

@@ -12,7 +12,7 @@ import { SyncProvider } from '@/lib/syncContext';
 afterEach(() => {
   cleanup();
   window.location.hash = '';
-  useAppStore.setState({ status: 'closed', workspaces: [], sessions: [], addProjectOpen: false, error: null });
+  useAppStore.setState({ status: 'closed', workspaces: [], sessions: [], models: {}, addProjectOpen: false, error: null });
 });
 
 const workspace = (id: string, name: string, over: Partial<Workspace['defaults']> = {}): Workspace => ({
@@ -39,8 +39,14 @@ function fakeSync(over: Record<string, unknown> = {}) {
     suggestDirs: vi.fn(async () => []),
     inspectPath: vi.fn(async () => null),
     addWorkspace: vi.fn(async () => null),
+    loadModels: vi.fn(async () => {}),
     ...over,
   };
+}
+
+/** Radix opens its menus on pointerdown. */
+function openMenu(label: string): void {
+  fireEvent.pointerDown(screen.getByLabelText(label), { button: 0, ctrlKey: false, pointerType: 'mouse' });
 }
 
 describe('DraftView', () => {
@@ -64,13 +70,44 @@ describe('DraftView', () => {
     expect(screen.queryByText('elsewhere')).toBeNull(); // another project's session
     expect((screen.getByLabelText('Project') as HTMLSelectElement).value).toBe('aaa');
 
-    fireEvent.change(screen.getByLabelText('Permission mode'), { target: { value: 'plan' } });
-    fireEvent.change(screen.getByLabelText('Reasoning effort'), { target: { value: 'max' } });
+    openMenu('Permission mode');
+    fireEvent.click(await screen.findByText('Plan'));
+    openMenu('Reasoning effort');
+    fireEvent.click(await screen.findByText('Max'));
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'hello' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() =>
       expect(sync.startSession).toHaveBeenCalledWith('hello', { workspaceId: 'aaa', mode: 'plan', effort: 'max' }),
+    );
+  });
+
+  it('starts on the model picked, with that model\'s effort levels and key status', async () => {
+    const sync = fakeSync();
+    useAppStore.setState({
+      status: 'open',
+      workspaces: [workspace('aaa', 'alpha')],
+      models: {
+        aaa: [
+          { ref: 'deepseek/deepseek-flash', contextWindow: 1, maxOutputTokens: 1, effortLevels: ['low', 'high', 'max'], defaultEffort: 'high' },
+          { ref: 'moonshot/kimi-k2', contextWindow: 1, maxOutputTokens: 1, effortLevels: [] },
+        ],
+      },
+    });
+    render(
+      <SyncProvider sync={sync as unknown as SessionSync}>
+        <DraftView workspaceId="aaa" />
+      </SyncProvider>,
+    );
+    openMenu('Model');
+    expect(sync.loadModels).toHaveBeenCalledWith('aaa');
+    fireEvent.click(await screen.findByText('moonshot/kimi-k2'));
+    expect(screen.queryByLabelText('Reasoning effort')).toBeNull(); // kimi has no reasoning
+    const box = screen.getByRole('textbox');
+    fireEvent.change(box, { target: { value: 'hi' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() =>
+      expect(sync.startSession).toHaveBeenCalledWith('hi', { workspaceId: 'aaa', mode: 'ask', model: 'moonshot/kimi-k2' }),
     );
   });
 

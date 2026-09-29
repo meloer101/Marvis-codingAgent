@@ -233,6 +233,20 @@ export class SessionSync {
     return this.#run(this.#act(id, () => this.rpc.call('session.setEffort', { id, effort })));
   }
 
+  setModel(id: string, model: string): Promise<void> {
+    return this.#run(this.#act(id, () => this.rpc.call('session.setModel', { id, model })));
+  }
+
+  /** Refresh the models a workspace offers (settings may have changed); the last list stays meanwhile. */
+  async loadModels(workspaceId: string): Promise<void> {
+    try {
+      const models = await this.rpc.call('model.list', { workspaceId });
+      this.#store.setState((s) => ({ models: { ...s.models, [workspaceId]: models } }));
+    } catch (err) {
+      this.#fail(err);
+    }
+  }
+
   answerAsk(sessionId: string, askId: string, decision: AskDecision, feedback?: string): Promise<void> {
     return this.#run(
       this.rpc.call('ask.answer', { sessionId, askId, decision, ...(feedback ? { feedback } : {}) }),

@@ -1,50 +1,29 @@
-import type { ReactNode } from 'react';
-import { ChevronDown, Folder, Gauge } from 'lucide-react';
+import { useState } from 'react';
+import type { KeyboardEvent } from 'react';
+import { Folder } from 'lucide-react';
 
 import { fmtTokens, fmtUSD } from '@harness-code/core/browser';
-import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
 
-import { contextLevel } from '@/lib/format';
+import { UsagePopover } from '@/components/UsagePanel';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
-import { cn } from '@/lib/utils';
 
-const MODE_LABELS: Record<PermissionMode, string> = {
-  ask: 'Ask',
-  plan: 'Plan',
-  acceptEdits: 'Accept edits',
-  readOnly: 'Read only',
-  yolo: 'YOLO',
-  auto: 'Auto',
-};
-
-const EFFORT_LABELS: Record<ReasoningEffort, string> = {
-  off: 'Off',
-  minimal: 'Minimal',
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Extra high',
-  max: 'Max',
-  ultra: 'Ultra',
-};
-
+/**
+ * Where the session runs and what it is called — the title renames in place —
+ * and what it has spent so far, with the context breakdown behind it. What the
+ * next message runs under (mode, model, effort) lives in the composer.
+ */
 export function SessionHeader({ view }: { view: SessionViewState }) {
-  const sync = useSync();
   const workspace = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId));
+  const title = useAppStore((s) => s.sessions.find((r) => r.id === view.id)?.title);
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4 text-sm">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 text-sm">
       {workspace && <ProjectChip name={workspace.name} root={workspace.root} />}
-      <ModelLabel modelRef={view.modelRef} />
-      <ModePicker mode={view.mode} onChange={(mode) => void sync.setMode(view.id, mode)} />
-      <EffortPicker
-        effort={view.effort}
-        levels={view.effortLevels}
-        onChange={(effort) => void sync.setEffort(view.id, effort)}
-      />
+      {workspace && title !== undefined && <span className="text-muted-foreground/60">/</span>}
+      {title !== undefined && <SessionTitle id={view.id} title={title} />}
       <div className="flex-1" />
-      <UsageMeter view={view} />
+      <SpendButton view={view} />
     </header>
   );
 }
@@ -59,147 +38,75 @@ export function ProjectChip({ name, root }: { name: string; root: string }) {
   );
 }
 
-export function ModelLabel({ modelRef }: { modelRef: string }) {
+/** Click to rename: Enter or leaving the field saves (empty goes back to the first message), Esc cancels. */
+function SessionTitle({ id, title }: { id: string; title: string }) {
+  const sync = useSync();
+  const [editing, setEditing] = useState<string | null>(null);
+
+  const done = (value: string): void => {
+    setEditing(null);
+    if (value.trim() !== title) void sync.updateSession(id, { title: value });
+  };
+
+  if (editing !== null) {
+    const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
+      if (e.nativeEvent.isComposing) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        done(editing);
+      } else if (e.key === 'Escape') {
+        e.preventDefault(); // cancels the rename; must not also stop a run
+        e.stopPropagation();
+        setEditing(null);
+      }
+    };
+    return (
+      <input
+        autoFocus
+        aria-label="Session title"
+        value={editing}
+        onChange={(e) => setEditing(e.target.value)}
+        onKeyDown={onKeyDown}
+        onBlur={() => done(editing)}
+        onFocus={(e) => e.target.select()}
+        className="h-7 w-full max-w-md min-w-0 rounded-md border border-primary/45 bg-background px-2 text-[13px] ring-2 ring-primary/20 outline-none"
+      />
+    );
+  }
   return (
-    <span className="flex min-w-0 items-center gap-2" title="Model">
-      <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-      <span className="truncate font-mono text-xs text-muted-foreground">{modelRef}</span>
-    </span>
+    <button
+      type="button"
+      onClick={() => setEditing(title)}
+      title="Rename"
+      className="min-w-0 cursor-text truncate rounded-md px-1.5 py-1 text-left text-[13px] font-medium transition-colors hover:bg-accent"
+    >
+      {title}
+    </button>
   );
 }
 
-/** The permission-mode dropdown, over the modes on offer (the server's, unless given). */
-export function ModePicker({
-  mode,
-  modes: offered,
-  onChange,
-}: {
-  mode: PermissionMode;
-  modes?: readonly PermissionMode[];
-  onChange: (mode: PermissionMode) => void;
-}) {
-  const serverModes = useAppStore((s) => s.info?.modes);
-  const modes = offered ?? serverModes ?? [mode];
-  return (
-    <HeaderSelect
-      label="Permission mode"
-      value={mode}
-      options={modes.map((m) => ({ value: m, label: MODE_LABELS[m] }))}
-      onChange={(m) => onChange(m as PermissionMode)}
-    />
-  );
-}
-
-/**
- * The reasoning-effort dropdown over the model's levels (Faster→Smarter);
- * nothing for a model without reasoning. A change applies from the next
- * message — a run in progress keeps the level it started with.
- */
-export function EffortPicker({
-  effort,
-  levels,
-  onChange,
-}: {
-  effort: ReasoningEffort | undefined;
-  levels: readonly ReasoningEffort[];
-  onChange: (effort: ReasoningEffort) => void;
-}) {
-  if (levels.length === 0) return null;
-  // A level set elsewhere (settings, a flag) that the picker doesn't offer still shows as the current one.
-  const shown = effort && !levels.includes(effort) ? [effort, ...levels] : levels;
-  return (
-    <HeaderSelect
-      label="Reasoning effort"
-      title="Reasoning effort — applies from your next message"
-      icon={<Gauge className="size-3.5" />}
-      value={effort ?? ''}
-      options={shown.map((l) => ({ value: l, label: EFFORT_LABELS[l] }))}
-      onChange={(l) => onChange(l as ReasoningEffort)}
-    />
-  );
-}
-
-/** A compact native select for the header row, with an optional leading icon. */
-function HeaderSelect({
-  label,
-  title,
-  icon,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  title?: string;
-  icon?: ReactNode;
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <span className="relative flex items-center" title={title}>
-      {icon && (
-        <span className="pointer-events-none absolute left-2 text-muted-foreground" aria-hidden>
-          {icon}
-        </span>
-      )}
-      <select
-        aria-label={label}
-        className={cn(
-          'h-7 cursor-pointer appearance-none rounded-md border bg-card pr-7 text-xs font-medium shadow-xs transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
-          icon ? 'pl-7' : 'pl-2.5',
-        )}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-    </span>
-  );
-}
-
-function UsageMeter({ view }: { view: SessionViewState }) {
+/** Session tokens and cost; opens the context and usage breakdown. */
+function SpendButton({ view }: { view: SessionViewState }) {
   const { usage, context } = view;
-  if (!usage && !context) return null;
-  const level = context ? contextLevel(context.ratio) : 'ok';
-  const pct = context ? Math.round(context.ratio * 100) : null;
-
+  if (!usage) return null;
   return (
-    <div className="flex items-center gap-3 font-mono text-[11px] text-muted-foreground tabular-nums">
-      {usage && (
-        <span title="Session tokens in / out">
+    <UsagePopover context={context} usage={usage} modelRef={view.modelRef} side="bottom">
+      <button
+        type="button"
+        aria-label="Usage"
+        title="Context and usage"
+        className="flex h-7 shrink-0 cursor-pointer items-center gap-3 rounded-md px-2 font-mono text-[11px] text-muted-foreground tabular-nums transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 data-[state=open]:bg-accent"
+      >
+        <span>
           ↑{fmtTokens(usage.inputTokens)} ↓{fmtTokens(usage.outputTokens)}
         </span>
-      )}
-      {usage?.costUSD !== undefined && (
-        <span title={usage.estimated ? 'Estimated cost' : 'Session cost'}>
-          {usage.estimated ? '~' : ''}
-          {fmtUSD(usage.costUSD)}
-        </span>
-      )}
-      {context && pct !== null && (
-        <span
-          className="flex items-center gap-1.5"
-          title={`Context ${fmtTokens(context.usedTokens)} / ${fmtTokens(context.windowTokens)}`}
-        >
-          <span className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-            <span
-              className={cn(
-                'block h-full rounded-full transition-[width] duration-300',
-                level === 'danger' ? 'bg-destructive' : level === 'warn' ? 'bg-brass' : 'bg-primary/50',
-              )}
-              style={{ width: `${Math.min(100, pct)}%` }}
-            />
+        {usage.costUSD !== undefined && (
+          <span>
+            {usage.estimated ? '~' : ''}
+            {fmtUSD(usage.costUSD)}
           </span>
-          <span className={cn(level === 'danger' && 'text-destructive', level === 'warn' && 'text-brass')}>
-            {pct}%
-          </span>
-        </span>
-      )}
-    </div>
+        )}
+      </button>
+    </UsagePopover>
   );
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent, RefObject } from 'react';
+import type { KeyboardEvent, ReactNode, RefObject } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
 
 import { SlashMenu } from '@/components/SlashMenu';
@@ -13,9 +13,11 @@ const draftKey = (id: string) => `hc.draft.${id}`;
 /**
  * Enter sends, Shift+Enter is a newline, and Enter while an IME is composing
  * (Chinese/Japanese input) only confirms the candidate. Typing `/` at the
- * start opens the command menu (↑/↓ to move, Enter or Tab to complete). While
- * a run is going the send button becomes Stop; the draft survives reloads per
- * session.
+ * start opens the command menu (↑/↓ to move, Enter or Tab to complete), and
+ * Shift+Tab switches the permission mode. While a run is going the send
+ * button becomes Stop; the draft survives reloads per session. The footer
+ * holds what the next message runs under (`controls`) and, before the send
+ * button, `trailing` (the context meter).
  */
 export function Composer({
   sessionId,
@@ -25,7 +27,10 @@ export function Composer({
   onSend,
   onAbort,
   onCommandMenu,
+  onCycleMode,
   inputRef,
+  controls,
+  trailing,
 }: {
   sessionId: string;
   running: boolean;
@@ -35,8 +40,12 @@ export function Composer({
   onAbort: () => void;
   /** Called when the `/` menu opens — the session's MCP prompt commands can load then. */
   onCommandMenu?: () => void;
+  /** Shift+Tab: move to the next permission mode. */
+  onCycleMode?: () => void;
   /** Lets the session view put focus back here (after a prompt is answered). */
   inputRef?: RefObject<HTMLTextAreaElement | null>;
+  controls?: ReactNode;
+  trailing?: ReactNode;
 }) {
   const [text, setText] = useState(() => platform.storage.get(draftKey(sessionId)) ?? '');
   const [active, setActive] = useState(0);
@@ -115,6 +124,11 @@ export function Composer({
         return;
       }
     }
+    if (e.key === 'Tab' && e.shiftKey && onCycleMode) {
+      e.preventDefault();
+      onCycleMode();
+      return;
+    }
     if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
     e.preventDefault();
     void submit();
@@ -123,7 +137,7 @@ export function Composer({
   return (
     <div className="relative">
       {menuOpen && <SlashMenu commands={matches} active={active} onPick={complete} />}
-      <div className="flex items-end gap-2 rounded-xl border bg-card p-2 shadow-sm transition-shadow focus-within:border-primary/45 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/25">
+      <div className="flex flex-col rounded-xl border bg-card shadow-sm transition-shadow focus-within:border-primary/45 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/25">
         <textarea
           ref={ref}
           rows={1}
@@ -134,18 +148,22 @@ export function Composer({
           }}
           onKeyDown={onKeyDown}
           placeholder={running ? 'Running… you can type the next message' : 'Message hc — Enter to send, / for commands'}
-          className="max-h-60 min-h-9 flex-1 resize-none bg-transparent px-2 py-1.5 text-sm outline-none placeholder:text-muted-foreground"
+          className="max-h-60 min-h-11 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm outline-none placeholder:text-muted-foreground"
           disabled={disabled}
         />
-        {running ? (
-          <Button size="icon" variant="secondary" onClick={onAbort} aria-label="Stop" title="Stop (Esc)">
-            <Square className="fill-current" />
-          </Button>
-        ) : (
-          <Button size="icon" onClick={() => void submit()} disabled={!canSend} aria-label="Send" title="Send">
-            <ArrowUp />
-          </Button>
-        )}
+        <div className="flex items-center gap-1 px-2 pb-2">
+          <div className="flex min-w-0 flex-1 items-center gap-0.5">{controls}</div>
+          {trailing}
+          {running ? (
+            <Button size="icon-sm" variant="secondary" className="rounded-lg" onClick={onAbort} aria-label="Stop" title="Stop (Esc)">
+              <Square className="size-3.5 fill-current" />
+            </Button>
+          ) : (
+            <Button size="icon-sm" className="rounded-lg" onClick={() => void submit()} disabled={!canSend} aria-label="Send" title="Send">
+              <ArrowUp />
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

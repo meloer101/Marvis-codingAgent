@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import type { SlashCommandInfo } from '@harness-code/core';
-import type { ServerInfo, SessionSummary, Workspace } from '@harness-code/protocol';
+import type { ModelInfo, ServerInfo, SessionSummary, Workspace } from '@harness-code/protocol';
 
 import type { ConnectionStatus } from './rpc';
 import type { SessionViewState } from './sessionModel';
@@ -17,6 +17,8 @@ export interface AppState {
   views: Record<string, SessionViewState>;
   /** MCP prompt commands per session, for the `/` menu. */
   slash: Record<string, SlashCommandInfo[]>;
+  /** The models on offer per workspace, loaded when a model picker opens. */
+  models: Record<string, ModelInfo[]>;
   /** Last failed action, shown as a dismissible banner. */
   error: string | null;
   /** The `/help` panel. */
@@ -32,6 +34,7 @@ export const useAppStore = create<AppState>(() => ({
   sessions: [],
   views: {},
   slash: {},
+  models: {},
   error: null,
   helpOpen: false,
   addProjectOpen: false,

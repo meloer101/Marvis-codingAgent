@@ -193,6 +193,15 @@ export class SessionModel {
       case 'effort':
         this.#dispatch({ type: 'SET_EFFORT', effort: event.effort });
         return true;
+      case 'model':
+        this.#dispatch({
+          type: 'SET_MODEL',
+          modelRef: event.modelRef,
+          ...(event.effort ? { effort: event.effort } : {}),
+          ...(event.context ? { context: event.context } : {}),
+        });
+        this.#state = { ...this.#state, effortLevels: event.effortLevels };
+        return true;
     }
   }
 

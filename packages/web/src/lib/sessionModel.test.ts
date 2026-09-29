@@ -177,4 +177,14 @@ describe('SessionModel effort', () => {
     expect(m.state.effort).toBeUndefined();
     expect(m.state.effortLevels).toEqual([]);
   });
+
+  it('follows a model switch: its levels, its effort (or none) and the meter against its window', () => {
+    const m = new SessionModel(snapshot({ effort: 'high', effortLevels: ['low', 'high'] }));
+    const context = { usedTokens: 50, windowTokens: 100, ratio: 0.5 };
+    feed(m, [{ type: 'model', modelRef: 'other/plain', effortLevels: [], context }]);
+    expect(m.state).toMatchObject({ modelRef: 'other/plain', effortLevels: [], context });
+    expect(m.state.effort).toBeUndefined();
+    feed(m, [{ type: 'model', modelRef: 'mock/m', effortLevels: ['low', 'max'], effort: 'max' }]);
+    expect(m.state).toMatchObject({ modelRef: 'mock/m', effortLevels: ['low', 'max'], effort: 'max', context });
+  });
 });

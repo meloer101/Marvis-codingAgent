@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { Markdown } from './Markdown';
-import { EffortPicker } from './SessionHeader';
+import { EffortPicker, ModeChip, ModelPicker } from './ComposerControls';
 import { toolPreview, toolView } from './tools/registry';
 import { briefNotice, transcriptRows } from '@/lib/rows';
 
@@ -136,25 +136,84 @@ describe('startup notices', () => {
   });
 });
 
+/** Radix opens its menus on pointerdown. */
+function openMenu(label: string): void {
+  fireEvent.pointerDown(screen.getByLabelText(label), { button: 0, ctrlKey: false, pointerType: 'mouse' });
+}
+
 describe('EffortPicker', () => {
-  it('offers the model levels, and nothing for a model without reasoning', () => {
+  it('offers the model levels, smartest first, and nothing for a model without reasoning', async () => {
     const picked: string[] = [];
     render(<EffortPicker effort="high" levels={['low', 'high', 'max']} onChange={(e) => picked.push(e)} />);
-    const select = screen.getByLabelText('Reasoning effort') as HTMLSelectElement;
-    expect([...select.options].map((o) => o.textContent)).toEqual(['Low', 'High', 'Max']);
-    expect(select.value).toBe('high');
-    fireEvent.change(select, { target: { value: 'max' } });
+    expect(screen.getByLabelText('Reasoning effort').textContent).toBe('High');
+    openMenu('Reasoning effort');
+    const items = await screen.findAllByRole('menuitemradio');
+    expect(items.map((i) => i.textContent)).toEqual(['Max', 'High', 'Low']);
+    expect(items[1]!.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(items[0]!);
     expect(picked).toEqual(['max']);
     cleanup();
     render(<EffortPicker effort={undefined} levels={[]} onChange={() => {}} />);
     expect(screen.queryByLabelText('Reasoning effort')).toBeNull();
   });
 
-  it('still shows a current level the picker does not offer', () => {
+  it('still shows a current level the picker does not offer', async () => {
     render(<EffortPicker effort="off" levels={['low', 'high']} onChange={() => {}} />);
-    const select = screen.getByLabelText('Reasoning effort') as HTMLSelectElement;
-    expect(select.value).toBe('off');
-    expect([...select.options].map((o) => o.value)).toEqual(['off', 'low', 'high']);
+    openMenu('Reasoning effort');
+    const items = await screen.findAllByRole('menuitemradio');
+    expect(items.map((i) => i.textContent)).toEqual(['High', 'Low', 'Off']);
+  });
+});
+
+describe('ModeChip', () => {
+  it('shows the mode and switches to another on offer', async () => {
+    const picked: string[] = [];
+    render(<ModeChip mode="ask" modes={['ask', 'acceptEdits', 'plan']} onChange={(m) => picked.push(m)} />);
+    expect(screen.getByLabelText('Permission mode').textContent).toBe('Ask');
+    openMenu('Permission mode');
+    const items = await screen.findAllByRole('menuitemradio');
+    expect(items).toHaveLength(3);
+    fireEvent.click(await screen.findByText('Plan'));
+    expect(picked).toEqual(['plan']);
+  });
+});
+
+describe('ModelPicker', () => {
+  it('lists the models with their window and price; one without a key cannot be picked', async () => {
+    const picked: string[] = [];
+    let opened = 0;
+    render(
+      <ModelPicker
+        modelRef="deepseek/deepseek-flash"
+        models={[
+          {
+            ref: 'deepseek/deepseek-flash',
+            contextWindow: 1_000_000,
+            qualityContextWindow: 256_000,
+            maxOutputTokens: 384_000,
+            effortLevels: ['high'],
+            pricing: { inputPerMTok: 0.3, outputPerMTok: 1.2 },
+          },
+          { ref: 'deepseek/deepseek-v4-pro', contextWindow: 1_000_000, maxOutputTokens: 1, effortLevels: [] },
+          { ref: 'openai/gpt-5', contextWindow: 200_000, maxOutputTokens: 1, effortLevels: [], problem: 'OpenAI needs an API key.' },
+        ]}
+        onOpen={() => opened++}
+        onChange={(m) => picked.push(m)}
+      />,
+    );
+    expect(screen.getByLabelText('Model').textContent).toContain('deepseek-flash');
+    openMenu('Model');
+    expect(opened).toBe(1);
+    expect(await screen.findByText('1M context · 256K reliable · reasoning')).toBeTruthy();
+    expect(screen.getByText('$0.30 / $1.20')).toBeTruthy();
+    fireEvent.click(screen.getByText('openai/gpt-5'));
+    fireEvent.click(screen.getByText('deepseek/deepseek-v4-pro'));
+    expect(picked).toEqual(['deepseek/deepseek-v4-pro']);
+  });
+
+  it('cannot be opened while a run is going', () => {
+    render(<ModelPicker modelRef="m/x" models={[]} onOpen={() => {}} onChange={() => {}} disabledReason="busy" />);
+    expect((screen.getByLabelText('Model') as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

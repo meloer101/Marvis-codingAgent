@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useRef } from 'react';
+import type { RefObject } from 'react';
 import { Loader2 } from 'lucide-react';
 
+import { nextPermissionMode } from '@harness-code/core/browser';
+import type { PermissionMode } from '@harness-code/core';
+
 import { Composer } from '@/components/Composer';
+import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerControls';
 import { PendingDock } from '@/components/PendingDock';
 import { SessionHeader } from '@/components/SessionHeader';
 import { Transcript } from '@/components/Transcript';
+import { ContextButton } from '@/components/UsagePanel';
+import type { SessionViewState } from '@/lib/sessionModel';
 import { allCommands } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
+
+const FALLBACK_MODES: readonly PermissionMode[] = ['ask', 'acceptEdits', 'plan', 'readOnly', 'yolo'];
 
 export function SessionView({ id, onNewSession }: { id: string; onNewSession: () => void }) {
   const sync = useSync();
@@ -66,18 +75,59 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
       <Transcript view={view} />
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
         <PendingDock view={view} />
-        <Composer
-          key={id}
-          sessionId={id}
-          running={view.running}
-          disabled={!connected || view.hydrating}
-          commands={commands}
-          onSend={send}
-          onAbort={() => void sync.abort(id)}
-          onCommandMenu={() => void sync.prepareCommands(id)}
-          inputRef={composerRef}
-        />
+        <SessionComposer view={view} onSend={send} inputRef={composerRef} commands={commands} connected={connected} />
       </div>
     </div>
+  );
+}
+
+function SessionComposer({
+  view,
+  onSend,
+  inputRef,
+  commands,
+  connected,
+}: {
+  view: SessionViewState;
+  onSend: (text: string) => Promise<boolean>;
+  inputRef: RefObject<HTMLTextAreaElement | null>;
+  commands: ReturnType<typeof allCommands>;
+  connected: boolean;
+}) {
+  const sync = useSync();
+  const { id } = view;
+  const workspaceModes = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId)?.defaults.modes);
+  const serverModes = useAppStore((s) => s.info?.modes);
+  const models = useAppStore((s) => (view.workspaceId ? s.models[view.workspaceId] : undefined));
+  const modes = workspaceModes ?? serverModes ?? FALLBACK_MODES;
+
+  const setMode = (mode: PermissionMode): void => void sync.setMode(id, mode);
+  return (
+    <Composer
+      key={id}
+      sessionId={id}
+      running={view.running}
+      disabled={!connected || view.hydrating}
+      commands={commands}
+      onSend={onSend}
+      onAbort={() => void sync.abort(id)}
+      onCommandMenu={() => void sync.prepareCommands(id)}
+      onCycleMode={() => setMode(nextPermissionMode(view.mode, { includeAuto: modes.includes('auto') }))}
+      inputRef={inputRef}
+      controls={
+        <>
+          <ModeChip mode={view.mode} modes={modes} onChange={setMode} />
+          <ModelPicker
+            modelRef={view.modelRef}
+            models={models}
+            onOpen={() => view.workspaceId && void sync.loadModels(view.workspaceId)}
+            onChange={(model) => void sync.setModel(id, model)}
+            {...(view.running ? { disabledReason: 'The model can be switched once this run ends' } : {})}
+          />
+          <EffortPicker effort={view.effort} levels={view.effortLevels} onChange={(effort) => void sync.setEffort(id, effort)} />
+        </>
+      }
+      trailing={<ContextButton context={view.context} usage={view.usage} modelRef={view.modelRef} />}
+    />
   );
 }

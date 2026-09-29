@@ -27,6 +27,7 @@ const emptyState = (): AppState => ({
   sessions: [],
   views: {},
   slash: {},
+  models: {},
   error: null,
   helpOpen: false,
   addProjectOpen: false,
