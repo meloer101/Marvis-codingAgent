@@ -5,3 +5,4 @@ export * from './prompt-tools.js';
 export * from './router.js';
 export * from './sse.js';
 export * from './mock.js';
+export * from './catalog.js';

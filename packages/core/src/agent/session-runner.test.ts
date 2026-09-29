@@ -465,6 +465,61 @@ describe('AgentSession', () => {
     expect(after?.system).not.toEqual(before?.system);
   });
 
+  it('setModel sends later turns to the new model, with the history carried over', async () => {
+    const first = new ScriptedProvider([{ text: 'one' }], 'first');
+    const second = new ScriptedProvider([{ text: 'two' }], 'second');
+    const other = sessionModel(second, { systemPromptUpdate: 'in-history' });
+    const { session, notices } = await createSession({
+      model: sessionModel(first, { systemPromptUpdate: 'in-history' }),
+      resolveModel: (ref) => {
+        if (ref !== other.ref) throw new ProviderError('not_found', `no model ${ref}`);
+        return other;
+      },
+    });
+
+    await session.runTurn('hello');
+    session.setModel(other.ref);
+    await session.runTurn('again');
+
+    expect(session.modelRef).toBe('second/test-model');
+    expect(first.requests).toHaveLength(1);
+    expect(second.requests).toHaveLength(1);
+    const texts = second.requests[0]!.messages.map((m) => m.content.map((b) => ('text' in b ? b.text : '')).join(''));
+    expect(texts.slice(0, 3)).toEqual(['hello', 'one', 'again']);
+    // A fresh head for the new model, not an update appended to the old one's.
+    expect(second.requests[0]!.systemUpdate).toBeUndefined();
+    expect(notices.some((n) => n.kind === 'model-changed' && n.text === 'model: first/test-model → second/test-model')).toBe(true);
+    expect(() => session.setModel('nope/x')).toThrow('no model nope/x');
+    expect(session.modelRef).toBe('second/test-model');
+  });
+
+  it('setModel keeps an effort the new model offers and folds one it lacks', async () => {
+    const provider = new ScriptedProvider([]);
+    const reasoning = { reasoning: true, effortLevels: ['low', 'medium', 'high', 'ultra'] as const };
+    const plain = sessionModel(new ScriptedProvider([], 'plain'));
+    const deep = sessionModel(new ScriptedProvider([], 'deep'), { reasoning: true });
+    const models = new Map([
+      [plain.ref, plain],
+      [deep.ref, deep],
+    ]);
+    const { session, notices } = await createSession({
+      model: sessionModel(provider, { ...reasoning, effortLevels: [...reasoning.effortLevels] }),
+      reasoningEffort: 'ultra',
+      resolveModel: (ref) => models.get(ref)!,
+    });
+
+    session.setModel(deep.ref); // default ladder: minimal … max, no ultra
+    expect(session.effort).toBe('max');
+    expect(notices.at(-1)).toMatchObject({ kind: 'effort-changed', text: 'effort: ultra → max' });
+
+    session.setModel(plain.ref);
+    expect(session.effort).toBeUndefined();
+    expect(session.effortLevels).toEqual([]);
+
+    session.setModel(deep.ref);
+    expect(session.effort).toBe('max'); // kept through the model without reasoning
+  });
+
   it('plan mode: confirm approval leaves plan mode and refuses exit_plan_mode after', async () => {
     const provider = new ScriptedProvider([
       { toolCalls: [{ name: 'exit_plan_mode', input: { title: 'T', plan: 'do X' } }] },

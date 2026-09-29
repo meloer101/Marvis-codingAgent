@@ -8,6 +8,7 @@
  */
 
 import { estimateCostUSD } from '../provider/capabilities.js';
+import type { ModelCapabilities } from '../provider/capabilities.js';
 import { backoffMs, sleep } from '../provider/retry.js';
 import { analyzeStableParts, breakdownFrom } from '../context/budget.js';
 import { estimateMessageTokens, estimateRequestTokens, heuristicTokenCount, createTokenCalibrator } from '../context/tokenizer.js';
@@ -275,6 +276,29 @@ const DEFAULT_CONTEXT_STOP_RATIO = 0.95;
  */
 const OUTPUT_RESERVE_CEILING = 64_000;
 
+/**
+ * The window a run plans against: the whole context minus the headroom
+ * reserved for a turn's output. `contextWindow` is always populated
+ * (DEFAULT_CAPABILITIES). The reservation is capped at OUTPUT_RESERVE_CEILING
+ * so a model with a huge `maxOutputTokens` (e.g. DeepSeek V4's 384k) does not
+ * shrink the window by output it will almost never produce. Planning happens
+ * against the span the model is actually reliable over (`contextBudgetTokens`,
+ * else the model's `qualityContextWindow`), which on DeepSeek V4 is well short
+ * of the 1M it accepts. The hard window still caps it — a budget can only
+ * narrow the planning window, never widen it.
+ */
+export function usableContextWindow(
+  caps: Pick<ModelCapabilities, 'contextWindow' | 'qualityContextWindow' | 'maxOutputTokens'>,
+  opts: { contextBudgetTokens?: number; maxOutputTokens?: number } = {},
+): number {
+  const outputReserve = Math.min(opts.maxOutputTokens ?? caps.maxOutputTokens, OUTPUT_RESERVE_CEILING);
+  const plannedWindow = Math.min(
+    caps.contextWindow,
+    opts.contextBudgetTokens ?? caps.qualityContextWindow ?? caps.contextWindow,
+  );
+  return Math.max(1, plannedWindow - outputReserve);
+}
+
 interface Decision {
   call: ToolUseBlock;
   decision: PermissionDecision;
@@ -328,22 +352,12 @@ export class AgentLoop {
     let turn = 0;
     let completedTurns = 0;
 
-    // Usable window: the whole context minus the headroom we reserve for this
-    // turn's output. `contextWindow` is always populated (DEFAULT_CAPABILITIES).
-    // The reservation is capped at OUTPUT_RESERVE_CEILING so a model with a huge
-    // `maxOutputTokens` (e.g. DeepSeek V4's 384k) does not shrink the window by
-    // output it will almost never produce.
-    // Planning happens against the span the model is actually reliable over
-    // (`contextBudgetTokens`, else the model's `qualityContextWindow`), which on
-    // DeepSeek V4 is well short of the 1M it accepts. The hard window still
-    // caps it — a budget can only narrow the planning window, never widen it.
-    const outputReserve = Math.min(this.maxOutputTokens, OUTPUT_RESERVE_CEILING);
-    const caps = this.opts.model.capabilities;
-    const plannedWindow = Math.min(
-      caps.contextWindow,
-      this.opts.contextBudgetTokens ?? caps.qualityContextWindow ?? caps.contextWindow,
-    );
-    const availableWindow = Math.max(1, plannedWindow - outputReserve);
+    const availableWindow = usableContextWindow(this.opts.model.capabilities, {
+      maxOutputTokens: this.maxOutputTokens,
+      ...(this.opts.contextBudgetTokens !== undefined
+        ? { contextBudgetTokens: this.opts.contextBudgetTokens }
+        : {}),
+    });
     // The fixed buckets — system / project memory / tool schemas — don't change
     // within a run, so cost them once. `history` is then the remainder of the
     // anchored total, no full re-flatten per turn.

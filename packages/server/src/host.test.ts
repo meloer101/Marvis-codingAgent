@@ -47,7 +47,12 @@ interface Fixture {
 
 async function makeHost(
   turns: readonly ScriptedTurn[],
-  opts: { mode?: PermissionMode; capabilities?: Partial<ModelCapabilities> } = {},
+  opts: {
+    mode?: PermissionMode;
+    capabilities?: Partial<ModelCapabilities>;
+    /** Other models `setModel` can switch to, by ref. */
+    models?: Record<string, Partial<ModelCapabilities>>;
+  } = {},
 ): Promise<Fixture> {
   const cwd = await mkdtemp(join(tmpdir(), 'hc-host-'));
   tmpDirs.push(cwd);
@@ -58,6 +63,11 @@ async function makeHost(
       Promise.resolve({
         cwd,
         model: scriptedModel(turns, opts.capabilities),
+        resolveModel: (ref: string) => {
+          const caps = opts.models?.[ref];
+          if (!caps) throw new Error(`Unknown model "${ref}"`);
+          return { ...scriptedModel([], caps), ref };
+        },
         settings: {},
         budgets: {},
         mode: opts.mode ?? 'yolo',
@@ -510,5 +520,50 @@ describe('SessionHost effort', () => {
       meta = await readSessionMeta(agentDir, host.id);
     }
     expect(meta?.effort).toBe('max');
+  });
+});
+
+describe('SessionHost model', () => {
+  it('switches the model between runs, broadcasting the effort and meter that come with it', async () => {
+    const { host, events, agentDir } = await makeHost([{ text: 'hi' }], {
+      capabilities: { reasoning: true },
+      models: { 'other/plain': { contextWindow: 64_000, maxOutputTokens: 4_000 } },
+    });
+    const settled = runSettled(host);
+    host.send('go');
+    await settled;
+
+    host.setModel('other/plain');
+    host.setModel('other/plain'); // already on it: nothing more
+    const switched = events().filter((e) => e.type === 'model');
+    expect(switched).toHaveLength(1);
+    expect(switched[0]).toMatchObject({ modelRef: 'other/plain', effortLevels: [] });
+    expect(switched[0]).not.toHaveProperty('effort');
+    expect((switched[0] as { context?: { windowTokens: number } }).context?.windowTokens).toBe(60_000);
+
+    const snap = await host.snapshot();
+    expect(snap).toMatchObject({ modelRef: 'other/plain', effortLevels: [] });
+    expect(snap.effort).toBeUndefined();
+
+    const deadline = Date.now() + 2000;
+    let meta = await readSessionMeta(agentDir, host.id);
+    while (meta?.model !== 'other/plain' && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+      meta = await readSessionMeta(agentDir, host.id);
+    }
+    expect(meta?.model).toBe('other/plain');
+  });
+
+  it('refuses a model it cannot resolve, and any switch while a run is going', async () => {
+    const { host } = await makeHost(
+      [{ toolCalls: [{ name: 'write', input: { path: 'a.txt', content: 'x' } }] }, { text: 'done' }],
+      { mode: 'ask', models: { 'other/plain': {} } },
+    );
+    expect(() => host.setModel('nowhere/x')).toThrow(InvalidRequestError);
+    const asked = firstEvent(host, 'ask');
+    host.send('go');
+    await asked;
+    expect(() => host.setModel('other/plain')).toThrow(BusyError);
+    host.abort();
   });
 });

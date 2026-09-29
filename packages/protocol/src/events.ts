@@ -5,7 +5,15 @@
  * here, so they can't drift from the loop's actual event shapes.
  */
 
-import type { AgentEvent, AgentStopReason, Notice, PermissionMode, ReasoningEffort, Usage } from '@harness-code/core';
+import type {
+  AgentEvent,
+  AgentStopReason,
+  ContextSnapshot,
+  Notice,
+  PermissionMode,
+  ReasoningEffort,
+  Usage,
+} from '@harness-code/core';
 
 export type WireEvent =
   // AgentEvent, forwarded verbatim (deltas coalesced by EventBuffer)
@@ -31,4 +39,16 @@ export type WireEvent =
   | { type: 'resolved'; requestId: string; by: 'user' | 'abort' }
   // state changes not otherwise visible
   | { type: 'mode'; mode: PermissionMode }
-  | { type: 'effort'; effort: ReasoningEffort };
+  | { type: 'effort'; effort: ReasoningEffort }
+  /**
+   * The model was switched. Carries what changes with it: the effort levels,
+   * the effort (absent on a model without reasoning) and the context meter
+   * read against the new window.
+   */
+  | {
+      type: 'model';
+      modelRef: string;
+      effortLevels: ReasoningEffort[];
+      effort?: ReasoningEffort;
+      context?: ContextSnapshot;
+    };

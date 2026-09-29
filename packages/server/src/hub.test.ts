@@ -6,7 +6,7 @@
 
 import { access, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 import { DEFAULT_CAPABILITIES, ScriptedProvider, resolveStateDir } from '@harness-code/core';
 import type { AgentSessionConfig, ResolvedModel } from '@harness-code/core';
@@ -61,6 +61,7 @@ const setups: WorkspaceSetupFactory = async (root) => {
     previewDefaults: async () => ({ modelRef: 'scripted/test-model', mode: 'yolo' }),
     effortFor: () => ({ levels: [], initial: undefined }),
     defaults: async () => ({ model: 'scripted/test-model', mode: 'yolo', modes: ['yolo'], effortLevels: [] }),
+    models: async () => [{ ref: `scripted/${basename(root)}`, contextWindow: 1000, maxOutputTokens: 100, effortLevels: [] }],
   };
 };
 
@@ -154,6 +155,17 @@ describe('WorkspaceHub', () => {
     const opened = await hub.open(idB);
     expect(hub.host(idB)?.epoch).toBe(opened.epoch);
     await expect(hub.preview('no-such-session')).rejects.toBeInstanceOf(SessionPreviewNotFoundError);
+  });
+
+  it("lists the models of the workspace asked for, the most recent one's by default", async () => {
+    const a = await project('a');
+    const b = await project('b');
+    const { hub, launchId } = await hubOn(memoryWorkspaceStore(), a);
+    const added = await hub.add(b);
+    expect((await hub.models()).map((m) => m.ref)).toEqual([`scripted/${basename(b)}`]);
+    expect((await hub.models(launchId)).map((m) => m.ref)).toEqual([`scripted/${basename(a)}`]);
+    await expect(hub.models('ffff')).rejects.toThrow(WorkspaceNotFoundError);
+    expect(added.id).not.toBe(launchId);
   });
 
   it('maps a directory inside a workspace to that workspace, not a second copy of its sessions', async () => {

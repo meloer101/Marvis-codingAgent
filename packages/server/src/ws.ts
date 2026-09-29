@@ -225,6 +225,8 @@ class Connection {
       }
       case 'workspace.remove':
         return hub.remove((params as MethodParams<'workspace.remove'>).id);
+      case 'model.list':
+        return hub.models((params as MethodParams<'model.list'>).workspaceId);
       case 'fs.suggestDirs':
         return suggestDirs((params as MethodParams<'fs.suggestDirs'>).prefix);
       case 'session.list':
@@ -253,6 +255,11 @@ class Connection {
       case 'session.setMode': {
         const { id, mode } = params as MethodParams<'session.setMode'>;
         this.#host(id).setMode(mode);
+        return undefined;
+      }
+      case 'session.setModel': {
+        const { id, model } = params as MethodParams<'session.setModel'>;
+        this.#host(id).setModel(model);
         return undefined;
       }
       case 'session.setEffort': {

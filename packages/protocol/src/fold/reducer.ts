@@ -79,6 +79,8 @@ export type FoldAction =
   | { type: 'USER'; text: string }
   | { type: 'SET_MODE'; mode: PermissionMode }
   | { type: 'SET_EFFORT'; effort: ReasoningEffort }
+  /** A model switch: the effort goes with it (absent: none), and the meter when given. */
+  | { type: 'SET_MODEL'; modelRef: string; effort?: ReasoningEffort; context?: ContextSnapshot }
   | { type: 'PENDING_ASK'; ask: PendingAsk }
   | { type: 'RESOLVE_ASK' }
   | { type: 'PENDING_PLAN'; plan: PendingPlan }
@@ -151,6 +153,15 @@ export function foldReducer(state: FoldState, action: FoldAction): FoldState {
       return { ...state, mode: action.mode };
     case 'SET_EFFORT':
       return { ...state, effort: action.effort };
+    case 'SET_MODEL': {
+      const { effort: _dropped, ...rest } = state;
+      return {
+        ...rest,
+        modelRef: action.modelRef,
+        ...(action.effort ? { effort: action.effort } : {}),
+        ...(action.context ? { context: action.context } : {}),
+      };
+    }
     case 'PENDING_ASK':
       return { ...state, pendingAsk: action.ask };
     case 'RESOLVE_ASK':

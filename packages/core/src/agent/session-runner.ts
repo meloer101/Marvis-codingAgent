@@ -79,7 +79,7 @@ import { McpHub, loadMcpConfig, resolveResources } from '../mcp/index.js';
 import type { McpServerStatus } from '../mcp/index.js';
 import { AGENT_CONVENTIONS, buildAgentSystemPrompt, buildSubagentSystemPrompt } from './prompt.js';
 import { systemUpdateSegments } from './system-update.js';
-import { AgentLoop } from './loop.js';
+import { AgentLoop, usableContextWindow } from './loop.js';
 import type { AgentEvent, AgentLoopOptions, AgentRunResult } from './loop.js';
 import { mergeHooks } from './hooks.js';
 import type { AgentHooks } from './hooks.js';
@@ -99,7 +99,7 @@ import { addUsage } from '../provider/types.js';
 import type { Message, SystemSegment, Usage } from '../provider/types.js';
 import { ProviderRegistry } from '../provider/router.js';
 import type { ResolvedModel } from '../provider/router.js';
-import { effortOptions, estimateCostUSD } from '../provider/capabilities.js';
+import { effortOptions, estimateCostUSD, mapEffort } from '../provider/capabilities.js';
 import type { ReasoningEffort } from '../provider/types.js';
 import type { ContextBreakdown } from '../context/budget.js';
 
@@ -117,6 +117,7 @@ export type NoticeKind =
   | 'mcp-status'
   | 'permission-mode'
   | 'mode-changed'
+  | 'model-changed'
   | 'effort-changed'
   | 'skill-loaded'
   | 'memory'
@@ -211,6 +212,12 @@ export interface AgentSessionConfig {
   verifyBeforeStop?: boolean;
 
   // Injected seams ----------------------------------------------------------
+  /**
+   * Resolves the ref `setModel` switches to. Defaults to the session's own
+   * provider registry (settings + `env`); tests and `--mock` inject scripted
+   * models.
+   */
+  resolveModel?: (ref: string) => ResolvedModel;
   /** Permission `ask` handler. Defaults to `nonInteractiveAskHandler` (deny). */
   askHandler?: AskHandler;
   /** Plan approval. Absent = `exit_plan_mode` writes the plan and ends the run. */
@@ -242,6 +249,8 @@ interface SessionInit {
   messages: Message[];
   hooks: AgentHooks;
   compactHook: AgentHooks | undefined;
+  /** Point compaction at the session's new model (`setModel`). */
+  retargetCompactor: ((model: ResolvedModel) => void) | undefined;
   toolOutputStore: ToolOutputStore | undefined;
   registry: ProviderRegistry;
   budgetOverrides: Partial<AgentLoopOptions>;
@@ -261,7 +270,7 @@ export class AgentSession {
   readonly #config: AgentSessionConfig;
   readonly #cwd: string;
   readonly #platform: string;
-  readonly #model: ResolvedModel;
+  #model: ResolvedModel;
   readonly #registry: ProviderRegistry;
   readonly #engine: PermissionEngine;
   readonly #planApprovedMode: PermissionMode;
@@ -278,6 +287,7 @@ export class AgentSession {
   readonly #trace: TraceRecorder | undefined;
   readonly #hooks: AgentHooks;
   readonly #compactHook: AgentHooks | undefined;
+  readonly #retargetCompactor: ((model: ResolvedModel) => void) | undefined;
   readonly #toolOutputStore: ToolOutputStore | undefined;
   readonly #budgetOverrides: Partial<AgentLoopOptions>;
   readonly #autoState: AutoModeState | undefined;
@@ -325,6 +335,7 @@ export class AgentSession {
     this.#messages = init.messages;
     this.#hooks = init.hooks;
     this.#compactHook = init.compactHook;
+    this.#retargetCompactor = init.retargetCompactor;
     this.#toolOutputStore = init.toolOutputStore;
     this.#budgetOverrides = init.budgetOverrides;
     this.#autoState = init.autoState;
@@ -573,35 +584,43 @@ export class AgentSession {
       });
     }
 
-    const summarizer =
+    // Without a dedicated summarizer, compaction runs on the session's model —
+    // and follows it when `setModel` switches.
+    const dedicatedSummarizer =
       config.summarizerModel ??
-      (settings.smallModel ? registry.resolve(settings.smallModel) : config.model);
+      (settings.smallModel ? registry.resolve(settings.smallModel) : undefined);
     // One store per session for full tool outputs: the loop's output cap and the
     // compactor's pruning both write here, numbered from one counter.
     const toolOutputStore = recorder
       ? new ToolOutputStore(sessionArtifactsDir(agentDir, recorder.id), cwd)
       : undefined;
-    const compactHook =
-      config.compact === false
-        ? undefined
-        : {
-            onCompact: createCompactor({
-              provider: summarizer.provider,
-              model: summarizer.model,
-              conventions: AGENT_CONVENTIONS,
-              // Replaying the turn's own prefix only pays off on the model
-              // whose cache is holding it.
-              warmPrefix: summarizer.ref === config.model.ref,
-              // A digest is transcription, not deliberation.
-              ...(summarizer.capabilities.reasoning ? { summaryEffort: 'low' as const } : {}),
-              ...(config.budgets.compactKeepTurns !== undefined
-                ? { keepTurns: config.budgets.compactKeepTurns }
-                : {}),
-              ...(toolOutputStore ? { offloadStore: toolOutputStore } : {}),
-              onSkip: (reason) =>
-                notify({ kind: 'compaction', level: 'info', text: reason }),
-            }),
-          };
+    const compactorFor = (sessionModel: ResolvedModel): NonNullable<AgentHooks['onCompact']> => {
+      const summarizer = dedicatedSummarizer ?? sessionModel;
+      return createCompactor({
+        provider: summarizer.provider,
+        model: summarizer.model,
+        conventions: AGENT_CONVENTIONS,
+        // Replaying the turn's own prefix only pays off on the model
+        // whose cache is holding it.
+        warmPrefix: summarizer.ref === sessionModel.ref,
+        // A digest is transcription, not deliberation.
+        ...(summarizer.capabilities.reasoning ? { summaryEffort: 'low' as const } : {}),
+        ...(config.budgets.compactKeepTurns !== undefined
+          ? { keepTurns: config.budgets.compactKeepTurns }
+          : {}),
+        ...(toolOutputStore ? { offloadStore: toolOutputStore } : {}),
+        onSkip: (reason) => notify({ kind: 'compaction', level: 'info', text: reason }),
+      });
+    };
+    let onCompact = config.compact === false ? undefined : compactorFor(config.model);
+    const compactHook: AgentHooks | undefined = onCompact
+      ? { onCompact: (...args) => onCompact!(...args) }
+      : undefined;
+    const retargetCompactor = onCompact
+      ? (model: ResolvedModel): void => {
+          onCompact = compactorFor(model);
+        }
+      : undefined;
     const askHandler = config.askHandler ?? nonInteractiveAskHandler;
     const guardrailsEnabled = settings.toolGuardrails !== false;
     const guardrailHook = guardrailsEnabled
@@ -667,6 +686,7 @@ export class AgentSession {
       messages: priorMessages,
       hooks,
       compactHook,
+      retargetCompactor,
       toolOutputStore,
       registry,
       budgetOverrides,
@@ -854,6 +874,62 @@ export class AgentSession {
       level: 'info',
       text: `effort: ${prev ?? 'none'} → ${effort}`,
     });
+  }
+
+  /** The model's ref (`provider/model`) — what `setModel` last switched to. */
+  get modelRef(): string {
+    return this.#model.ref;
+  }
+
+  /**
+   * Switch the model for subsequent turns; the history carries over as it is.
+   * The effort is kept when the new model offers it, else it moves to the
+   * nearest level the model has (its default when there was none). Throws when
+   * `ref` can't be resolved (an unknown provider, a missing key). Not meant for
+   * the middle of a turn: callers keep it between runs.
+   *
+   * Compaction follows the new model unless a summarizer of its own is set; the
+   * auto-mode classifier keeps the model it started with.
+   */
+  setModel(ref: string): void {
+    if (ref === this.#model.ref) return;
+    const next = (this.#config.resolveModel ?? ((r: string) => this.#registry.resolve(r)))(ref);
+    const prev = this.#model;
+    this.#model = next;
+    // The cached prefix belongs to the old model: start the new one from a
+    // fresh system head instead of appending updates to a head it never saw.
+    this.#sessionSystem = undefined;
+    this.#retargetCompactor?.(next);
+    this.#config.onNotice?.({
+      kind: 'model-changed',
+      level: 'info',
+      text: `model: ${prev.ref} → ${next.ref}`,
+    });
+
+    const { levels, initial } = effortOptions(next.capabilities, this.#config.settings.reasoningEffort);
+    const current = this.#effort;
+    if (levels.length > 0 && (current === undefined || current === 'off' || !levels.includes(current))) {
+      const folded =
+        current === undefined || current === 'off' ? initial! : mapEffort(current, { effortLevels: levels });
+      this.#effort = folded;
+      this.#config.onNotice?.({
+        kind: 'effort-changed',
+        level: 'info',
+        text: `effort: ${current ?? 'none'} → ${folded}`,
+      });
+    }
+
+    // The meter reads the last turn's fill against the new model's window.
+    if (this.#lastContext) {
+      const budgets = { ...this.#budgetOverrides, ...this.#config.loopOverrides };
+      const windowTokens = usableContextWindow(next.capabilities, {
+        ...(budgets.contextBudgetTokens !== undefined ? { contextBudgetTokens: budgets.contextBudgetTokens } : {}),
+        ...(budgets.maxOutputTokens !== undefined ? { maxOutputTokens: budgets.maxOutputTokens } : {}),
+      });
+      const { usedTokens } = this.#lastContext;
+      this.#lastContext = { ...this.#lastContext, windowTokens, ratio: usedTokens / windowTokens };
+      if (this.#lastContext.ratio < 0.8) this.#contextWarned = false;
+    }
   }
 
   /** Run one turn with `input`, then stop. Returns the full accumulated history. */

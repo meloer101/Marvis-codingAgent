@@ -502,6 +502,34 @@ export class SessionHost {
   }
 
   /**
+   * Switch the session's model; the next message goes to it. Not while a run
+   * is going, and a model that can't be resolved (unknown provider, missing
+   * key) is refused. The `model` event carries the effort and meter that come
+   * with it.
+   */
+  setModel(ref: string): void {
+    if (this.#busy) throw new BusyError('the session is running; switch models between messages');
+    const session = this.#requireSession();
+    if (ref === this.#modelRef) return;
+    try {
+      session.setModel(ref);
+    } catch (err) {
+      throw new InvalidRequestError(err instanceof Error ? err.message : String(err));
+    }
+    this.#modelRef = session.modelRef;
+    const effort = session.effort;
+    const context = session.contextSnapshot;
+    this.#emit({
+      type: 'model',
+      modelRef: this.#modelRef,
+      effortLevels: [...session.effortLevels],
+      ...(effort ? { effort } : {}),
+      ...(context ? { context } : {}),
+    });
+    this.#patchMeta({ model: this.#modelRef });
+  }
+
+  /**
    * Change the reasoning effort for the session's next message. Unlike core's
    * `setEffort` — which silently ignores a model without reasoning and takes
    * any value — an effort the model doesn't offer is refused.

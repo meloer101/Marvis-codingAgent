@@ -13,7 +13,7 @@ import type { ServerFrame, WireEvent } from '@harness-code/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { SessionHost } from './host.js';
-import { mockConfigFactory } from './mock.js';
+import { MOCK_MODEL_REF, mockConfigFactory, mockModels } from './mock.js';
 import { SessionRegistry } from './registry.js';
 
 const tmpDirs: string[] = [];
@@ -89,5 +89,30 @@ describe('mock mode', () => {
     // The plan was actually approved (resolved by the user, not an abort).
     const planResolved = events.some((e) => e.type === 'resolved' && e.by === 'user');
     expect(planResolved).toBe(true);
+  });
+});
+
+describe('mock models', () => {
+  it('offers two models and switches between them mid-session, the reel carrying on', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'hc-mock-'));
+    tmpDirs.push(cwd);
+    const registry = new SessionRegistry({
+      cwd,
+      agentDir: join(cwd, '.agent'),
+      buildConfig: mockConfigFactory(cwd),
+      previewDefaults: async () => ({ modelRef: MOCK_MODEL_REF, mode: 'yolo' }),
+    });
+    registries.push(registry);
+    const models = mockModels();
+    expect(models.map((m) => m.ref)).toEqual([MOCK_MODEL_REF, 'mock/mock-mini']);
+    expect(models[1]?.effortLevels).toEqual([]);
+
+    const snapshot = await registry.create({ mode: 'yolo' });
+    const host = registry.get(snapshot.id)!;
+    host.setModel('mock/mock-mini');
+    const snap = await host.snapshot();
+    expect(snap.modelRef).toBe('mock/mock-mini');
+    expect(snap.effortLevels).toEqual([]);
+    expect(() => host.setModel('mock/none')).toThrow(/no mock model/);
   });
 });

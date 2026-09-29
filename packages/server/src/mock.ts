@@ -10,8 +10,16 @@
  * an `exit_plan_mode` plan approval.
  */
 
-import { DEFAULT_CAPABILITIES, ScriptedProvider, effortOptions } from '@harness-code/core';
-import type { AgentSessionConfig, EffortOptions, ModelCapabilities, ResolvedModel, ScriptedTurn } from '@harness-code/core';
+import { DEFAULT_CAPABILITIES, ProviderError, ScriptedProvider, effortOptions } from '@harness-code/core';
+import type {
+  AgentSessionConfig,
+  EffortOptions,
+  ModelCapabilities,
+  ModelDescription,
+  Provider,
+  ResolvedModel,
+  ScriptedTurn,
+} from '@harness-code/core';
 
 import type { SessionConfigFactory } from './registry.js';
 
@@ -74,7 +82,7 @@ function mockScript(): ScriptedTurn[] {
   ];
 }
 
-/** The model ref every mock session reports. */
+/** The model ref every mock session starts on. */
 export const MOCK_MODEL_REF = 'mock/mock-model';
 
 /**
@@ -83,20 +91,46 @@ export const MOCK_MODEL_REF = 'mock/mock-model';
  */
 const MOCK_CAPABILITIES: ModelCapabilities = { ...DEFAULT_CAPABILITIES, reasoning: true, defaultEffort: 'medium' };
 
-/** The mock model's effort levels and starting level. */
-export function mockEffortOptions(): EffortOptions {
-  return effortOptions(MOCK_CAPABILITIES);
+/**
+ * The models a mock session can switch between: the default, and a smaller
+ * one without reasoning, so the model picker has something to show. Both
+ * play the same reel.
+ */
+const MOCK_MODELS: Record<string, ModelCapabilities> = {
+  [MOCK_MODEL_REF]: MOCK_CAPABILITIES,
+  'mock/mock-mini': { ...DEFAULT_CAPABILITIES, contextWindow: 32_000, maxOutputTokens: 4_096 },
+};
+
+/** A mock model's effort levels and starting level (the default model's, for an unknown ref). */
+export function mockEffortOptions(ref: string = MOCK_MODEL_REF): EffortOptions {
+  return effortOptions(MOCK_MODELS[ref] ?? MOCK_CAPABILITIES);
 }
 
-/** A `ResolvedModel` whose provider is a fresh `ScriptedProvider`. */
-function mockModel(): ResolvedModel {
-  const provider = new ScriptedProvider(mockScript(), 'mock');
+/** What `model.list` offers under `--mock`. */
+export function mockModels(): ModelDescription[] {
+  return Object.entries(MOCK_MODELS).map(([ref, caps]) => {
+    const { levels, initial } = effortOptions(caps);
+    return {
+      ref,
+      contextWindow: caps.contextWindow,
+      maxOutputTokens: caps.maxOutputTokens,
+      effortLevels: [...levels],
+      ...(initial ? { defaultEffort: initial } : {}),
+      pricing: { inputPerMTok: 0, outputPerMTok: 0 },
+    };
+  });
+}
+
+/** `ref` as a model on `provider` — one provider per session, so a switch keeps the reel's place. */
+function mockModel(provider: Provider, ref: string = MOCK_MODEL_REF): ResolvedModel {
+  const caps = MOCK_MODELS[ref];
+  if (!caps) throw new ProviderError('not_found', `no mock model "${ref}"`);
   return {
     provider,
     providerId: provider.id,
-    model: 'mock-model',
-    ref: MOCK_MODEL_REF,
-    capabilities: { ...MOCK_CAPABILITIES },
+    model: ref.slice('mock/'.length),
+    ref,
+    capabilities: { ...caps },
   };
 }
 
@@ -113,9 +147,11 @@ function mockModel(): ResolvedModel {
  */
 export function mockConfigFactory(cwd: string, agentDir?: string): SessionConfigFactory {
   return (opts) => {
+    const provider = new ScriptedProvider(mockScript(), 'mock');
     const config: AgentSessionConfig = {
       cwd,
-      model: mockModel(),
+      model: mockModel(provider, opts.model && MOCK_MODELS[opts.model] ? opts.model : MOCK_MODEL_REF),
+      resolveModel: (ref) => mockModel(provider, ref),
       settings: {},
       budgets: {},
       mode: opts.mode ?? 'ask',

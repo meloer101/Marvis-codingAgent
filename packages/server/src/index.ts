@@ -23,20 +23,22 @@ import {
   ProviderRegistry,
   VERSION,
   buildSessionConfig,
+  describeModel,
   findProjectRoot,
   isAutoModeAvailable,
   loadSettings,
   modelEffort,
+  offeredModels,
   projectEnv,
 } from '@harness-code/core';
 import type { PermissionMode } from '@harness-code/core';
-import type { ServerInfo, WorkspaceDefaults } from '@harness-code/protocol';
+import type { ModelInfo, ServerInfo, WorkspaceDefaults } from '@harness-code/protocol';
 
 import { createStaticHandler, resolveStaticDir } from './http.js';
 import { WorkspaceHub } from './hub.js';
 import type { WorkspaceSetupFactory } from './hub.js';
 import type { HealthInfo } from './instance.js';
-import { MOCK_MODEL_REF, mockConfigFactory, mockEffortOptions } from './mock.js';
+import { MOCK_MODEL_REF, mockConfigFactory, mockEffortOptions, mockModels } from './mock.js';
 import type { SessionConfigFactory } from './registry.js';
 import { memoryWorkspaceStore } from './workspaces.js';
 import type { WorkspaceStore } from './workspaces.js';
@@ -200,6 +202,18 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
       };
     };
 
+    const models = async (): Promise<ModelInfo[]> => {
+      if (mock) return mockModels();
+      const { settings } = await loadSettings(root);
+      const providers = new ProviderRegistry({ settings, env });
+      const refs = offeredModels({
+        ...((opts.model ?? settings.model) ? { defaultModel: opts.model ?? settings.model } : {}),
+        ...(settings.models ? { models: settings.models } : {}),
+        ...(settings.smallModel ? { smallModel: settings.smallModel } : {}),
+      });
+      return refs.map((ref) => describeModel(ref, settings, providers));
+    };
+
     const buildConfig: SessionConfigFactory =
       opts.buildConfig ??
       (mock
@@ -219,11 +233,12 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
       agentDir,
       buildConfig,
       defaults,
+      models,
       previewDefaults: async () => {
         const d = await defaults();
         return { modelRef: d.model, mode: d.mode };
       },
-      effortFor: mock ? () => mockEffortOptions() : async (ref) => modelEffort(ref, (await loadSettings(root)).settings),
+      effortFor: mock ? (ref) => mockEffortOptions(ref) : async (ref) => modelEffort(ref, (await loadSettings(root)).settings),
       ...(mockDir ? { dispose: () => rm(mockDir, { recursive: true, force: true }) } : {}),
     };
   };

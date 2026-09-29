@@ -23,6 +23,7 @@ import { basename, join } from 'node:path';
 import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir } from '@harness-code/core';
 import type { EffortOptions, PermissionMode } from '@harness-code/core';
 import type {
+  ModelInfo,
   PushEvent,
   SessionSnapshot,
   SessionSummary,
@@ -49,6 +50,8 @@ export interface WorkspaceSetup {
   previewDefaults: () => Promise<{ modelRef: string; mode: PermissionMode }>;
   effortFor: (modelRef: string) => Promise<EffortOptions> | EffortOptions;
   defaults: () => Promise<WorkspaceDefaults>;
+  /** The models its sessions can be given (`model.list`). */
+  models: () => Promise<ModelInfo[]>;
   /** Release what the setup made (a `--mock` temp dir). */
   dispose?: () => Promise<void>;
 }
@@ -135,6 +138,11 @@ export class WorkspaceHub {
     const entry = this.#entries.get(id);
     if (!entry) throw new WorkspaceNotFoundError(id);
     return this.#describe(entry);
+  }
+
+  /** The models a session in workspace `id` (default: the most recently used) can be given. */
+  async models(id?: string): Promise<ModelInfo[]> {
+    return this.#target(id).setup.models();
   }
 
   /** What adding `path` as a workspace would mean (nothing is changed). */

@@ -37,6 +37,11 @@ export interface Settings extends RouterSettings {
   /** Cheaper model for summarization and other background work. */
   smallModel?: string;
   /**
+   * More `provider/model` refs for a model picker (the web's) to offer,
+   * besides `model`, `smallModel` and the built-in lineup (`MODEL_CATALOG`).
+   */
+  models?: string[];
+  /**
    * Context tokens to plan against, when the model's window is larger than the
    * span it stays reliable over. Warn / compact / stop ratios are computed
    * against this; the model's real window still decides overflow. Defaults to

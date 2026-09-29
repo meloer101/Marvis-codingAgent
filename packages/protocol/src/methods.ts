@@ -14,6 +14,7 @@ import { z } from 'zod';
 
 import type {
   ContextSnapshot,
+  ModelDescription,
   PermissionMode,
   ReasoningEffort,
   SlashCommandInfo,
@@ -52,6 +53,12 @@ export interface WorkspaceDefaults {
   /** Why the default model can't be used as configured (typically a missing API key). */
   keyProblem?: string;
 }
+
+/**
+ * One model the picker offers (`model.list`): windows, effort levels and
+ * price from the capability table, and why it can't run here, if it can't.
+ */
+export type ModelInfo = ModelDescription;
 
 /** A project `hc web` hosts sessions for. */
 export interface Workspace {
@@ -229,6 +236,12 @@ export const methods = {
   ),
   /** Stop hosting a workspace (its files stay). `busy` while one of its sessions runs; the last one stays. */
   'workspace.remove': method<{ id: string }, void>(z.object({ id: workspaceIdSchema })),
+  /**
+   * The models a session in `workspaceId` (default: the most recently used
+   * workspace) can be given: its default model first, then `settings.models`,
+   * the small model and the built-in lineup.
+   */
+  'model.list': method<{ workspaceId?: string }, ModelInfo[]>(z.object({ workspaceId: workspaceIdSchema.optional() })),
   /** Directories completing a path prefix (`~` allowed), for the add dialog. */
   'fs.suggestDirs': method<{ prefix: string }, DirSuggestion[]>(z.object({ prefix: z.string().max(4096) })),
   /** Created in `workspaceId` (default: the most recently used workspace). */
@@ -275,6 +288,14 @@ export const methods = {
   'session.abort': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
   'session.setMode': method<{ id: string; mode: PermissionMode }, void>(
     z.object({ id: sessionIdSchema, mode: permissionModeSchema }),
+  ),
+  /**
+   * Switch the session's model; the history carries over and the next message
+   * goes to the new one. `busy` while a run is going; `bad_request` for a model
+   * that can't be resolved (unknown provider, missing key).
+   */
+  'session.setModel': method<{ id: string; model: string }, void>(
+    z.object({ id: sessionIdSchema, model: z.string().min(1).max(256) }),
   ),
   /**
    * Change the reasoning effort; it applies from the next message (a run in

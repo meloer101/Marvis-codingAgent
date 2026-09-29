@@ -34,6 +34,17 @@ describe('foldReducer', () => {
     expect(s1.effort).toBe('high');
   });
 
+  it('SET_MODEL switches the model, taking the effort and meter it brings', () => {
+    const s0 = initialFoldState({ mode: 'ask', modelRef: 'm/1', effort: 'medium' });
+    const context = { usedTokens: 10, windowTokens: 100, ratio: 0.1 };
+    const s1 = foldReducer(s0, { type: 'SET_MODEL', modelRef: 'm/2', effort: 'high', context });
+    expect(s1).toMatchObject({ modelRef: 'm/2', effort: 'high', context });
+    const s2 = foldReducer(s1, { type: 'SET_MODEL', modelRef: 'm/3' });
+    expect(s2.modelRef).toBe('m/3');
+    expect(s2.effort).toBeUndefined(); // no reasoning on m/3
+    expect(s2.context).toEqual(context);
+  });
+
   it('TURN_END with an empty live region adds no entry', () => {
     const s = foldReducer(base(), { type: 'TURN_END', live: emptyLive() });
     expect(s.entries).toHaveLength(0);
