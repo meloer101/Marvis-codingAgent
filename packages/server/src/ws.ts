@@ -227,6 +227,10 @@ class Connection {
         return hub.remove((params as MethodParams<'workspace.remove'>).id);
       case 'model.list':
         return hub.models((params as MethodParams<'model.list'>).workspaceId);
+      case 'fs.search': {
+        const { workspaceId, query, limit } = params as MethodParams<'fs.search'>;
+        return hub.searchFiles(workspaceId, query, limit);
+      }
       case 'fs.suggestDirs':
         return suggestDirs((params as MethodParams<'fs.suggestDirs'>).prefix);
       case 'session.list':
@@ -244,8 +248,8 @@ class Connection {
         // Handled before dispatch; unreachable.
         throw new Error('unreachable');
       case 'session.send': {
-        const { id, text } = params as MethodParams<'session.send'>;
-        return this.#host(id).send(text);
+        const { id, text, attachments } = params as MethodParams<'session.send'>;
+        return this.#host(id).send(text, attachments);
       }
       case 'session.abort': {
         const { id } = params as MethodParams<'session.abort'>;

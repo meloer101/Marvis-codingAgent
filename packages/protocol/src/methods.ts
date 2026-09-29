@@ -138,6 +138,14 @@ export interface SessionSummary {
 export interface QueuedMessage {
   id: string;
   text: string;
+  /** Workspace files to read into it (`@path`). */
+  attachments?: string[];
+}
+
+/** A file matching an `@` query (`fs.search`). */
+export interface FileMatch {
+  /** Relative to the workspace root, `/`-separated. */
+  path: string;
 }
 
 /** What `session.send` did: started a run, or queued the message behind the one going. */
@@ -221,6 +229,8 @@ const sessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, 'not a sessio
 /** Workspace ids are hex digests. */
 const workspaceIdSchema = z.string().regex(/^[0-9a-f]{1,64}$/, 'not a workspace id');
 const pathSchema = z.string().min(1).max(4096);
+/** Files attached to a message (`@path`): workspace-relative paths. */
+const attachmentsSchema = z.array(pathSchema).max(20);
 
 interface MethodSpec<P = unknown, R = unknown> {
   /** Validates `ClientFrame.params` for this method — same schema on client and server. */
@@ -253,6 +263,14 @@ export const methods = {
    * the small model and the built-in lineup.
    */
   'model.list': method<{ workspaceId?: string }, ModelInfo[]>(z.object({ workspaceId: workspaceIdSchema.optional() })),
+  /**
+   * Files in a workspace matching `query` (fuzzy, best first), for `@`
+   * mentions. Ignored files (`.gitignore`) and secrets (`.env`, keys) are left
+   * out.
+   */
+  'fs.search': method<{ workspaceId: string; query: string; limit?: number }, FileMatch[]>(
+    z.object({ workspaceId: workspaceIdSchema, query: z.string().max(512), limit: z.number().int().min(1).max(200).optional() }),
+  ),
   /** Directories completing a path prefix (`~` allowed), for the add dialog. */
   'fs.suggestDirs': method<{ prefix: string }, DirSuggestion[]>(z.object({ prefix: z.string().max(4096) })),
   /** Created in `workspaceId` (default: the most recently used workspace). */
@@ -274,11 +292,19 @@ export const methods = {
    * replays the startup notices and then the run.
    */
   'session.start': method<
-    { text: string; workspaceId?: string; model?: string; mode?: PermissionMode; effort?: ReasoningEffort },
+    {
+      text: string;
+      attachments?: string[];
+      workspaceId?: string;
+      model?: string;
+      mode?: PermissionMode;
+      effort?: ReasoningEffort;
+    },
     { snapshot: SessionSnapshot; runId: string }
   >(
     z.object({
       text: z.string(),
+      attachments: attachmentsSchema.optional(),
       workspaceId: workspaceIdSchema.optional(),
       model: z.string().optional(),
       mode: permissionModeSchema.optional(),
@@ -296,10 +322,11 @@ export const methods = {
   /**
    * Send a message: it starts a run, or — while one is going — waits in the
    * session's queue and is sent when the run ends (every client sees the
-   * queue, as `queue` events).
+   * queue, as `queue` events). `attachments` are workspace files read into
+   * it; one the session may not read is `bad_request`, before anything is sent.
    */
-  'session.send': method<{ id: string; text: string }, SendResult>(
-    z.object({ id: sessionIdSchema, text: z.string() }),
+  'session.send': method<{ id: string; text: string; attachments?: string[] }, SendResult>(
+    z.object({ id: sessionIdSchema, text: z.string(), attachments: attachmentsSchema.optional() }),
   ),
   /**
    * Stop the run; a pending prompt settles as a deny. The queue is emptied too:

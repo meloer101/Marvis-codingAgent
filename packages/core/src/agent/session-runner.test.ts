@@ -11,7 +11,8 @@ import { ProviderError } from '../provider/types.js';
 import type { Provider } from '../provider/types.js';
 import type { ResolvedModel } from '../provider/router.js';
 import type { AgentEvent } from './loop.js';
-import { AgentSession } from './session-runner.js';
+import { readSessionSummary } from './session.js';
+import { AgentSession, AttachmentError } from './session-runner.js';
 import type { AgentSessionConfig, Notice } from './session-runner.js';
 
 const ECHO_SERVER = fileURLToPath(new URL('../mcp/__fixtures__/echo-server.mjs', import.meta.url));
@@ -373,6 +374,74 @@ describe('AgentSession', () => {
     expect(editEnd).toBeDefined();
     expect(editEnd!.result.isError).toBeUndefined();
     expect(editEnd!.result.content).toContain('Replaced 1 occurrence');
+  });
+
+  it('reads attached files into the message, and into the ledger an edit checks', async () => {
+    const cwd = await tempDir();
+    await writeFile(join(cwd, 'a.txt'), 'hello world\n', 'utf8');
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'edit', input: { path: 'a.txt', oldString: 'hello', newString: 'goodbye' } }] },
+      { text: 'edited' },
+    ]);
+    const { session, events } = await createSession({ cwd, model: sessionModel(provider) });
+
+    await session.runTurn('fix @a.txt', { attachments: ['a.txt'] });
+
+    const [first] = provider.requests[0]!.messages;
+    expect(first!.content).toEqual([
+      { type: 'text', text: '<attached_file path="a.txt">\n     1\thello world\n     2\t\n</attached_file>' },
+      { type: 'text', text: 'fix @a.txt' },
+    ]);
+    // No `read` call was needed before the edit.
+    expect(findToolEnd(events, 'edit')!.result.isError).toBeUndefined();
+  });
+
+  it('a resumed session remembers what was attached', async () => {
+    const cwd = await tempDir();
+    const agentDir = join(cwd, '.agent');
+    await writeFile(join(cwd, 'a.txt'), 'hello\n', 'utf8');
+    const first = await createSession({
+      cwd,
+      agentDir,
+      recorder: true,
+      model: sessionModel(new ScriptedProvider([{ text: 'seen' }])),
+    });
+    await first.session.runTurn('look', { attachments: ['a.txt'] });
+
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'edit', input: { path: 'a.txt', oldString: 'hello', newString: 'bye' } }] },
+      { text: 'done' },
+    ]);
+    const resumed = await createSession({
+      cwd,
+      agentDir,
+      recorder: true,
+      resumeId: first.session.id,
+      model: sessionModel(provider),
+    });
+    await resumed.session.runTurn('now edit it');
+    expect(findToolEnd(resumed.events, 'edit')!.result.isError).toBeUndefined();
+    // The list shows what was typed, not the file.
+    expect((await readSessionSummary(agentDir, first.session.id)).title).toBe('look');
+  });
+
+  it('refuses attachments it may not read, before sending anything', async () => {
+    const cwd = await tempDir();
+    await writeFile(join(cwd, '.env'), 'SECRET=1\n', 'utf8');
+    await writeFile(join(cwd, 'blob.bin'), Buffer.from([1, 0, 2]));
+    await writeFile(join(cwd, 'big.txt'), 'x'.repeat(300 * 1024), 'utf8');
+    await mkdir(join(cwd, 'dir'));
+    const provider = new ScriptedProvider([{ text: 'never' }]);
+    const { session } = await createSession({ cwd, model: sessionModel(provider) });
+
+    await expect(session.checkAttachments(['.env'])).rejects.toThrow(/Can't attach \.env: Refusing to access sensitive file/);
+    await expect(session.checkAttachments(['../outside.txt'])).rejects.toThrow(/outside the workspace|Blocked|escape/i);
+    await expect(session.checkAttachments(['missing.txt'])).rejects.toThrow('no such file');
+    await expect(session.checkAttachments(['dir'])).rejects.toThrow('not a file');
+    await expect(session.checkAttachments(['blob.bin'])).rejects.toThrow('binary');
+    await expect(session.checkAttachments(['big.txt'])).rejects.toThrow('300 KB');
+    await expect(session.runTurn('x', { attachments: ['.env'] })).rejects.toThrow(AttachmentError);
+    expect(provider.requests).toHaveLength(0);
   });
 
   it('abort() aborts an in-flight turn', async () => {

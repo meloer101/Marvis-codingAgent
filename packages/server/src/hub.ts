@@ -23,6 +23,7 @@ import { basename, join } from 'node:path';
 import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir } from '@harness-code/core';
 import type { EffortOptions, PermissionMode } from '@harness-code/core';
 import type {
+  FileMatch,
   ModelInfo,
   PushEvent,
   SessionSnapshot,
@@ -32,6 +33,7 @@ import type {
   WorkspaceInspection,
 } from '@harness-code/protocol';
 
+import { FileIndex } from './files.js';
 import { BusyError, InvalidRequestError } from './host.js';
 import type { SessionHost } from './host.js';
 import { inspectDirectory } from './inspect.js';
@@ -95,6 +97,7 @@ export class WorkspaceHub {
   readonly #listeners = new Set<RegistryListener>();
   /** Session id → workspace id, learned from lists, creations and lookups. */
   readonly #sessionIndex = new Map<string, string>();
+  readonly #files = new FileIndex();
   #rev = 0;
   readonly #sweepTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -143,6 +146,14 @@ export class WorkspaceHub {
   /** The models a session in workspace `id` (default: the most recently used) can be given. */
   async models(id?: string): Promise<ModelInfo[]> {
     return this.#target(id).setup.models();
+  }
+
+  /** Files in workspace `id` matching `query`, for `@` mentions. */
+  async searchFiles(id: string, query: string, limit?: number): Promise<FileMatch[]> {
+    const entry = this.#entries.get(id);
+    if (!entry) throw new WorkspaceNotFoundError(id);
+    if (entry.missing) return [];
+    return this.#files.search(entry.record.root, query, limit);
   }
 
   /** What adding `path` as a workspace would mean (nothing is changed). */

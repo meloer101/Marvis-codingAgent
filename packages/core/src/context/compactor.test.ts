@@ -3,6 +3,7 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { attachedFileBlock } from '../agent/attachments.js';
 import { ScriptedProvider } from '../provider/mock.js';
 import type { Message } from '../provider/types.js';
 import {
@@ -596,6 +597,18 @@ describe('recent user messages kept verbatim', () => {
 
   it('keeps none when the budget is 0', () => {
     expect(selectRecentUserMessages(['a'], [goal('b')], 0)).toEqual([]);
+  });
+
+  it('keeps what the user typed, not the files attached to it', () => {
+    const attached: Message = {
+      role: 'user',
+      content: [
+        { type: 'text', text: attachedFileBlock('a.ts', '     1\tconst a = 1;') },
+        { type: 'text', text: 'fix @a.ts' },
+      ],
+    };
+    expect(selectRecentUserMessages([], [attached], 1000)).toEqual(['fix @a.ts']);
+    expect(parseGoalAndPriorDigest(attached).goal).toBe('fix @a.ts');
   });
 });
 

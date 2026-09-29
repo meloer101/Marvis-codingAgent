@@ -5,6 +5,7 @@
  * hydrate a snapshot; the TUI uses it when `/resume` swaps to another session.
  */
 
+import { attachedFilePath } from '@harness-code/core/browser';
 import type { Notice, TranscriptItem } from '@harness-code/core';
 
 import type { Entry, ToolItem } from './reducer.js';
@@ -12,7 +13,8 @@ import type { Entry, ToolItem } from './reducer.js';
 /**
  * Rebuild display entries from the persisted transcript: one `assistant` entry
  * per assistant message, tool results (which ride in the next `user` message)
- * attached back onto their tool cards, compactions as a divider notice.
+ * attached back onto their tool cards, files attached to a user message as its
+ * `attachments`, compactions as a divider notice.
  */
 export function entriesFromTranscript(items: TranscriptItem[]): Entry[] {
   const entries: Entry[] = [];
@@ -48,14 +50,20 @@ export function entriesFromTranscript(items: TranscriptItem[]): Entry[] {
       continue;
     }
     let userText = '';
+    const attachments: string[] = [];
     for (const block of message.content) {
-      if (block.type === 'text') userText += block.text;
-      else if (block.type === 'tool_result') {
+      if (block.type === 'text') {
+        const attached = attachedFilePath(block.text);
+        if (attached !== null) attachments.push(attached);
+        else userText += block.text;
+      } else if (block.type === 'tool_result') {
         const tool = tools.get(block.toolUseId);
         if (tool) tool.result = { content: block.content, ...(block.isError ? { isError: true } : {}) };
       }
     }
-    if (userText) entries.push({ kind: 'user', id: entries.length, text: userText });
+    if (userText || attachments.length > 0) {
+      entries.push({ kind: 'user', id: entries.length, text: userText, ...(attachments.length > 0 ? { attachments } : {}) });
+    }
   }
   return entries;
 }

@@ -35,7 +35,7 @@ import type {
   SlashCommandInfo,
   Usage,
 } from '@harness-code/core';
-import { alwaysAllowFor, loadTranscript, sessionTitleFrom, updateSessionMeta } from '@harness-code/core';
+import { AttachmentError, alwaysAllowFor, loadTranscript, sessionTitleFrom, updateSessionMeta } from '@harness-code/core';
 import type { AlwaysAllow, SessionMetaPatch } from '@harness-code/core';
 import type { QueuedMessage, SendResult, ServerFrame, SessionSnapshot, WireEvent } from '@harness-code/protocol';
 
@@ -413,14 +413,26 @@ export class SessionHost {
 
   /**
    * Send a message: start a run for it, or — while one is going — queue it to
-   * be sent when that run ends.
+   * be sent when that run ends. Attachments the session may not read are
+   * refused (`InvalidRequestError`) before either.
    */
-  send(text: string): SendResult {
-    if (!this.#busy) return this.run(text);
-    const queued: QueuedMessage = { id: randomUUID(), text };
+  async send(text: string, attachments: readonly string[] = []): Promise<SendResult> {
+    if (attachments.length > 0) await this.checkAttachments(attachments);
+    if (!this.#busy) return this.run(text, attachments);
+    const queued: QueuedMessage = { id: randomUUID(), text, ...(attachments.length > 0 ? { attachments: [...attachments] } : {}) };
     this.#queue.push(queued);
     this.#emitQueue();
     return { queued };
+  }
+
+  /** Refuse attachments the session may not read, as a bad request. */
+  async checkAttachments(paths: readonly string[]): Promise<void> {
+    try {
+      await this.#requireSession().checkAttachments(paths);
+    } catch (err) {
+      if (err instanceof AttachmentError) throw new InvalidRequestError(err.message);
+      throw err;
+    }
   }
 
   /** Take a queued message back before it goes; null when it is no longer queued. */
@@ -442,29 +454,30 @@ export class SessionHost {
     const next = this.#queue.shift();
     if (!next) return;
     this.#emitQueue();
-    this.run(next.text);
+    this.run(next.text, next.attachments);
   }
 
   /**
    * Start a run for `text`. Returns immediately with the run id; events stream
    * asynchronously and the run is bracketed by `run_start` / `run_end` (or
    * `run_error`). Throws `BusyError` if a run is already active.
+   * `attachments` are read into the message (checked by `send`).
    */
-  run(text: string): { runId: string } {
+  run(text: string, attachments: readonly string[] = []): { runId: string } {
     if (this.#busy) throw new BusyError();
     const runId = randomUUID();
     this.#busy = true;
     this.#currentRunId = runId;
     if (!this.#metaSynced) this.#writeMeta();
     this.#firstInput ??= text;
-    this.#emit({ type: 'run_start', runId, input: text });
+    this.#emit({ type: 'run_start', runId, input: text, ...(attachments.length > 0 ? { attachments: [...attachments] } : {}) });
     const abort = new AbortController();
     this.#runAbort = abort;
-    this.#runDone = this.#execute(runId, text, abort.signal);
+    this.#runDone = this.#execute(runId, text, attachments, abort.signal);
     return { runId };
   }
 
-  async #execute(runId: string, text: string, signal: AbortSignal): Promise<void> {
+  async #execute(runId: string, text: string, attachments: readonly string[], signal: AbortSignal): Promise<void> {
     const session = this.#requireSession();
     try {
       const trimmed = text.trim();
@@ -488,7 +501,10 @@ export class SessionHost {
         }
         effective = expanded;
       }
-      const result = await session.runTurn(effective, { signal });
+      const result = await session.runTurn(effective, {
+        signal,
+        ...(attachments.length > 0 ? { attachments } : {}),
+      });
       this.#endRun(runId, {
         stopReason: result.stopReason,
         usage: result.usage,

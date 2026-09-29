@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { attachedFileBlock, attachedFilePath } from '@harness-code/core/browser';
+
 import { entriesFromTranscript } from './transcript.js';
 
 describe('entriesFromTranscript', () => {
@@ -34,5 +36,19 @@ describe('entriesFromTranscript', () => {
       tools: [{ id: 't1', running: false, result: { content: 'FAIL', isError: true } }],
     });
     expect(entries[2]).toMatchObject({ notice: { kind: 'compaction' } });
+  });
+
+  it('shows attached files as the message\'s attachments, not as its text', () => {
+    const block = attachedFileBlock('src/a "b".ts', '     1\tconst a = 1;');
+    const entries = entriesFromTranscript([
+      {
+        type: 'message',
+        ts: 1,
+        message: { role: 'user', content: [{ type: 'text', text: block }, { type: 'text', text: 'look at @src/a' }] },
+      },
+    ]);
+    expect(entries).toEqual([{ kind: 'user', id: 0, text: 'look at @src/a', attachments: ['src/a "b".ts'] }]);
+    // Text that merely looks like the tag stays text.
+    expect(attachedFilePath('<attached_file path="x">no newline</attached_file>')).toBeNull();
   });
 });

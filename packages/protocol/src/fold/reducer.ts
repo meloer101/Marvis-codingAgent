@@ -34,7 +34,13 @@ export interface LiveSnapshot {
 }
 
 export type Entry =
-  | { kind: 'user'; id: number; text: string }
+  | {
+      kind: 'user';
+      id: number;
+      text: string;
+      /** Workspace files attached to the message (read into it ahead of the text). */
+      attachments?: string[];
+    }
   | { kind: 'assistant'; id: number; thinking: string; text: string; tools: ToolItem[] }
   | { kind: 'notice'; id: number; notice: Notice };
 
@@ -76,7 +82,7 @@ export type FoldAction =
     }
   | { type: 'TURN_END'; live: LiveSnapshot; usage?: Usage; context?: ContextSnapshot }
   | { type: 'NOTICE'; notice: Notice }
-  | { type: 'USER'; text: string }
+  | { type: 'USER'; text: string; attachments?: string[] }
   | { type: 'SET_MODE'; mode: PermissionMode }
   | { type: 'SET_EFFORT'; effort: ReasoningEffort }
   /** A model switch: the effort goes with it (absent: none), and the meter when given. */
@@ -147,7 +153,15 @@ export function foldReducer(state: FoldState, action: FoldAction): FoldState {
     case 'USER':
       return {
         ...state,
-        entries: [...state.entries, { kind: 'user', id: state.entries.length, text: action.text }],
+        entries: [
+          ...state.entries,
+          {
+            kind: 'user',
+            id: state.entries.length,
+            text: action.text,
+            ...(action.attachments?.length ? { attachments: action.attachments } : {}),
+          },
+        ],
       };
     case 'SET_MODE':
       return { ...state, mode: action.mode };

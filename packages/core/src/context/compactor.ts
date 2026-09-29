@@ -19,6 +19,7 @@
 import type { AgentHooks } from '../agent/hooks.js';
 import type { Message, Provider, ReasoningEffort } from '../provider/types.js';
 import { ProviderError, textOf } from '../provider/types.js';
+import { typedText } from '../agent/attachments.js';
 import { errorMessage } from '../tools/util.js';
 import { flattenRequestText, heuristicTokenCount } from './tokenizer.js';
 import { ToolOutputStore } from './tool-output.js';
@@ -118,7 +119,7 @@ export function parseGoalAndPriorDigest(head: Message): {
   priorDigest?: string;
   recentUserMessages?: string[];
 } {
-  const text = textOf(head.content);
+  const text = typedText(head.content);
   const i = text.indexOf(COMPACTION_MARKER);
   if (i === -1) return { goal: text };
   const rest = text.slice(i + COMPACTION_MARKER.length);
@@ -172,7 +173,7 @@ export function selectRecentUserMessages(
   const candidates = [...prior];
   for (const m of middle) {
     if (m.role !== 'user' || m.content.some((b) => b.type === 'tool_result')) continue;
-    const text = textOf(m.content).trim();
+    const text = typedText(m.content).trim();
     if (text !== '') candidates.push(text);
   }
   const kept: string[] = [];

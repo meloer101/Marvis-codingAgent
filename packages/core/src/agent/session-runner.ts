@@ -16,6 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { open, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -56,7 +57,9 @@ import type {
   PermissionEngine,
   PermissionMode,
 } from '../permissions/index.js';
-import { builtinTools, exitPlanModeTool } from '../tools/index.js';
+import { builtinTools, exitPlanModeTool, readTool } from '../tools/index.js';
+import { PathEscapeError, assertInsideWorkspace } from '../permissions/paths.js';
+import { attachedFileBlock } from './attachments.js';
 import { ToolRegistry } from '../tools/registry.js';
 import type { AnyToolSpec } from '../tools/types.js';
 import { SkillCatalog, createSkillTool, createListSkillsTool, discoverSkills } from '../skills/index.js';
@@ -152,6 +155,17 @@ export interface SlashCommandInfo {
   server: string;
   name: string;
 }
+
+/** A file attached to a message that the session may not read — refused before anything is sent. */
+export class AttachmentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AttachmentError';
+  }
+}
+
+/** Past this, a file is for the agent to read in parts, not to attach whole. */
+export const MAX_ATTACHMENT_BYTES = 256 * 1024;
 
 // ---------------------------------------------------------------------------
 // Config
@@ -932,9 +946,66 @@ export class AgentSession {
     }
   }
 
-  /** Run one turn with `input`, then stop. Returns the full accumulated history. */
-  async runTurn(input: string, opts?: { signal?: AbortSignal }): Promise<AgentRunResult> {
+  /**
+   * Refuse attachments the session may not read: outside the workspace, not a
+   * regular file, binary or too big to attach, or denied by a rule or the
+   * sensitive-file stance. Throws `AttachmentError` naming the first one.
+   */
+  async checkAttachments(paths: readonly string[]): Promise<void> {
+    for (const path of paths) {
+      const refuse = (why: string): never => {
+        throw new AttachmentError(`Can't attach ${path}: ${why}`);
+      };
+      const verdict = await this.#engine.evaluate({ toolName: 'read', input: { path }, readOnly: true });
+      // An `ask` would be answered yes: attaching the file is the asking.
+      if (verdict.decision === 'deny') refuse(verdict.reason ?? 'denied');
+      let abs = '';
+      try {
+        abs = await assertInsideWorkspace(this.#cwd, path);
+      } catch (err) {
+        refuse(err instanceof PathEscapeError ? 'it is outside the workspace' : String(err));
+      }
+      const info = await stat(abs).catch(() => null);
+      if (!info) refuse('no such file');
+      if (!info!.isFile()) refuse('not a file');
+      if (info!.size > MAX_ATTACHMENT_BYTES) refuse(`it is ${Math.round(info!.size / 1024)} KB; mention it instead and let the agent read what it needs`);
+      if (await looksBinary(abs)) refuse('it is a binary file');
+    }
+  }
+
+  /**
+   * Read the files attached to a message with the `read` tool — they enter the
+   * read ledger like any read, recorded so a resumed session remembers them —
+   * and return one block per file for the front of the message.
+   */
+  async #readAttachments(paths: readonly string[]): Promise<string[]> {
+    await this.checkAttachments(paths);
+    const blocks: string[] = [];
+    for (const path of paths) {
+      const result = await readTool.execute({ path }, { cwd: this.#cwd, session: this.#session });
+      if (result.isError) throw new AttachmentError(`Can't attach ${path}: ${result.content}`);
+      // The content rides in the message; the record is for the ledger.
+      await this.#recorder?.recordToolCall({
+        id: `attach-${randomUUID()}`,
+        name: 'read',
+        input: { path },
+        result: { content: '(attached to the user message)' },
+      });
+      blocks.push(attachedFileBlock(path, result.content));
+    }
+    return blocks;
+  }
+
+  /**
+   * Run one turn with `input`, then stop. Returns the full accumulated history.
+   * `attachments` are workspace files read into the message ahead of its text.
+   */
+  async runTurn(
+    input: string,
+    opts?: { signal?: AbortSignal; attachments?: readonly string[] },
+  ): Promise<AgentRunResult> {
     if (this.#closed) throw new Error('AgentSession is closed');
+    const attached = opts?.attachments?.length ? await this.#readAttachments(opts.attachments) : [];
 
     let effectiveText = input;
     if (this.#pendingRetryNotes.length > 0) {
@@ -952,7 +1023,7 @@ export class AgentSession {
 
     const userMessage: Message = {
       role: 'user',
-      content: [{ type: 'text', text: effectiveText }],
+      content: [...attached.map((text) => ({ type: 'text' as const, text })), { type: 'text', text: effectiveText }],
     };
     await this.#recorder?.recordMessage(userMessage);
 
@@ -1334,6 +1405,18 @@ export class AgentSession {
       review = undefined;
     }
     return { ...result, report: applySubagentReview(result.report, review, def.name) };
+  }
+}
+
+/** A NUL in the first 8 KB: not text, whatever the extension says. */
+async function looksBinary(path: string): Promise<boolean> {
+  const handle = await open(path, 'r');
+  try {
+    const buf = Buffer.alloc(8192);
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+    return buf.subarray(0, bytesRead).includes(0);
+  } finally {
+    await handle.close();
   }
 }
 

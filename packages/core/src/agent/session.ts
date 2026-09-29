@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 
 import { assertInsideWorkspace } from '../permissions/paths.js';
 import type { PermissionMode } from '../permissions/types.js';
-import { textOf } from '../provider/types.js';
+import { typedText } from './attachments.js';
 import type { ContentBlock, Message, ReasoningEffort, ToolResultBlock, ToolUseBlock } from '../provider/types.js';
 import type { ToolResult } from '../tools/types.js';
 
@@ -480,7 +480,7 @@ async function firstUserMessageTitle(path: string): Promise<string> {
         continue; // Corrupt line — keep scanning for a usable title.
       }
       if (event.type !== 'message' || event.message?.role !== 'user') continue;
-      const title = sessionTitleFrom(textOf(event.message.content));
+      const title = sessionTitleFrom(typedText(event.message.content));
       if (title === '') continue; // e.g. a tool_result-only user message.
       return title;
     }

@@ -226,16 +226,25 @@ export class SessionRegistry {
   /** Create a session and send `text` as its first message (`session.start`). */
   async start(opts: {
     text: string;
+    attachments?: readonly string[];
     model?: string;
     mode?: PermissionMode;
     effort?: ReasoningEffort;
   }): Promise<{ snapshot: SessionSnapshot; runId: string }> {
-    const { text, ...spawnOpts } = opts;
+    const { text, attachments = [], ...spawnOpts } = opts;
     await this.#checkEffort(spawnOpts.model, spawnOpts.effort);
     const host = await this.#spawn(spawnOpts);
+    try {
+      await host.checkAttachments(attachments);
+    } catch (err) {
+      // Nothing was said yet: the session leaves nothing behind.
+      this.#hosts.delete(host.id);
+      await host.close();
+      throw err;
+    }
     this.#announce(host.id);
     const snapshot = await host.snapshot();
-    const { runId } = host.run(text);
+    const { runId } = host.run(text, attachments);
     return { snapshot, runId };
   }
 

@@ -5,7 +5,7 @@
  * reconnect gap-replay vs. reset.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -585,9 +585,9 @@ describe('SessionHost queue', () => {
   it('queues what is sent during a run and sends it, in order, when the run ends', async () => {
     const { host, events } = await makeHost([{ text: 'a' }, { text: 'b' }, { text: 'c' }]);
     const settled = runsSettled(host, 3);
-    expect(host.send('first')).toHaveProperty('runId');
-    const second = host.send('second');
-    const third = host.send('third');
+    expect(await host.send('first')).toHaveProperty('runId');
+    const second = await host.send('second');
+    const third = await host.send('third');
     expect(second).toMatchObject({ queued: { text: 'second' } });
     await settled;
 
@@ -641,8 +641,8 @@ describe('SessionHost queue', () => {
   it('unqueue takes a message back before it goes', async () => {
     const { host, events } = await makeHost([{ text: 'a' }, { text: 'b' }]);
     const settled = runSettled(host);
-    host.send('first');
-    const sent = host.send('drop me');
+    void host.send('first');
+    const sent = await host.send('drop me');
     if (!('queued' in sent)) throw new Error('expected it to be queued');
     expect(host.unqueue(sent.queued.id)).toMatchObject({ text: 'drop me' });
     expect(host.unqueue(sent.queued.id)).toBeNull();
@@ -662,5 +662,42 @@ describe('SessionHost queue', () => {
     await asked;
     await registry.close(host.id);
     expect(events().filter((e) => e.type === 'run_start')).toHaveLength(1);
+  });
+});
+
+describe('SessionHost attachments', () => {
+  it('reads attached files into the run, and keeps them with a queued message', async () => {
+    const { host, events, cwd } = await makeHost([{ text: 'a' }, { text: 'b' }]);
+    await writeFile(join(cwd, 'notes.md'), '# notes\n');
+    const settled = new Promise<void>((resolve) => {
+      let ends = 0;
+      host.addListener((f) => {
+        if (f.t === 'evt' && f.event.type === 'run_end' && ++ends === 2) resolve();
+      });
+    });
+    await host.send('read @notes.md', ['notes.md']);
+    const queued = await host.send('again @notes.md', ['notes.md']);
+    expect(queued).toMatchObject({ queued: { attachments: ['notes.md'] } });
+    await settled;
+    const starts = events().filter((e) => e.type === 'run_start');
+    expect(starts).toMatchObject([
+      { input: 'read @notes.md', attachments: ['notes.md'] },
+      { input: 'again @notes.md', attachments: ['notes.md'] },
+    ]);
+  });
+
+  it('refuses an attachment the session may not read, sending nothing', async () => {
+    const { host, events, cwd } = await makeHost([{ text: 'a' }]);
+    await writeFile(join(cwd, '.env'), 'SECRET=1\n');
+    await expect(host.send('see @.env', ['.env'])).rejects.toThrow(InvalidRequestError);
+    await expect(host.send('see @gone.txt', ['gone.txt'])).rejects.toThrow('no such file');
+    expect(events().some((e) => e.type === 'run_start')).toBe(false);
+  });
+
+  it('a session started with a bad attachment is not created', async () => {
+    const { registry } = await makeHost([]);
+    const before = (await registry.list()).length;
+    await expect(registry.start({ text: 'hi', attachments: ['nope.txt'] })).rejects.toThrow('no such file');
+    expect((await registry.list()).length).toBe(before);
   });
 });

@@ -8,3 +8,4 @@ export * from './control.js';
 export * from './loop.js';
 export * from './prompt.js';
 export * from './system-update.js';
+export * from './attachments.js';
