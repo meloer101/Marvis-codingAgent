@@ -10,10 +10,19 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { marked } from 'marked';
+import { Marked } from 'marked';
 import type { Token, Tokens } from 'marked';
+import markedCjkFriendly from 'marked-cjk-friendly';
 
 import type { Theme } from '../theme.js';
+
+/**
+ * CommonMark only closes `**` after punctuation when whitespace or more
+ * punctuation follows, so `**注意：**这个` — Chinese puts no space there —
+ * rendered with the asterisks showing. The extension relaxes that rule next
+ * to CJK text (for `*` / `**`; `~~` keeps the stock rule).
+ */
+const marked = new Marked(markedCjkFriendly());
 
 function inline(tokens: Token[] | undefined, theme: Theme): React.ReactNode {
   if (!tokens) return null;

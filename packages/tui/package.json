@@ -24,6 +24,7 @@
     "cli-truncate": "^6.1.1",
     "ink": "^7.1.1",
     "marked": "^18.0.12",
+    "marked-cjk-friendly": "^0.1.2",
     "react": "^19.2.8",
     "string-width": "^8.2.2"
   },

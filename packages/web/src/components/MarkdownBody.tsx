@@ -2,6 +2,8 @@ import { isValidElement, memo } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
+import remarkCjkFriendly from 'remark-cjk-friendly/parseOnly';
+import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough/parseOnly';
 import remarkGfm from 'remark-gfm';
 
 import { CodeBlock } from '@/components/CodeBlock';
@@ -51,6 +53,14 @@ function makeComponents(streaming: boolean): Components {
   };
 }
 
+/**
+ * CommonMark only closes `**` after punctuation when whitespace or more
+ * punctuation follows, so `**注意：**这个` and `这是**「重点」**内容` — Chinese
+ * puts no space there — rendered with the asterisks showing. The cjk-friendly
+ * plugins relax that rule next to CJK text, for `**`, `*` and GFM's `~~`.
+ */
+const remarkPlugins = [remarkGfm, remarkCjkFriendly, remarkCjkFriendlyGfmStrikethrough];
+
 const settledComponents = makeComponents(false);
 const streamingComponents = makeComponents(true);
 
@@ -65,7 +75,7 @@ export const MarkdownBody = memo(function MarkdownBody({
 }) {
   return (
     <div className={cn('md', className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={streaming ? streamingComponents : settledComponents}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} components={streaming ? streamingComponents : settledComponents}>
         {streaming ? closeOpenFences(text) : text}
       </ReactMarkdown>
     </div>

@@ -127,11 +127,6 @@
 - **大仓库探索 fixture**：`subagents` 和 `compaction` 两个 ablation 维度在现在的小 fixture 上测不出
   "隔离 / 压缩省上下文"的真实信号，需要一个大仓库探索任务。它也是 Other「可写子代理」的前置条件。*(M)*
 
-## F · Protocol & state sync (web)
-
-- **Markdown 原文显示 bug**：web 渲染器（`Markdown.tsx` / `MarkdownBody.tsx`）有些内容显示成原始
-  文本，没有经过净化和高亮渲染。先在当前代码上固定一个确切复现，再找到走原文的回退路径。*(S, 低)*
-
 ## G · Observability & evaluation
 
 - **补齐 Terminal-Bench 全量的 18 个作废任务**：9 月下旬 `deepseek-flash` 全量运行有效 71/89、通过 53

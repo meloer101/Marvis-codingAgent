@@ -19,6 +19,15 @@ describe('Markdown', () => {
     expect(frame).toContain('code');
   });
 
+  it('closes bold between CJK punctuation and text, where CommonMark leaves the markers raw', () => {
+    const { lastFrame } = render(
+      <Markdown text={'**注意：**这个文件会被覆盖，这是**「重点」**内容'} theme={DARK} />,
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('注意：');
+    expect(frame).not.toContain('*');
+  });
+
   it('renders list items with bullets', () => {
     const { lastFrame } = render(<Markdown text={'- one\n- two'} theme={DARK} />);
     const frame = lastFrame() ?? '';

@@ -30,6 +30,16 @@ describe('Markdown', () => {
     expect(container.querySelector('p')?.textContent).toBe('look:');
   });
 
+  it('closes emphasis between CJK punctuation and text, where CommonMark leaves the markers raw', async () => {
+    const { container } = render(
+      <Markdown text={'**注意：**这个文件会被覆盖，这是**「重点」**内容，~~旧的：~~新的'} />,
+    );
+    await screen.findByText('注意：');
+    expect([...container.querySelectorAll('strong')].map((n) => n.textContent)).toEqual(['注意：', '「重点」']);
+    expect(container.querySelector('del')?.textContent).toBe('旧的：');
+    expect(container.textContent).not.toContain('*');
+  });
+
   it('does not render raw HTML from the model', () => {
     const { container } = render(<Markdown text={'<img src=x onerror="alert(1)">hi'} />);
     expect(container.querySelector('img')).toBeNull();
