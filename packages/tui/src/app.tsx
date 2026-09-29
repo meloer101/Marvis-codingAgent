@@ -3,9 +3,10 @@
  *
  * Push→pull: `EventBuffer` mutates synchronously per token; a ~33ms flush loop
  * copies a snapshot into the reducer. Important events are flushed immediately
- * so the final token is never dropped. Key handling is centralized here —
- * modals are passive displays, and their `y`/`a`/`n`/`Esc` keys are routed back
- * through the `UiStore` resolvers.
+ * so the final token is never dropped. Choice prompts (permission, plan,
+ * resume, skills) are `SelectMenu`s that own their keys while mounted and hand
+ * the answer back through the `UiStore` resolvers; this file's handler covers
+ * the rest and stands down while one is up.
  */
 
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
@@ -27,11 +28,19 @@ import { HistoryEntry, MeterBar, ModeBar, ToolCard } from './components/display.
 import { EffortPicker } from './components/EffortPicker.js';
 import { ErrorBoundary } from './components/ErrorBoundary.js';
 import { Input, type CommandInfo } from './components/Input.js';
-import { Overlay, PermissionModal, PlanModal } from './components/modals.js';
+import {
+  Overlay,
+  PermissionModal,
+  PlanModal,
+  ResumePicker,
+  SkillPicker,
+} from './components/modals.js';
+import type { AskChoice, PlanChoice } from './components/modals.js';
 import { PermissionsOverlay } from './components/permissions.js';
 import { Markdown } from './markdown/render.js';
 import type { UiStore } from './state/bridges.js';
 import { initialTuiState, sessionReducer } from './state/reducer.js';
+import type { PendingAsk, PendingPlan } from './state/reducer.js';
 import type { TuiAction } from './state/reducer.js';
 import { useTheme } from './hooks/useTheme.js';
 
@@ -46,7 +55,7 @@ const BUILTIN_COMMANDS: CommandInfo[] = [
   { command: '/compact', description: 'summarize history to free up context' },
   { command: '/cost', description: 'show token usage and cost' },
   { command: '/resume', description: 'resume a previous session' },
-  { command: '/skills', description: 'list installed skills (pick a number to load)' },
+  { command: '/skills', description: 'pick an installed skill to load' },
   { command: '/skill', description: 'load a skill by name: /skill <name>' },
   { command: '/clear', description: 'clear the transcript' },
   { command: '/quit', description: 'exit Marvis' },
@@ -98,6 +107,10 @@ export function App({
   const lastCtrlCRef = useRef(0);
   const lastAskRef = useRef<unknown>(null);
   const lastPlanRef = useRef<unknown>(null);
+  // Bumped per prompt so consecutive ones remount their menu (fresh cursor and
+  // feedback field) instead of inheriting the last one's.
+  const askSeqRef = useRef(0);
+  const planSeqRef = useRef(0);
   const startedInYoloRef = useRef(initialSession.mode === 'yolo');
   const autoSetupHintShownRef = useRef(false);
 
@@ -129,6 +142,33 @@ export function App({
   // with an unavailable `auto` downgraded) — the mode approval really lands in.
   const planYesMode = session.planApprovedMode;
 
+  // A menu can outlive its prompt by a flush tick (the store clears at once,
+  // React state on the next tick), so a second Enter must not land on the
+  // *next* prompt: answers only count while their prompt is still the live one.
+  const answerAsk = useCallback(
+    (ask: PendingAsk, choice: AskChoice, feedback?: string) => {
+      if (store.pendingAsk !== ask) return;
+      if (choice === 'auto') {
+        store.answerAsk('once');
+        applyMode('auto');
+      } else store.answerAsk(choice, feedback);
+    },
+    [store, applyMode],
+  );
+  const answerPlan = useCallback(
+    (plan: PendingPlan, choice: PlanChoice, feedback?: string) => {
+      if (store.pendingPlan !== plan) return;
+      if (choice === 'no') {
+        store.answerPlan(false, feedback);
+        return;
+      }
+      const mode = choice === 'yes' ? planYesMode : 'ask';
+      store.answerPlan(true, undefined, mode);
+      d({ type: 'SET_MODE', mode });
+    },
+    [store, planYesMode, d],
+  );
+
   const offerAuto =
     state.pendingAsk !== null &&
     offerAutoSwitch({
@@ -158,10 +198,12 @@ export function App({
       if (completedBatch) d({ type: 'COMMIT_LIVE', live: completedBatch });
       if (store.pendingAsk !== lastAskRef.current) {
         lastAskRef.current = store.pendingAsk;
+        if (store.pendingAsk) askSeqRef.current += 1;
         d(store.pendingAsk ? { type: 'PENDING_ASK', ask: store.pendingAsk } : { type: 'RESOLVE_ASK' });
       }
       if (store.pendingPlan !== lastPlanRef.current) {
         lastPlanRef.current = store.pendingPlan;
+        if (store.pendingPlan) planSeqRef.current += 1;
         d(
           store.pendingPlan
             ? { type: 'PENDING_PLAN', plan: store.pendingPlan }
@@ -398,53 +440,23 @@ export function App({
     [session, createSession, buffer, cwd, store, d],
   );
 
+  // Everything that renders its own `SelectMenu`/`useInput` — this handler
+  // must not also act on those keys (Esc would abort the turn under a prompt).
   const overlayOwnsKeys =
+    state.pendingAsk !== null ||
+    state.pendingPlan !== null ||
     state.overlay === 'permissions' ||
     state.overlay === 'auto-setup' ||
-    state.overlay === 'auto-setup-hint';
+    state.overlay === 'auto-setup-hint' ||
+    state.overlay === 'resume' ||
+    state.overlay === 'skills';
 
   useInput(
     (input, key) => {
-    if (store.pendingAsk) {
-      if (input === 'y') store.answerAsk('once');
-      else if (input === 'a') store.answerAsk('always');
-      else if (
-        input === 's' &&
-        offerAutoSwitch({
-          mode: state.mode,
-          autoAvailable: session.autoModeAvailable,
-          toolName: store.pendingAsk.toolName,
-          ...(store.pendingAsk.forcedByRule ? { forcedByRule: true } : {}),
-        })
-      ) {
-        store.answerAsk('once');
-        applyMode('auto');
-      } else if (input === 'n' || key.escape) store.answerAsk('deny');
-      return;
-    }
-    if (store.pendingPlan) {
-      if (input === 'y') {
-        store.answerPlan(true, undefined, planYesMode);
-        d({ type: 'SET_MODE', mode: planYesMode });
-      } else if (input === 'm') {
-        store.answerPlan(true, undefined, 'ask');
-        d({ type: 'SET_MODE', mode: 'ask' });
-      } else if (input === 'e') store.answerPlan(false, 'revise');
-      else if (key.escape) store.answerPlan(false);
-      return;
-    }
     if (state.overlay) {
       if (key.escape) {
         d({ type: 'CLOSE_OVERLAY' });
         return;
-      }
-      if (state.overlay === 'resume' && /^[1-9]$/.test(input)) {
-        const pick = sessions[Number(input) - 1];
-        if (pick) void resume(pick.id);
-      }
-      if (state.overlay === 'skills' && /^[1-9]$/.test(input)) {
-        const pick = skills[Number(input) - 1];
-        if (pick) loadSkill(pick.name);
       }
       if (state.overlay === 'effort') {
         const i = effortLevels.indexOf(effortDraft);
@@ -532,13 +544,21 @@ export function App({
       </ErrorBoundary>
 
       {state.pendingAsk && (
-        <PermissionModal ask={state.pendingAsk} theme={theme} offerAuto={offerAuto} />
+        <PermissionModal
+          key={`ask-${askSeqRef.current}`}
+          ask={state.pendingAsk}
+          theme={theme}
+          offerAuto={offerAuto}
+          onAnswer={(choice, feedback) => answerAsk(state.pendingAsk!, choice, feedback)}
+        />
       )}
       {state.pendingPlan && (
         <PlanModal
+          key={`plan-${planSeqRef.current}`}
           plan={state.pendingPlan}
           theme={theme}
           yesMode={planYesMode}
+          onAnswer={(choice, feedback) => answerPlan(state.pendingPlan!, choice, feedback)}
         />
       )}
       {state.overlay === 'effort' ? (
@@ -565,14 +585,22 @@ export function App({
           }}
           onClose={() => d({ type: 'CLOSE_OVERLAY' })}
         />
-      ) : state.overlay ? (
-        <Overlay
-          kind={state.overlay}
-          theme={theme}
+      ) : state.overlay === 'resume' ? (
+        <ResumePicker
           sessions={sessions}
-          skills={skills}
-          onPick={resume}
+          theme={theme}
+          onPick={(id) => void resume(id)}
+          onClose={() => d({ type: 'CLOSE_OVERLAY' })}
         />
+      ) : state.overlay === 'skills' ? (
+        <SkillPicker
+          skills={skills}
+          theme={theme}
+          onPick={loadSkill}
+          onClose={() => d({ type: 'CLOSE_OVERLAY' })}
+        />
+      ) : state.overlay ? (
+        <Overlay theme={theme} />
       ) : null}
 
       <Input

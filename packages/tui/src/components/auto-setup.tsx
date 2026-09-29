@@ -1,6 +1,6 @@
 /**
  * `/auto-mode-setup` overlay and the one-shot hint after several auto-mode
- * blocks. Own their input while open.
+ * blocks. Their choices are `SelectMenu`s, which own the keys while open.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -9,6 +9,7 @@ import { Box, Text, useInput } from 'ink';
 import type { AgentSession } from '@harness-code/core';
 
 import type { Theme } from '../theme.js';
+import { SelectMenu } from './select.js';
 
 export function AutoModeSetupOverlay({
   session,
@@ -42,17 +43,15 @@ export function AutoModeSetupOverlay({
     };
   }, [session]);
 
-  useInput((input, key) => {
-    if (key.escape) {
-      onClose();
-      return;
-    }
-    if (status !== 'ready') return;
-    if (input === 'y' || key.return) {
-      setStatus('saving');
-      void session.patchUserAutoMode({ environment: draft }).then(onClose);
-    }
-  });
+  // Only while there is no menu to take Esc (loading / error / saving).
+  useInput((_input, key) => {
+    if (key.escape) onClose();
+  }, { isActive: status !== 'ready' });
+
+  const save = (): void => {
+    setStatus('saving');
+    void session.patchUserAutoMode({ environment: draft }).then(onClose);
+  };
 
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
@@ -68,9 +67,22 @@ export function AutoModeSetupOverlay({
           {draft.length > 16 && <Text color={theme.dim}>… {draft.length - 16} more</Text>}
         </Box>
       )}
-      <Text color={theme.dim}>
-        {status === 'ready' ? '[y] write to ~/.agent/settings.json  [Esc] cancel' : '[Esc] close'}
-      </Text>
+      {status === 'ready' ? (
+        <Box flexDirection="column" marginTop={1}>
+          <Text>Write this to ~/.agent/settings.json?</Text>
+          <SelectMenu
+            options={[
+              { value: 'save', label: 'Yes' },
+              { value: 'cancel', label: 'No', hint: '(esc)' },
+            ]}
+            theme={theme}
+            onSelect={(v) => (v === 'save' ? save() : onClose())}
+            onCancel={onClose}
+          />
+        </Box>
+      ) : (
+        <Text color={theme.dim}>{status === 'saving' ? 'saving…' : 'Esc to close'}</Text>
+      )}
     </Box>
   );
 }
@@ -86,16 +98,22 @@ export function AutoModeSetupHint({
   onDismiss: () => void;
   onClose: () => void;
 }) {
-  useInput((input, key) => {
-    if (key.escape) onClose();
-    else if (input === 'y') onSetup();
-    else if (input === 'd') onDismiss();
-  });
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.warning} paddingX={1}>
       <Text bold>auto mode</Text>
       <Text>Several actions were blocked. Draft environment rules so the classifier knows this repo?</Text>
-      <Text color={theme.dim}>[y] /auto-mode-setup  [d] don&apos;t show again  [Esc] later</Text>
+      <Box marginTop={1}>
+        <SelectMenu
+          options={[
+            { value: 'setup', label: 'Yes, run /auto-mode-setup' },
+            { value: 'dismiss', label: "No, and don't show this again" },
+            { value: 'later', label: 'Not now', hint: '(esc)' },
+          ]}
+          theme={theme}
+          onSelect={(v) => (v === 'setup' ? onSetup() : v === 'dismiss' ? onDismiss() : onClose())}
+          onCancel={onClose}
+        />
+      </Box>
     </Box>
   );
 }
