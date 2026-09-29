@@ -44,10 +44,12 @@ import type {
 } from '@harness-code/core';
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
-import { join, resolve as resolvePath } from 'node:path';
+import { dirname, join, resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { loadDotEnvFor } from './dotenv.js';
 import { buildPrompt, decideFrontend, readStdin } from './dispatch.js';
+import { locateEvalRunner, runEvalRunner } from './eval.js';
 import { printUsage } from './format.js';
 import { runOneshot } from './oneshot.js';
 import { createSink } from './output.js';
@@ -658,6 +660,28 @@ program
     }
     const rollup = rollupStats(summaries);
     console.log(opts.json ? JSON.stringify(rollup, null, 2) : renderStats(rollup));
+  });
+
+program
+  .command('eval')
+  .description('Run the eval suite, as `pnpm eval` does; needs a source checkout of harness-code')
+  .argument('[args...]', 'passed to the eval runner as-is')
+  .allowUnknownOption()
+  .addHelpText(
+    'after',
+    `
+Examples:
+  hc eval                                       replay the regression suite and gate on the baseline
+  hc eval --live --suite capability --runs 5    measure against the real model (costs money)
+  hc eval --ablation verify-stop                paired A/B of a harness switch
+  hc eval --analyze latest                      digest the failing runs' transcripts
+
+Every flag is listed in docs/EVALS.md.`,
+  )
+  .action(async (args: string[]) => {
+    const runner = locateEvalRunner([dirname(fileURLToPath(import.meta.url)), process.cwd()]);
+    if ('error' in runner) fail(runner.error);
+    process.exitCode = await runEvalRunner(runner.cli, runner.root, args);
   });
 
 function collect(value: string, previous: string[]): string[] {

@@ -253,8 +253,6 @@
   并行时可能互相冲突。等 E「大仓库探索 fixture」验证隔离收益之后再做。*(M)*
 - **[codex] 异步子代理**：基于 mailbox 的 spawn / send_message / followup_task / wait / interrupt /
   close，带并发上限（`core/src/tools/handlers/multi_agents_spec.rs`）。排在可写子代理之后。*(L)*
-- **`hc eval` 命令**：对 `evals/dist/cli.js` 的 `child_process.spawn` 包装（故意不 import，让
-  fixture 和 cassette 不进 `hc` 二进制）。`pnpm eval` 已经有了，这只是补一个 CLI 动词。*(S)*
 - **eval harness 迁移到 `AgentSession`**：`evals/src/harness.ts` 还在用自己的无头精简版循环。合并能
   去掉重复，但有风险：cassette 按请求指纹匹配，必须和 `buildAgentSystemPrompt` 逐字节一致，否则要全部
   重录。单独提交，一旦漂移就回滚。*(M)*

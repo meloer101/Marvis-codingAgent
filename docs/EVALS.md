@@ -112,6 +112,9 @@ pnpm eval --analyze latest --all-runs             # include passing runs (weekly
 evals/harbor/run-subset.sh && python3 evals/harbor/summarize.py
 ```
 
+`hc eval <flags>` is the same runner, for when `hc` is on your PATH; it spawns
+`evals/dist/cli.js` from the checkout it finds, so it works only in one.
+
 ## Cadence
 
 - **Every change:** `pnpm eval`.
