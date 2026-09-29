@@ -1,0 +1,17 @@
+{
+  "id": "match-caller-interface",
+  "prompt": "src/ratelimit.js is still a stub, and src/server.js and src/jobs/sync.js already use it. Implement it: a token bucket per key, where each key starts full at `capacity` tokens and refills continuously at `refillPerSec` tokens per second, never going above `capacity`. A call costs one token unless the caller asks for more. A call that can't be paid for in full takes nothing and says how long to wait until it could be, in whole milliseconds rounded up; a cost larger than the capacity can never be paid, so its wait is `Infinity`. Every call also reports how many tokens the key has left afterwards, unrounded. Besides the options its callers pass, `createLimiter` accepts an optional `now` (a function returning the current time in milliseconds, `Date.now` by default) so tests can control the clock. `npm test` runs the existing tests.",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": ["fm-12", "verify", "feature"],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": ["Bash(npm:*)", "Bash(node:*)"],
+  "graders": [
+    { "name": "tests-untouched" },
+    { "name": "diff-size", "maxChangedLines": 120, "maxNewFiles": 1 },
+    { "name": "scratch-sprawl", "allow": ["test/**"] },
+    { "name": "first-touch", "deliverable": ["src/ratelimit.js"] }
+  ]
+}

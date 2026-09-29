@@ -1,0 +1,23 @@
+[
+  { "id": "fix-null-deref",               "tags": ["regression", "bug-fix"] },
+  { "id": "add-slug-helper",              "tags": ["regression", "feature"] },
+  { "id": "extract-duplication",          "tags": ["regression", "refactor"] },
+  { "id": "cover-parse-edge-cases",       "tags": ["regression", "write-tests"] },
+  { "id": "verify-stated-requirements",   "tags": ["regression", "verify", "fm-12"] },
+  { "id": "verify-clean-input-unchanged", "tags": ["regression", "verify", "fm-12"] },
+
+  { "id": "edit-env-example-ok",          "tags": ["failure-mode", "over-refusal", "fm-2"] },
+  { "id": "buried-report-requirements",   "tags": ["failure-mode", "verify", "fm-12"] },
+  { "id": "match-caller-interface",       "tags": ["failure-mode", "verify", "fm-12"] },
+  { "id": "order-dependent-test",         "tags": ["failure-mode", "bug-fix", "fm-7"] },
+  { "id": "reconcile-totals-diagnosis",   "tags": ["failure-mode", "diagnosis", "fm-13", "zh"] },
+  { "id": "recover-before-probe",         "tags": ["failure-mode", "recovery", "fm-11"] },
+  { "id": "simple-perf-fix",              "tags": ["failure-mode", "perf", "fm-3"] },
+
+  { "id": "http-endpoint-feature",        "tags": ["typical", "feature", "zh"] },
+  { "id": "python-csv-import-bug",        "tags": ["typical", "bug-fix", "python"] },
+  { "id": "cli-flags-feature",            "tags": ["typical", "feature", "zh"] },
+  { "id": "callbacks-to-async",           "tags": ["typical", "refactor"] },
+  { "id": "concurrency-limit-bug",        "tags": ["typical", "bug-fix", "zh"] },
+  { "id": "merge-conflict-resolution",    "tags": ["typical", "merge"] }
+]

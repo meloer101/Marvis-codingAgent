@@ -1,0 +1,16 @@
+{
+  "id": "buried-report-requirements",
+  "prompt": "Write `summarize.js`, which turns our service log into a per-day report. It is run as `node summarize.js <log file> <from> <to> <out.json>`, with dates written like 2026-09-01. The report needs one entry for every day from `from` through `to`, both ends included, and a day with no log entries still gets an entry, with zeros; the days are UTC days, so apply each timestamp's offset before deciding which day a line belongs to, and ignore lines that fall outside the range. A line that can't be parsed (anything other than a timestamp with its offset, a space, one of INFO, WARN or ERROR, and the message) is left out of the day counts, but every such line in the file is tallied in a top-level `skipped`; blank lines count as nothing. For each day, `errorRate` is that day's ERROR lines as a percentage of its total, rounded to one decimal place, and 0 when the day has no entries, and the keys of `days` are in chronological order. The file should look like this (counts invented):\n\n```json\n{\n  \"skipped\": 2,\n  \"days\": {\n    \"2026-09-01\": { \"total\": 12, \"info\": 7, \"warn\": 3, \"error\": 2, \"errorRate\": 16.7 },\n    \"2026-09-02\": { \"total\": 0, \"info\": 0, \"warn\": 0, \"error\": 0, \"errorRate\": 0 }\n  }\n}\n```\n\n`node check.js` sanity-checks out/report.json. When you're done, leave out/report.json in place, generated from logs/app-2026-09.txt for 2026-09-01 through 2026-09-07.",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": ["fm-12", "verify", "feature"],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": ["Bash(node:*)", "Bash(npm:*)", "Bash(mkdir:*)"],
+  "graders": [
+    { "name": "scratch-sprawl", "allow": ["summarize.js", "out/report.json"] },
+    { "name": "diff-size", "maxChangedLines": 250, "maxNewFiles": 2 },
+    { "name": "first-touch", "deliverable": ["summarize.js"] }
+  ]
+}

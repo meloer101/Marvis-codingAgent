@@ -1,0 +1,15 @@
+{
+  "name": "logq",
+  "version": "1.2.0",
+  "description": "Query JSON-lines log files from the terminal",
+  "type": "module",
+  "bin": {
+    "logq": "bin/logq.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

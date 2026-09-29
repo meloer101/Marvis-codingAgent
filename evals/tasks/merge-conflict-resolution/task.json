@@ -1,0 +1,17 @@
+{
+  "id": "merge-conflict-resolution",
+  "prompt": "I merged the `discounts` branch into my `tax` branch and got conflicts — the markers are still in the files. Resolve them so both features work together (coupons and tax). `npm test` must pass.",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": ["typical", "merge"],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": ["Bash(npm:*)", "Bash(node:*)"],
+  "graders": [
+    { "name": "tests-untouched" },
+    { "name": "diff-size", "maxChangedLines": 90, "maxNewFiles": 1 },
+    { "name": "scratch-sprawl", "allow": ["test/**"] },
+    { "name": "first-touch", "deliverable": ["src/cart.js", "README.md"] }
+  ]
+}

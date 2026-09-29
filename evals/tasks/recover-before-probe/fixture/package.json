@@ -1,0 +1,10 @@
+{
+  "name": "order-store",
+  "version": "0.4.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "db": "node tools/dbtool.js"
+  }
+}

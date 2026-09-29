@@ -1,0 +1,16 @@
+{
+  "id": "reconcile-totals-diagnosis",
+  "prompt": "每晚的对账任务（`npm run totals`，代码在 src/totals.js）算出来的各账户合计，和财务导出的 finance/export.csv 对不上，有几个账户差了一点。帮我查清楚原因，修好 src/totals.js，让结果和财务一致。data/transactions.csv 是上游每晚原样推过来的，以后也还会是这个样子，所以别改数据，要改代码。\n\n另外把受影响的交易 id 写到 answer.txt，一行一个，顺序不限。“受影响”指现在的代码把这笔交易重复计入了，或者漏算了；同一笔交易只写一次，id 写成去掉首尾空格、转成大写后的形式。",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": ["fm-13", "diagnosis", "bug-fix", "zh"],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": ["Bash(npm:*)", "Bash(node:*)", "Bash(awk:*)"],
+  "graders": [
+    { "name": "tests-untouched" },
+    { "name": "diff-size", "maxChangedLines": 40, "maxNewFiles": 1 },
+    { "name": "scratch-sprawl", "allow": ["answer.txt"] }
+  ]
+}

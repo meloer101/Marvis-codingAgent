@@ -1,0 +1,22 @@
+{"ts":"2026-09-01T07:58:12.431Z","level":"info","svc":"api","msg":"server listening on :8080","pid":4121}
+{"ts":"2026-09-01T07:58:13.002Z","level":"info","svc":"worker","msg":"connected to queue jobs-default"}
+{"ts":"2026-09-01T08:03:41.870Z","level":"debug","svc":"api","msg":"GET /healthz 200","durationMs":2}
+{"ts":"2026-09-01T08:15:09.114Z","level":"info","svc":"api","msg":"POST /orders 201","reqId":"r-8812","durationMs":48}
+{"ts":"2026-09-01T08:15:09.530Z","level":"info","svc":"billing","msg":"charge created","reqId":"r-8812","amountCents":4599}
+{"ts":"2026-09-01T08:47:55.006Z","level":"warn","svc":"worker","msg":"job export-7731 retried (attempt 2)","jobId":"export-7731"}
+{"ts":"2026-09-01T09:12:30.250Z","level":"error","svc":"billing","msg":"card declined: insufficient_funds","reqId":"r-8840"}
+{"ts":"2026-09-01T09:12:30.311Z","level":"warn","svc":"api","msg":"POST /orders 402","reqId":"r-8840","durationMs":95}
+{"ts":"2026-09-01T11:40:02.719Z","level":"info","svc":"worker","msg":"job export-7731 finished","jobId":"export-7731","rows":18230}
+{"ts":"2026-09-01T14:05:47.093Z","level":"debug","svc":"worker","msg":"queue depth 0"}
+{"ts":"2026-09-01T16:22:18.640Z","level":"error","svc":"api","msg":"upstream timeout calling inventory","reqId":"r-9102","durationMs":30001}
+{"ts":"2026-09-01T16:22:19.004Z","level":"warn","svc":"api","msg":"circuit breaker open for inventory"}
+{"ts":"2026-09-01T16:27:19.010Z","level":"info","svc":"api","msg":"circuit breaker closed for inventory"}
+{"ts":"2026-09-01T23:59:58.512Z","level":"info","svc":"billing","msg":"nightly invoice run started"}
+{"ts":"2026-09-02T00:00:03.118Z","level":"info","svc":"billing","msg":"nightly invoice run finished","invoices":312}
+{"ts":"2026-09-02T02:10:44.777Z","level":"warn","svc":"worker","msg":"disk usage at 81%","host":"worker-2"}
+{"ts":"2026-09-02T06:31:05.200Z","level":"debug","svc":"api","msg":"GET /healthz 200","durationMs":1}
+{"ts":"2026-09-02T09:02:17.455Z","level":"info","svc":"api","msg":"POST /orders 201","reqId":"r-9377","durationMs":51}
+{"ts":"2026-09-02T09:02:17.901Z","level":"info","svc":"billing","msg":"charge created","reqId":"r-9377","amountCents":1250}
+{"ts":"2026-09-02T10:45:00.000Z","level":"error","svc":"worker","msg":"job import-118 failed: invalid CSV header","jobId":"import-118"}
+{"ts":"2026-09-02T10:45:00.312Z","level":"warn","svc":"worker","msg":"job import-118 moved to dead-letter queue","jobId":"import-118"}
+{"ts":"2026-09-02T13:20:36.089Z","level":"info","svc":"api","msg":"deploy 2026.09.2 rolled out","version":"2026.09.2"}

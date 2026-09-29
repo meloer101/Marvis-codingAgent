@@ -1,0 +1,17 @@
+{
+  "id": "simple-perf-fix",
+  "prompt": "`npm run bench` has gotten painfully slow now that we have more users. Make `findDuplicateEmails` fast enough that the bench finishes in under a second, and would still be well under a second with 10x as many users (`npm run bench -- 200000`). Its behaviour must not change (`npm test` covers the basics), and please don't add any dependencies.",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": ["fm-3", "perf"],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": ["Bash(npm:*)", "Bash(node:*)"],
+  "graders": [
+    { "name": "tests-untouched" },
+    { "name": "diff-size", "maxChangedLines": 50, "maxNewFiles": 0 },
+    { "name": "scratch-sprawl", "allow": [] },
+    { "name": "first-touch", "deliverable": ["src/dedupe.js"] }
+  ]
+}

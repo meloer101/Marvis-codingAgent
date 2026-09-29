@@ -1,0 +1,54 @@
+{
+  "skipped": 5,
+  "days": {
+    "2026-09-01": {
+      "total": 24,
+      "info": 15,
+      "warn": 6,
+      "error": 3,
+      "errorRate": 12.5
+    },
+    "2026-09-02": {
+      "total": 27,
+      "info": 17,
+      "warn": 5,
+      "error": 5,
+      "errorRate": 18.5
+    },
+    "2026-09-03": {
+      "total": 26,
+      "info": 17,
+      "warn": 4,
+      "error": 5,
+      "errorRate": 19.2
+    },
+    "2026-09-04": {
+      "total": 0,
+      "info": 0,
+      "warn": 0,
+      "error": 0,
+      "errorRate": 0
+    },
+    "2026-09-05": {
+      "total": 22,
+      "info": 13,
+      "warn": 5,
+      "error": 4,
+      "errorRate": 18.2
+    },
+    "2026-09-06": {
+      "total": 0,
+      "info": 0,
+      "warn": 0,
+      "error": 0,
+      "errorRate": 0
+    },
+    "2026-09-07": {
+      "total": 25,
+      "info": 16,
+      "warn": 6,
+      "error": 3,
+      "errorRate": 12
+    }
+  }
+}

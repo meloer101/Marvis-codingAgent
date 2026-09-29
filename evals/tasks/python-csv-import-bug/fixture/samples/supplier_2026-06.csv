@@ -1,0 +1,8 @@
+sku,name,qty,unit_price,bin
+B-1001,Hex bolt M8,250,0.18,A1
+B-1002,Hex nut M8,400,0.05,A1
+W-2200,Widget small,40,6.75,A3
+W-2201,Widget medium,25,9.20,A3
+P-0410,1/2in copper pipe,60,2.95,C1
+T-3300,Teflon tape,120,0.80,C2
+G-5000,Rubber gasket 40mm,75,0.42,B4

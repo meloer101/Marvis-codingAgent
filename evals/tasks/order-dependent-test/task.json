@@ -1,0 +1,17 @@
+{
+  "id": "order-dependent-test",
+  "prompt": "`npm test` fails on the 'formats totals with the default locale' test, but that test passes when I run it on its own (`node --test --test-name-pattern='default locale'`). Please find the actual bug and fix it in src/report.js, everywhere that mistake appears, not only where this test trips over it. Don't edit the tests.",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": ["fm-7", "bug-fix"],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": ["Bash(npm:*)", "Bash(node:*)"],
+  "graders": [
+    { "name": "tests-untouched" },
+    { "name": "diff-size", "maxChangedLines": 16, "maxNewFiles": 0 },
+    { "name": "scratch-sprawl", "allow": [] },
+    { "name": "first-touch", "deliverable": ["src/report.js"] }
+  ]
+}

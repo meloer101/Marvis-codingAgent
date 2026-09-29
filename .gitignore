@@ -33,3 +33,13 @@ mock-demo.txt
 
 # design-skill live preview working state
 .impeccable/
+
+# coding-e2e eval (evals/e2e): per-run caches, transcripts, the frozen hc
+# bundle (rebuilt from harness.json's commit) and derived reports stay local
+.claude/hillclimb/*/*/runs/
+.claude/hillclimb/*/*/traces/
+.claude/hillclimb/*/*/harness/hc.mjs
+.claude/hillclimb/*/*/progress.txt
+.claude/hillclimb/*/report.html
+.claude/hillclimb/*/state.json
+.claude/hillclimb/*/trajectory/

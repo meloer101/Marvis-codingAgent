@@ -1,0 +1,41 @@
+{
+  "id": "http-endpoint-feature",
+  "prompt": "给 todos 加一个列表接口 `GET /todos`：\n\n- 支持 `status=open|done` 过滤，不传就是全部；\n- 分页：`limit` 默认 20、最大 100；`cursor` 是上一页最后一条的 id，返回它之后的记录；\n- 结果按 id 升序；\n- 响应顶层带 `nextCursor`（请求下一页时作为 cursor 传入），没有下一页时为 `null`；\n- 参数不合法时返回 400，错误码用现有的 `invalid_param`：status 取值不对、limit 不是 1–100 之间的整数、cursor 对应的 todo 不存在。\n\n响应和错误格式跟现有接口保持一致。顺手把 `GET /todos` 的测试补上，`npm test` 要能过。",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": [
+    "typical",
+    "feature",
+    "zh"
+  ],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": [
+    "Bash(npm:*)",
+    "Bash(node:*)",
+    "Bash(curl:*)",
+    "Bash(PORT=*)",
+    "Bash(sleep:*)"
+  ],
+  "graders": [
+    {
+      "name": "diff-size",
+      "maxChangedLines": 300,
+      "maxNewFiles": 3
+    },
+    {
+      "name": "scratch-sprawl",
+      "allow": [
+        "test/**",
+        "src/**"
+      ]
+    },
+    {
+      "name": "first-touch",
+      "deliverable": [
+        "src/**"
+      ]
+    }
+  ]
+}

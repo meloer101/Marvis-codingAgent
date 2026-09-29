@@ -1,0 +1,9 @@
+{
+  "commit": "d5fd8a7e2539c73a39d99d5d9869f1679ae56ce6",
+  "commit_subject": "docs(roadmap): record the web plan after its foundations landed",
+  "from_worktree": false,
+  "hc_version": "0.1.0",
+  "sha256": "85ba7c778eccc52ad1934c4b828a77e8dff8bcd973288fa459d8f4e22428d6c2",
+  "built_at": "2026-09-29T10:05:44.596Z",
+  "node": "v22.23.1"
+}

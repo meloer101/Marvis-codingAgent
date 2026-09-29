@@ -1,0 +1,8 @@
+JRN2 seq=41 count=7 flags=0
+{"id":41,"customer":"C-1202","sku":"SHADE-LINEN","qty":3,"totalCents":5550,"placedAt":"2026-09-28T20:31:41Z","status":"paid","note":"leave at reception"}
+{"id":43,"customer":"C-1151","sku":"LAMP-OAK-L","qty":1,"totalCents":7900,"placedAt":"2026-09-28T21:13:16Z","status":"paid"}
+{"id":42,"customer":"C-1181","sku":"LAMP-OAK-S","qty":1,"totalCents":4900,"placedAt":"2026-09-28T20:44:13Z","status":"paid"}
+{"id":44,"customer":"C-1332","sku":"SHADE-LINEN","qty":2,"totalCents":3700,"placedAt":"2026-09-28T21:22:26Z","status":"paid"}
+{"id":46,"customer":"C-1204","sku":"SHADE-LINEN","qty":3,"totalCents":5550,"placedAt":"2026-09-28T21:48:39Z","status":"pending"}
+{"id":45,"customer":"C-1205","sku":"CORD-BRAID-2M","qty":2,"totalCents":2580,"placedAt":"2026-09-28T21:30:08Z","status":"pending"}
+{"id":47,"customer":"C-1088","sku":"DIMMER-KIT","qty":1,"totalCents":2450,"placedAt":"2026-09-28T22:15:13Z","status":"pending"}

@@ -1,0 +1,44 @@
+{
+  "id": "callbacks-to-async",
+  "prompt": "Modernize src/store.js: the store's get/set/del/list should return promises (errors reject) so our own code can use async/await, and rewrite src/app.js to use await instead of nested callbacks. The plugins under plugins/ are maintained by another team and can't change, so the callback style they use has to keep working exactly as before. `npm test` must pass.",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": [
+    "typical",
+    "refactor"
+  ],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": [
+    "Bash(npm:*)",
+    "Bash(node:*)",
+    "Bash(KV_DIR=*)",
+    "Bash(rm:*)",
+    "Bash(mkdir:*)"
+  ],
+  "graders": [
+    {
+      "name": "tests-untouched"
+    },
+    {
+      "name": "diff-size",
+      "maxChangedLines": 320,
+      "maxNewFiles": 1
+    },
+    {
+      "name": "scratch-sprawl",
+      "allow": [
+        "data/**",
+        "test/**"
+      ]
+    },
+    {
+      "name": "first-touch",
+      "deliverable": [
+        "src/store.js",
+        "src/app.js"
+      ]
+    }
+  ]
+}

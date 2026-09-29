@@ -1,0 +1,39 @@
+{
+  "id": "python-csv-import-bug",
+  "prompt": "Importing the supplier's new export crashes:\n\n```\n$ python3 -m inventory.cli import samples/supplier_2026-09.csv\nTraceback (most recent call last):\n  ...\nKeyError: 'sku'\n```\n\nThe older exports (like samples/supplier_2026-06.csv) still import fine. Fix the importer so both work. Tests run with `python3 -m unittest`.",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": [
+    "typical",
+    "bug-fix",
+    "python"
+  ],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": [
+    "Bash(python3:*)",
+    "Bash(python:*)",
+    "Bash(PYTHONPATH=*)"
+  ],
+  "graders": [
+    {
+      "name": "diff-size",
+      "maxChangedLines": 80,
+      "maxNewFiles": 1
+    },
+    {
+      "name": "scratch-sprawl",
+      "allow": [
+        "**/__pycache__/**",
+        "tests/**"
+      ]
+    },
+    {
+      "name": "first-touch",
+      "deliverable": [
+        "inventory/importer.py"
+      ]
+    }
+  ]
+}

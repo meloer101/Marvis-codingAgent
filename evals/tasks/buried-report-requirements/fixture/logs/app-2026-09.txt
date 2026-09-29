@@ -1,0 +1,152 @@
+2026-09-01T01:34:21+08:00 INFO webhook delivered id=wh_52d0e3 status=200
+2026-09-01T02:28:03+08:00 INFO session started user=u_3d179b
+2026-09-01T05:10:47+08:00 INFO webhook delivered id=wh_97e835 status=200
+2026-09-01T06:53:35+08:00 INFO refund issued id=rf_6ec237
+2026-09-01T00:00:04Z INFO payment accepted id=pay_7afb2c amount=329.00 currency=USD
+2026-09-01T00:08:37Z INFO refund issued id=rf_1716a5
+2026-08-31T20:12:09-05:00 WARN payment retry id=pay_0fcd4d attempt=3
+2026-08-31T21:04:45-05:00 WARN payment retry id=pay_ab23ad attempt=2
+2026-08-31T21:55:37-05:00 INFO refund issued id=rf_ae9fe3
+2026-08-31T22:09:39-05:00 INFO refund issued id=rf_743923
+2026-09-01T12:19:42+08:00 WARN slow upstream provider=adyen latency_ms=1717
+2026-09-01T14:02:19+08:00 INFO session started user=u_cda133
+2026-09-01T02:59:42-05:00 ERROR upstream timeout provider=stripe after_ms=5000
+2026-09-01T03:32:15-05:00 WARN slow upstream provider=stripe latency_ms=2441
+2026-09-01T16:58:53+08:00 INFO session started user=u_af6313
+2026-09-01T04:53:42-05:00 INFO session started user=u_e5f433
+2026-09-01T10:31:51Z INFO webhook delivered id=wh_b83699 status=200
+2026-09-01T20:24:06+08:00 WARN slow upstream provider=stripe latency_ms=2117
+2026-09-01T07:49:37-05:00 INFO payment accepted id=pay_1b8b44 amount=261.00 currency=USD
+2026-09-01T13:24:08Z INFO payment accepted id=pay_cda801 amount=80.00 currency=USD
+2026-09-01T11:12:31-05:00 ERROR upstream timeout provider=adyen after_ms=5000
+2026-09-02T01:44:48+08:00 INFO webhook delivered id=wh_89ecde status=200
+2026-09-01T18:49:44Z ERROR payment failed id=pay_c9f127 reason=card_declined
+    at PaymentClient.charge (src/client.js:88:13)
+    at async processQueue (src/worker.js:41:5)
+2026-09-01T15:37:24-05:00 INFO webhook delivered id=wh_340121 status=200
+2026-09-02T05:18:29+08:00 WARN slow upstream provider=stripe latency_ms=2432
+2026-09-01T16:19:35-05:00 INFO webhook delivered id=wh_f7c443 status=200
+2026-09-02T06:03:07+08:00 INFO refund issued id=rf_f5233b
+2026-09-02T07:18:53+08:00 INFO payment accepted id=pay_067999 amount=372.00 currency=USD
+2026-09-02T08:41:25+08:00 INFO payment accepted id=pay_e5ed6d amount=132.00 currency=USD
+2026-09-01T20:03:07-05:00 INFO refund issued id=rf_b3d379
+2026-09-01T20:40:18-05:00 ERROR upstream timeout provider=stripe after_ms=5000
+2026-09-01T21:24:51-05:00 INFO webhook delivered id=wh_e5bf77 status=200
+2026-09-02T02:37:18Z INFO payment accepted id=pay_f97733 amount=84.00 currency=USD
+2026-09-01T21:40:51-05:00 ERROR upstream timeout provider=adyen after_ms=5000
+2026-09-02T04:23:52Z INFO session started user=u_b3fbc5
+2026-09-02T00:36:28-05:00 INFO payment accepted id=pay_627994 amount=91.00 currency=USD
+2026-09-02T08:15:40+08:00 payment retry id=pay_7c1e02 attempt=2
+2026-09-02T13:48:49+08:00 INFO payment accepted id=pay_652fd8 amount=249.00 currency=USD
+2026-09-02T06:31:29Z INFO webhook delivered id=wh_26bb75 status=200
+2026-09-02T01:56:03-05:00 WARN slow upstream provider=adyen latency_ms=3148
+2026-09-02T02:01:48-05:00 ERROR upstream timeout provider=stripe after_ms=5000
+2026-09-02T03:19:37-05:00 INFO payment accepted id=pay_dbb09c amount=317.00 currency=USD
+2026-09-02T03:38:42-05:00 INFO payment accepted id=pay_fb6ef1 amount=372.00 currency=USD
+2026-09-02T04:16:36-05:00 INFO payment accepted id=pay_034a5e amount=220.00 currency=USD
+2026-09-02T18:50:57+08:00 INFO webhook delivered id=wh_98e883 status=200
+2026-09-02T11:30:01Z WARN payment retry id=pay_23d2be attempt=2
+2026-09-02T11:40:28Z INFO session started user=u_099043
+2026-09-02T08:57:39-05:00 INFO webhook delivered id=wh_5ac5e7 status=200
+2026-09-02T14:55:11Z WARN slow upstream provider=stripe latency_ms=3493
+2026-09-02T18:19:31Z INFO payment accepted id=pay_76f9d4 amount=213.00 currency=USD
+2026-09-02T13:23:10-05:00 WARN payment retry id=pay_d44ab5 attempt=4
+2026-09-02T19:16:44Z INFO payment accepted id=pay_c180ff amount=237.00 currency=USD
+2026-09-02T15:58:43-05:00 INFO session started user=u_dbf72b
+2026-09-02T23:21:07Z ERROR upstream timeout provider=adyen after_ms=5000
+2026-09-03T07:35:44+08:00 WARN slow upstream provider=stripe latency_ms=2877
+2026-09-03T07:58:01+08:00 ERROR upstream timeout provider=adyen after_ms=5000
+2026-09-02T19:21:30-05:00 ERROR payment failed id=pay_11d3e7 reason=insufficient_funds
+2026-09-03T14:01:30+08:00 INFO refund issued id=rf_61bcb5
+2026-09-03T01:48:32-05:00 WARN slow upstream provider=stripe latency_ms=2011
+2026-09-03T17:48:21+08:00 INFO webhook delivered id=wh_0f0d68 status=200
+2026-09-03T18:15:23+08:00 INFO refund issued id=rf_63d3c7
+2026-09-03T10:30:54Z ERROR payment failed id=pay_643641 reason=card_declined
+2026-09-03T11:06:34Z INFO webhook delivered id=wh_3dce93 status=200
+2026-09-03T14:15:25Z INFO payment accepted id=pay_cb1625 amount=203.00 currency=USD
+2026-09-03T09:15:34-05:00 INFO refund issued id=rf_29318b
+2026-09-03T16:01:00Z INFO refund issued id=rf_3b1879
+2026-09-03T16:56:27Z INFO payment accepted id=pay_9492c7 amount=227.00 currency=USD
+2026-09-04T01:05:30+08:00 INFO payment accepted id=pay_41f7a4 amount=113.00 currency=USD
+2026-09-03T17:08:17Z ERROR payment failed id=pay_b86717 reason=card_declined
+2026-09-04T01:15:37+08:00 INFO session started user=u_f298bd
+2026-09-03T17:17:28Z INFO session started user=u_e90a97
+2026-09-03T12:26:32-05:00 INFO webhook delivered id=wh_99f551 status=200
+2026-09-03T18:50:12Z WARN payment retry id=pay_74c4f7 attempt=3
+2026-09-04T04:26:28+08:00 INFO webhook delivered id=wh_d45233 status=200
+2026-09-04T04:56:26+08:00 INFO refund issued id=rf_0a05f1
+2026-09-04T05:04:31+08:00 ERROR upstream timeout provider=stripe after_ms=5000
+2026-09-04T05:44:02+08:00 ERROR upstream timeout provider=adyen after_ms=5000
+2026-09-04T05:51:59+08:00 WARN payment retry id=pay_2f3325 attempt=2
+2026-09-03T17:00:29-05:00 INFO payment accepted id=pay_7e4a69 amount=87.00 currency=USD
+2026-09-03T22:23:42Z WARN payment retry id=pay_9312c3 attempt=4
+2026-09-03T17:34:26-05:00 INFO payment accepted id=pay_f3f259 amount=87.00 currency=USD
+2026-09-03T18:29:35-05:00 INFO webhook delivered id=wh_466855 status=200
+2026-09-05T00:28:08Z INFO payment accepted id=pay_dde5a3 amount=76.00 currency=USD
+2026-09-04T19:31:15-05:00 INFO webhook delivered id=wh_3d4189 status=200
+2026-09-05T09:56:14+08:00 WARN slow upstream provider=stripe latency_ms=3365
+2026-09-04T22:21:43-05:00 WARN slow upstream provider=adyen latency_ms=2494
+2026-09-05T00:08:39-05:00 INFO refund issued id=rf_78334b
+2026-09-05T06:00:56Z INFO payment accepted id=pay_97dcd3 amount=324.00 currency=USD
+2026-09-05T11:0
+2026-09-05T17:04:50+08:00 WARN payment retry id=pay_148b28 attempt=4
+2026-09-05T04:32:06-05:00 INFO payment accepted id=pay_49a200 amount=244.00 currency=USD
+2026-09-05T18:46:54+08:00 INFO session started user=u_32eb9d
+2026-09-05T18:53:11+08:00 INFO refund issued id=rf_84d59f
+2026-09-05T19:27:36+08:00 ERROR upstream timeout provider=adyen after_ms=5000
+2026-09-05T11:58:15Z INFO webhook delivered id=wh_9925c9 status=200
+2026-09-05T09:09:22-05:00 INFO refund issued id=rf_ae7b31
+2026-09-05T16:10:06Z ERROR payment failed id=pay_76b0b3 reason=insufficient_funds
+2026-09-05T11:26:32-05:00 WARN payment retry id=pay_0caef8 attempt=3
+2026-09-06T00:27:10+08:00 ERROR upstream timeout provider=stripe after_ms=5000
+2026-09-05T17:34:08Z INFO webhook delivered id=wh_fcfa85 status=200
+2026-09-05T17:01:40-05:00 INFO session started user=u_7912bd
+2026-09-05T17:53:24-05:00 WARN payment retry id=pay_aa2395 attempt=2
+2026-09-05T22:56:05Z INFO payment accepted id=pay_dd4e51 amount=210.00 currency=USD
+2026-09-05T18:08:21-05:00 ERROR upstream timeout provider=adyen after_ms=5000
+2026-09-05T23:48:31Z INFO payment accepted id=pay_8403a7 amount=64.00 currency=USD
+-- sg-2 restarted --
+2026-09-07T08:09:57+08:00 ERROR payment failed id=pay_ccc807 reason=card_declined
+2026-09-07T00:36:04Z WARN slow upstream provider=stripe latency_ms=1756
+2026-09-07T02:39:50Z WARN payment retry id=pay_367f19 attempt=2
+2026-09-07T10:52:56+08:00 INFO refund issued id=rf_6c44f3
+2026-09-06T21:53:24-05:00 INFO session started user=u_792f37
+2026-09-07T04:42:11Z INFO session started user=u_d4ed7b
+2026-09-07T15:00:46+08:00 INFO payment accepted id=pay_782083 amount=109.00 currency=USD
+2026-09-07T07:07:31Z ERROR upstream timeout provider=adyen after_ms=5000
+2026-09-07T08:12:46Z INFO refund issued id=rf_098a71
+2026-09-07T16:38:51+08:00 INFO payment accepted id=pay_c2c885 amount=229.00 currency=USD
+2026-09-07T05:00:05-05:00 WARN payment retry id=pay_9a2937 attempt=3
+2026-09-07T20:24:23+08:00 INFO refund issued id=rf_b894f9
+2026-09-07T08:56:43-05:00 INFO payment accepted id=pay_acd0c4 amount=228.00 currency=USD
+2026-09-07T12:21:58-05:00 INFO refund issued id=rf_1d8c1f
+2026-09-07T18:01:30Z INFO payment accepted id=pay_721987 amount=134.00 currency=USD
+2026-09-07T18:09:46Z INFO payment accepted id=pay_c24035 amount=20.00 currency=USD
+2026-09-08T03:02:47+08:00 WARN slow upstream provider=stripe latency_ms=2688
+2026-09-07T14:50:50-05:00 INFO refund issued id=rf_92c903
+2026-09-07T19:52:31Z INFO webhook delivered id=wh_7cf137 status=200
+2026-09-08T04:05:03+08:00 ERROR payment failed id=pay_c62771 reason=insufficient_funds
+2026-09-08T04:08:18+08:00 WARN slow upstream provider=adyen latency_ms=3441
+2026-09-08T06:12:33+08:00 WARN payment retry id=pay_264d7c attempt=4
+2026-09-08T06:31:46+08:00 INFO payment accepted id=pay_d9f7fb amount=23.00 currency=USD
+2026-09-07T22:44:33Z INFO webhook delivered id=wh_40989f status=200
+2026-09-07T23:58:12Z INFO webhook delivered id=wh_8f0d0b status=200
+2026-09-08T09:25:48+08:00 WARN payment retry id=pay_19e4ae attempt=2
+2026-09-08T10:09:33+08:00 INFO payment accepted id=pay_4bd374 amount=132.00 currency=USD
+2026-09-07T21:15:33-05:00 ERROR payment failed id=pay_f1afed reason=insufficient_funds
+2026-09-08T12:04:07+08:00 ERROR payment failed id=pay_dc45bb reason=card_declined
+2026-09-08T04:26:42Z WARN slow upstream provider=stripe latency_ms=2191
+2026-09-07T23:41:48-05:00 ERROR upstream timeout provider=adyen after_ms=5000
+2026-09-08T07:08:26Z INFO webhook delivered id=wh_30e26d status=200
+2026-09-08T16:51:55+08:00 INFO webhook delivered id=wh_fcdf08 status=200
+2026-09-08T17:44:18+08:00 INFO session started user=u_cd8c95
+2026-09-08T12:06:00Z ERROR payment failed id=pay_d37171 reason=insufficient_funds
+2026-09-08T22:02:06+08:00 INFO refund issued id=rf_fa0ef1
+2026-09-08T20:44:59Z INFO payment accepted id=pay_bb7632 amount=115.00 currency=USD
+2026-09-09T05:10:50+08:00 INFO webhook delivered id=wh_a32641 status=200
+2026-09-09T08:49:56+08:00 INFO refund issued id=rf_dcb037
+2026-09-09T05:23:18Z ERROR payment failed id=pay_f2dd85 reason=insufficient_funds
+2026-09-09T12:07:52Z INFO payment accepted id=pay_d30943 amount=68.00 currency=USD
+2026-09-09T21:43:07Z INFO refund issued id=rf_b56f7f
+2026-09-09T17:59:37-05:00 ERROR payment failed id=pay_24d9ef reason=expired_card
+2026-09-10T07:15:31+08:00 INFO session started user=u_2e9f6d

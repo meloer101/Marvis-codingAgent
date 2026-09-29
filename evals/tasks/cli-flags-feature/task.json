@@ -1,0 +1,42 @@
+{
+  "id": "cli-flags-feature",
+  "prompt": "给 logq 加两个参数：\n\n1. `--since <时间>`：只显示这个时间及之后的记录。支持绝对时间（`2026-09-01` 或 `2026-09-01T10:00:00Z`，只写日期时按 UTC 当天 0 点算）和相对时间（`30m`、`2h`、`7d`，从当前时间往前推；测试时可以用环境变量 `LOGQ_NOW`（ISO 格式）指定“当前时间”）。格式不对时往 stderr 打印错误、以退出码 2 退出。\n2. `--json`：不输出表格，改成每条记录输出一行 JSON，内容就是原始记录（字段原样保留）。\n\n两个参数可以和现有参数任意组合。README 里的用法说明也更新一下。",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": [
+    "typical",
+    "feature",
+    "zh"
+  ],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": [
+    "Bash(npm:*)",
+    "Bash(node:*)",
+    "Bash(./bin/logq.js:*)",
+    "Bash(LOGQ_NOW=*)",
+    "Bash(TZ=*)"
+  ],
+  "graders": [
+    {
+      "name": "diff-size",
+      "maxChangedLines": 200,
+      "maxNewFiles": 2
+    },
+    {
+      "name": "scratch-sprawl",
+      "allow": [
+        "test/**",
+        "src/**"
+      ]
+    },
+    {
+      "name": "first-touch",
+      "deliverable": [
+        "src/**",
+        "bin/logq.js"
+      ]
+    }
+  ]
+}

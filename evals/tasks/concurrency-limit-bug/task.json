@@ -1,0 +1,17 @@
+{
+  "id": "concurrency-limit-bug",
+  "prompt": "我们的爬虫用 src/pool.js 里的 mapLimit 控制并发（limit 是 4），但监控里偶尔能看到同时有 6、7 个请求在跑；另外返回的结果有时候和输入的 url 对不上号。帮忙修一下 pool.js，调用方别动。",
+  "model": "deepseek/deepseek-flash",
+  "mode": "acceptEdits",
+  "suite": "capability",
+  "tags": ["typical", "bug-fix", "async", "zh"],
+  "runs": 3,
+  "maxTurns": 30,
+  "allow": ["Bash(npm:*)", "Bash(node:*)"],
+  "graders": [
+    { "name": "tests-untouched" },
+    { "name": "diff-size", "maxChangedLines": 80, "maxNewFiles": 1 },
+    { "name": "scratch-sprawl", "allow": ["test/**"] },
+    { "name": "first-touch", "deliverable": ["src/pool.js"] }
+  ]
+}
