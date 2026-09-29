@@ -38,7 +38,7 @@ describe('PermissionModal', () => {
     expect(frame).toContain('bash needs approval');
     expect(frame).toContain('Do you want to proceed?');
     expect(frame).toContain('❯ 1. Yes');
-    expect(frame).toContain("2. Yes, and don't ask again for bash this session");
+    expect(frame).toContain("2. Yes, and don't ask again for Bash this session");
     expect(frame).toContain('3. No, and tell the agent what to do differently (esc)');
     expect(frame).not.toContain('auto mode');
   });

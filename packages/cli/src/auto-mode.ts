@@ -21,6 +21,8 @@ import {
 } from '@harness-code/core';
 import type { AutoModeConfig, Settings } from '@harness-code/core';
 
+import { menuCapable, menuTitle, selectMenu } from './menu.js';
+
 const GROUPS = [
   ['environment', DEFAULT_ENVIRONMENT],
   ['allow', DEFAULT_ALLOW],
@@ -125,17 +127,32 @@ export async function runAutoModeCritique(): Promise<string> {
 export async function runAutoModeReset(opts: { yes?: boolean }): Promise<string> {
   const path = userSettingsPath();
   if (!opts.yes) {
-    const ok = await confirm(`Delete autoMode from ${path}? [y/N] `);
+    const ok = await confirm(`Delete autoMode from ${path}?`);
     if (!ok) return 'cancelled\n';
   }
   await clearUserAutoMode();
   return `removed autoMode from ${path}\n`;
 }
 
-function confirm(query: string): Promise<boolean> {
+/**
+ * Yes/no on a real terminal is the same arrow-key menu as everywhere else, with
+ * the cursor starting on "No" (this deletes something); otherwise a typed `[y/N]`.
+ */
+async function confirm(question: string): Promise<boolean> {
+  if (menuCapable()) {
+    const res = await selectMenu({
+      header: [menuTitle(question)],
+      options: [
+        { value: 'yes', label: 'Yes' },
+        { value: 'no', label: 'No', hint: '(esc)' },
+      ],
+      initialIndex: 1,
+    });
+    return res?.value === 'yes';
+  }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
-    rl.question(query, (answer) => {
+    rl.question(`${question} [y/N] `, (answer) => {
       rl.close();
       const raw = answer.trim().toLowerCase();
       resolve(raw === 'y' || raw === 'yes');

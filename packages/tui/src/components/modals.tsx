@@ -8,18 +8,16 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 
-import { describeToolInput, planApprovalLabel } from '@harness-code/core';
-import type { PermissionMode } from '@harness-code/core';
+import { askOptions, describeToolInput, planOptions, toolDisplayName } from '@harness-code/core';
+import type { AskChoice, PermissionMode, PlanChoice } from '@harness-code/core';
 
 import { Markdown } from '../markdown/render.js';
 import type { PendingAsk, PendingPlan } from '../state/reducer.js';
 import type { Theme } from '../theme.js';
 import { truncate } from '../util/width.js';
 import { SelectMenu } from './select.js';
-import type { SelectOption } from './select.js';
 
-export type AskChoice = 'once' | 'always' | 'auto' | 'deny';
-export type PlanChoice = 'yes' | 'manual' | 'no';
+export type { AskChoice, PlanChoice };
 
 const PREVIEW_LINES = 12;
 
@@ -39,10 +37,6 @@ function askTitle(toolName: string): string {
   }
 }
 
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 export function PermissionModal({
   ask,
   theme,
@@ -57,17 +51,7 @@ export function PermissionModal({
 }) {
   const lines = describeToolInput(ask.toolName, ask.input).split('\n');
   const hidden = Math.max(0, lines.length - PREVIEW_LINES);
-  const options: SelectOption<AskChoice>[] = [
-    { value: 'once', label: 'Yes' },
-    { value: 'always', label: `Yes, and don't ask again for ${ask.toolName} this session` },
-    ...(offerAuto ? [{ value: 'auto' as const, label: 'Yes, and switch to auto mode' }] : []),
-    {
-      value: 'deny',
-      label: 'No, and tell the agent what to do differently',
-      hint: '(esc)',
-      input: true,
-    },
-  ];
+  const options = askOptions({ toolLabel: toolDisplayName(ask.toolName), offerAuto: offerAuto === true });
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Text bold>{askTitle(ask.toolName)}</Text>
@@ -101,19 +85,7 @@ export function PlanModal({
   yesMode: PermissionMode;
   onAnswer: (choice: PlanChoice, feedback?: string) => void;
 }) {
-  const options: SelectOption<PlanChoice>[] = [
-    { value: 'yes', label: capitalize(planApprovalLabel(yesMode)) },
-    // When approving already lands in `ask`, a second "manually approve" row would repeat it.
-    ...(yesMode === 'ask'
-      ? []
-      : [{ value: 'manual' as const, label: 'Yes, manually approve edits' }]),
-    {
-      value: 'no',
-      label: 'No, keep planning — tell the agent what to change',
-      hint: '(esc)',
-      input: true,
-    },
-  ];
+  const options = planOptions(yesMode);
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Text bold>{plan.title}</Text>

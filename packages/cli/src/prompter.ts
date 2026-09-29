@@ -13,22 +13,34 @@
  *    intercepts exactly the next line without emitting `'line'`, so it doesn't
  *    fight the REPL's own handler. One-shot on a TTY has no outer `rl`, so the
  *    prompter makes its own and closes it when done.
+ *
+ * On a real terminal the choices are the same arrow-key menu the TUI shows
+ * (`menu.ts`). Where that can't run — a dumb terminal, a piped stdout — they are
+ * the same numbered list, answered by typing the number (or the old y/a/s/n).
  */
 
 import { createInterface } from 'node:readline';
 import type { Interface } from 'node:readline';
 
-import type { AskHandler, PermissionEngine, PermissionMode } from '@harness-code/core';
-import { offerAutoSwitch, planApprovalLabel } from '@harness-code/core';
+import type { AskHandler, PermissionEngine, PermissionMode, PromptOption } from '@harness-code/core';
+import {
+  askOptions,
+  offerAutoSwitch,
+  planOptions,
+  toolDisplayName,
+} from '@harness-code/core';
+
+import { ESCAPE_TIMEOUT_MS, menuCapable, menuTitle, selectMenu } from './menu.js';
+import type { MenuTerminal } from './menu.js';
 
 export type ConfirmChoice = 'once' | 'always' | 'deny' | 'auto';
 
 export interface ConfirmRequest {
   title: string;
   detail: string;
-  /** Shown after `[a]`, e.g. "Bash". Falls back to a generic phrase. */
+  /** Names the tool in "don't ask again for …", e.g. "Bash". Falls back to a generic phrase. */
   alwaysLabel?: string;
-  /** Show `[s] yes, and switch to auto mode`. */
+  /** Offer "yes, and switch to auto mode". */
   offerAuto?: boolean;
   signal?: AbortSignal;
 }
@@ -57,17 +69,27 @@ export interface Prompter {
 class ReadlinePrompter implements Prompter {
   private readonly rl: Interface;
   private readonly owned: boolean;
+  /** Where the arrow-key menu runs; undefined = answer by typing at a `> ` prompt. */
+  private readonly menuTerminal: MenuTerminal | undefined;
   /** Serializes every prompt so concurrent permission checks queue instead of racing. */
   private chain: Promise<unknown> = Promise.resolve();
 
-  constructor(shared?: Interface) {
+  constructor(shared?: Interface, terminal?: MenuTerminal) {
     if (shared) {
       this.rl = shared;
       this.owned = false;
     } else {
-      this.rl = createInterface({ input: process.stdin, output: process.stdout });
+      this.rl = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        escapeCodeTimeout: ESCAPE_TIMEOUT_MS,
+      });
       this.owned = true;
     }
+    // A readline `Interface` is in terminal mode exactly when it sits on a TTY,
+    // which is the precondition for taking the keyboard from it.
+    const candidate = terminal ?? (this.rl.terminal ? { input: process.stdin, output: process.stdout } : undefined);
+    this.menuTerminal = candidate && menuCapable(candidate) ? candidate : undefined;
   }
 
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {
@@ -102,29 +124,74 @@ class ReadlinePrompter implements Prompter {
     });
   }
 
+  /**
+   * Show `header`, offer `options`, and return the pick. `null` means cancelled
+   * (menu) or aborted; a typed reason rides along as `text`. `fallback` handles
+   * the answer typed at a plain `> ` prompt, and returns whether it took the
+   * "no" branch (so the caller asks why).
+   */
+  private async choose<V extends string>(
+    header: readonly string[],
+    question: string,
+    options: readonly PromptOption<V>[],
+    signal: AbortSignal | undefined,
+    typedAnswer: (raw: string, byNumber: PromptOption<V> | undefined) => V | undefined,
+    whyPrompt: string,
+  ): Promise<{ value: V; text?: string } | null> {
+    if (this.menuTerminal) {
+      return selectMenu({
+        header: [...header, '', question],
+        options,
+        ...(signal ? { signal } : {}),
+        terminal: this.menuTerminal,
+      });
+    }
+
+    // Line mode: the same list, numbered. The whole block goes through the query
+    // string so it lands on the readline's own output stream, not unconditionally
+    // on process.stdout.
+    const list = options.map((o, i) => `  ${i + 1}. ${o.label}`);
+    const block = [...header, '', question, ...list, '> '].join('\n');
+    const raw = (await this.question(block, signal)).trim().toLowerCase();
+    if (signal?.aborted) return null;
+    const byNumber = /^\d+$/.test(raw) ? options[Number(raw) - 1] : undefined;
+    const picked = typedAnswer(raw, byNumber);
+    if (picked !== undefined) return { value: picked };
+
+    // Anything else is a "no"; ask why so the model gets a usable reason.
+    const no = options.find((o) => o.input) ?? options[options.length - 1]!;
+    const text = (await this.question(whyPrompt, signal)).trim();
+    return { value: no.value, ...(text ? { text } : {}) };
+  }
+
   confirm(req: ConfirmRequest): Promise<ConfirmResult> {
     return this.enqueue(async () => {
       if (req.signal?.aborted) return { choice: 'deny', feedback: '用户中断' };
 
-      // The whole block goes through the query string so it lands on the
-      // readline's own output stream, not unconditionally on process.stdout.
-      const block = [
-        `\n\x1b[1m? ${req.title}\x1b[0m`,
-        ...req.detail.split('\n').map((l) => `    ${l}`),
-        `  [y] allow once   [n] deny   [a] always allow ${req.alwaysLabel ?? 'this tool'} (this session)` +
-        (req.offerAuto ? '   [s] yes, and switch to auto mode' : ''),
-        '> ',
-      ].join('\n');
-
-      const raw = (await this.question(block, req.signal)).trim().toLowerCase();
+      const options = askOptions({
+        toolLabel: req.alwaysLabel ?? 'this tool',
+        offerAuto: req.offerAuto === true,
+      });
+      const header = ['', menuTitle(req.title), ...req.detail.split('\n').map((l) => `    ${l}`)];
+      const res = await this.choose(
+        header,
+        'Do you want to proceed?',
+        options,
+        req.signal,
+        (raw, byNumber) => {
+          if (byNumber && byNumber.value !== 'deny') return byNumber.value;
+          if (raw === 'y' || raw === 'yes') return 'once';
+          if (raw === 'a' || raw === 'always') return 'always';
+          if (req.offerAuto && (raw === 's' || raw === 'auto')) return 'auto';
+          return undefined;
+        },
+        '  why (optional, Enter to skip): ',
+      );
       if (req.signal?.aborted) return { choice: 'deny', feedback: '用户中断' };
-      if (raw === 'y' || raw === 'yes') return { choice: 'once' };
-      if (raw === 'a' || raw === 'always') return { choice: 'always' };
-      if (req.offerAuto && (raw === 's' || raw === 'auto')) return { choice: 'auto' };
-
-      // Anything else denies; ask why so the model gets a usable reason.
-      const feedback = (await this.question('  why (optional, Enter to skip): ', req.signal)).trim();
-      return feedback ? { choice: 'deny', feedback } : { choice: 'deny' };
+      if (!res || res.value === 'deny') {
+        return res?.text ? { choice: 'deny', feedback: res.text } : { choice: 'deny' };
+      }
+      return { choice: res.value };
     });
   }
 
@@ -132,27 +199,25 @@ class ReadlinePrompter implements Prompter {
     return this.enqueue(async () => {
       if (req.signal?.aborted) return { approved: false, feedback: '用户中断' };
 
-      const yes = `[y] ${planApprovalLabel(req.yesMode ?? (req.autoAvailable ? 'auto' : 'acceptEdits'))}`;
-      const block = [
-        `\n\x1b[1m? ${req.title}\x1b[0m`,
-        ...req.body.split('\n').map((l) => `  ${l}`),
-        '',
-        `  ${yes}   [m] yes, manually approve edits   [e] revise`,
-        '> ',
-      ].join('\n');
-
-      const raw = (await this.question(block, req.signal)).trim().toLowerCase();
+      const yesMode = req.yesMode ?? (req.autoAvailable ? 'auto' : 'acceptEdits');
+      const header = ['', menuTitle(req.title), ...req.body.split('\n').map((l) => `  ${l}`)];
+      const res = await this.choose(
+        header,
+        'Would you like to proceed?',
+        planOptions(yesMode),
+        req.signal,
+        (raw, byNumber) => {
+          if (byNumber && byNumber.value !== 'no') return byNumber.value;
+          if (raw === 'y' || raw === 'yes') return 'yes';
+          if (raw === 'm' || raw === 'manual') return 'manual';
+          return undefined;
+        },
+        '  what should change (optional): ',
+      );
       if (req.signal?.aborted) return { approved: false, feedback: '用户中断' };
-      if (raw === 'y' || raw === 'yes') {
-        const mode = req.yesMode ?? (req.autoAvailable ? 'auto' : 'acceptEdits');
-        return { approved: true, mode };
-      }
-      if (raw === 'm' || raw === 'manual') return { approved: true, mode: 'ask' };
-
-      const feedback = (
-        await this.question('  what should change (optional): ', req.signal)
-      ).trim();
-      return feedback ? { approved: false, feedback } : { approved: false };
+      if (res?.value === 'yes') return { approved: true, mode: yesMode };
+      if (res?.value === 'manual') return { approved: true, mode: 'ask' };
+      return res?.text ? { approved: false, feedback: res.text } : { approved: false };
     });
   }
 
@@ -165,8 +230,9 @@ class ReadlinePrompter implements Prompter {
   }
 }
 
-export function createPrompter(shared?: Interface): Prompter {
-  return new ReadlinePrompter(shared);
+/** `terminal` overrides where the arrow-key menu runs (tests); default is the process's own. */
+export function createPrompter(shared?: Interface, terminal?: MenuTerminal): Prompter {
+  return new ReadlinePrompter(shared, terminal);
 }
 
 // ---------------------------------------------------------------------------
@@ -204,9 +270,7 @@ export function interactiveAskHandler(
 ): AskHandler {
   return async ({ toolName, input, reason, forcedByRule, signal }) => {
     opts.onBeforePrompt?.();
-    // Builtins read better capitalized ("Bash …"); namespaced MCP tool names
-    // (`mcp__linear__list_issues`) are left exactly as they are.
-    const label = toolName.includes('__') ? toolName : capitalize(toolName);
+    const label = toolDisplayName(toolName);
     const offerAuto = offerAutoSwitch({
       mode: opts.getMode?.() ?? 'ask',
       autoAvailable: opts.getAutoAvailable?.() ?? false,

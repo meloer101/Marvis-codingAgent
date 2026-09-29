@@ -14,10 +14,16 @@ import { AgentSession } from '@harness-code/core';
 import type { AgentSessionConfig } from '@harness-code/core';
 import { interactiveAsk } from './output.js';
 import type { TextSink } from './output.js';
+import { ESCAPE_TIMEOUT_MS } from './menu.js';
 import { createPrompter } from './prompter.js';
 
 export async function runRepl(config: AgentSessionConfig, sink: TextSink): Promise<void> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: '> ' });
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: '> ',
+    escapeCodeTimeout: ESCAPE_TIMEOUT_MS,
+  });
   const prompter = createPrompter(rl);
 
   let session: AgentSession | undefined;
