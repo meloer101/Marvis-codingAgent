@@ -304,6 +304,13 @@ export class SessionHost {
     signal?: AbortSignal;
   }): Promise<PermissionDecision> =>
     new Promise<PermissionDecision>((resolve) => {
+      // A run aborted mid-stream can still reach its next tool call (not every
+      // provider stops on the signal). Its signal has already fired, so a
+      // listener would never hear it: refuse now, or the ask waits forever.
+      if (req.signal?.aborted || this.#runAbort?.signal.aborted) {
+        resolve({ decision: 'deny', reason: 'Aborted' });
+        return;
+      }
       const askId = randomUUID();
       const always = alwaysAllowFor(req.toolName, req.input);
       this.#asks.push({
@@ -336,6 +343,10 @@ export class SessionHost {
     req: { title: string; body: string },
   ): Promise<{ approved: boolean; feedback?: string; mode?: PermissionMode }> =>
     new Promise((resolve) => {
+      if (this.#runAbort?.signal.aborted) {
+        resolve({ approved: false }); // as with asks: the run is over, nobody is to answer
+        return;
+      }
       const planId = randomUUID();
       const yesMode = this.#requireSession().planApprovedMode;
       this.#pendingPlan = { planId, title: req.title, body: req.body, yesMode, resolve };

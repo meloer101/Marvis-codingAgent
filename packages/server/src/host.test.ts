@@ -411,6 +411,16 @@ describe('SessionHost lifecycle', () => {
     expect(events().some((e) => e.type === 'resolved' && e.by === 'abort')).toBe(true);
   });
 
+  it('refuses an ask that arrives after its run was aborted, instead of waiting on it forever', async () => {
+    const { host, events } = await makeHost([]);
+    const aborted = new AbortController();
+    aborted.abort();
+    const decision = await host.ask({ toolName: 'bash', input: { command: 'ls' }, reason: 'r', signal: aborted.signal });
+    expect(decision).toMatchObject({ decision: 'deny' });
+    expect(events().some((e) => e.type === 'ask')).toBe(false);
+    expect(host.pending).toBe(false);
+  });
+
   it('cannot be deleted while a run is going', async () => {
     const { host, registry } = await makeHost(
       [{ toolCalls: [{ name: 'write', input: { path: 'note.txt', content: 'hi' } }] }, { text: 'done' }],
