@@ -10,6 +10,8 @@
  * last.
  */
 
+import { tmpdir } from 'node:os';
+
 import type { SystemSegment } from '../provider/types.js';
 import type { PermissionMode } from '../permissions/types.js';
 import { orderSystemSegments } from '../context/cache.js';
@@ -30,7 +32,9 @@ Match the style already in the file you're editing: naming, comment density, idi
 </code_style>
 
 <working_style>
-Before implementing anything non-trivial, check whether a standard library call, built-in, or a few lines of straightforward code already does what's needed — try that first and verify it against the task's actual requirement. Only reach for a more elaborate approach — a custom implementation, an extra dependency, a lower-level rewrite — once the simple version has demonstrably fallen short, not because it might in the abstract be slower or less complete. Get a rough version of the actual deliverable in place early — within roughly the first third of the work — then spend the rest of the time refining it. Don't spend most of your turns reading and exploring before making a single edit to the file(s) the task is actually about; a rough first pass you iterate on beats a long investigation that runs out of turns before it produces anything. When experimenting or debugging, reuse one scratch file across attempts instead of creating a new one per attempt (\`bench.py\`, \`bench2.py\`, \`debug_v3.py\`, ...); before finishing, remove any scratch file you created that isn't part of what the task asked for.
+Before implementing anything non-trivial, check whether a standard library call, built-in, or a few lines of straightforward code already does what's needed — try that first and verify it against the task's actual requirement. Only reach for a more elaborate approach — a custom implementation, an extra dependency, a lower-level rewrite — once the simple version has demonstrably fallen short, not because it might in the abstract be slower or less complete. Get a rough version of the actual deliverable in place early — within roughly the first third of the work — then spend the rest of the time refining it. Don't spend most of your turns reading and exploring before making a single edit to the file(s) the task is actually about; a rough first pass you iterate on beats a long investigation that runs out of turns before it produces anything.
+
+Throwaway files — a probe or check script, debug output, a backup copy — go in the scratch directory named in the environment below, never in the workspace; anything the task asks you to produce belongs in the workspace as usual. Create them with \`write\` and run them by full path without changing directory (\`node <scratch dir>/check.mjs\`): relative paths the script opens still resolve against the working directory, but its imports resolve from the script's own location, so import the workspace's modules by absolute path. Run ad-hoc code the same way rather than through \`node -e\`, \`python -c\`, a heredoc or \`$(...)\`: those can't be reviewed automatically and need approval. When experimenting or debugging, reuse one scratch file across attempts instead of creating a new one per attempt (\`bench.py\`, \`bench2.py\`, \`debug_v3.py\`, ...). The scratch directory needs no cleanup, so don't delete files there. Deleting a file needs approval in most modes: if you did leave a file in the workspace that the task didn't ask for, name it in your summary instead of retrying the delete in another form.
 </working_style>
 
 <finishing>
@@ -59,6 +63,8 @@ export interface BuildAgentSystemPromptOptions {
   cwd: string;
   /** Defaults to `process.platform`; parameterized so this is testable without mocking globals. */
   platform?: string;
+  /** Where throwaway files go. Defaults to `os.tmpdir()`; parameterized for tests. */
+  scratchDir?: string;
   /** When `plan`, a plan-mode overlay is appended after the cacheable prefix. */
   mode?: PermissionMode;
   /** Concatenated AGENTS.md / CLAUDE.md bodies, from `loadProjectMemory`. Omitted when empty. */
@@ -100,21 +106,29 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): Sys
   if (opts.mode === 'auto') {
     segments.push({ id: 'auto_mode', text: AUTO_MODE });
   }
-  segments.push(environmentSegment(opts.cwd, platform));
+  segments.push(environmentSegment(opts.cwd, platform, opts.scratchDir));
   // Enforce the cache-stable order regardless of push order above.
   return orderSystemSegments(segments);
 }
 
-function environmentSegment(cwd: string, platform: string): SystemSegment {
+/**
+ * The system temp dir: the file tools accept paths there (`allowScratch`) and
+ * the bash sandbox lets commands write there, so it is where throwaway files
+ * go — nothing there has to be deleted, and deleting needs approval.
+ */
+function environmentSegment(cwd: string, platform: string, scratchDir = tmpdir()): SystemSegment {
   return {
     id: 'environment',
-    text: `Working directory: ${cwd}\nPlatform: ${platform}\n\nPaths in tool calls are resolved against the working directory above unless given as absolute paths.`,
+    text:
+      `Working directory: ${cwd}\nScratch directory: ${scratchDir} (for throwaway files; file tools and shell commands can write here)\n` +
+      `Platform: ${platform}\n\nPaths in tool calls are resolved against the working directory above unless given as absolute paths.`,
   };
 }
 
 export interface BuildSubagentSystemPromptOptions {
   cwd: string;
   platform?: string;
+  scratchDir?: string;
   /** The sub-agent definition's Markdown body — its role instructions. */
   role: string;
   /** Concatenated AGENTS.md / CLAUDE.md bodies. Omitted when empty. */
@@ -150,6 +164,6 @@ export function buildSubagentSystemPrompt(opts: BuildSubagentSystemPromptOptions
   if (opts.mode === 'auto') {
     segments.push({ id: 'auto_mode', text: AUTO_MODE });
   }
-  segments.push(environmentSegment(opts.cwd, platform));
+  segments.push(environmentSegment(opts.cwd, platform, opts.scratchDir));
   return orderSystemSegments(segments);
 }

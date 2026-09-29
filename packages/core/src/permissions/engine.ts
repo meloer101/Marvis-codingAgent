@@ -453,7 +453,7 @@ function unreviewableAskReason(reason: string): string {
       : 'a shape the reviewer cannot parse (a heredoc or subshell)';
   return (
     `This command contains ${what}, which can't be checked automatically, so it needs approval. ` +
-    `Writing the code to a file and running that avoids the prompt.`
+    `Writing the code to a file in the scratch (system temp) directory and running that avoids the prompt.`
   );
 }
 

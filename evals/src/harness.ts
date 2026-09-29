@@ -260,7 +260,7 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
             return runSubagent({
               model: resolved,
               tools: subagentToolSpecs(builtinTools(), def),
-              system: buildSubagentSystemPrompt({ cwd: opts.workDir, role: def.body }),
+              system: buildSubagentSystemPrompt({ cwd: opts.workDir, role: def.body, scratchDir: '/tmp' }),
               hooks: mergeHooks(
                 createPermissionHooks(
                   createPermissionEngine({
@@ -316,8 +316,10 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
     },
   };
 
+  // Platform and scratch dir are pinned so a cassette recorded on one machine
+  // replays on another: both land in the request the replay is keyed on.
   const systemFor = (mode: PermissionMode) =>
-    buildAgentSystemPrompt({ cwd: opts.workDir, mode, platform: 'linux' });
+    buildAgentSystemPrompt({ cwd: opts.workDir, mode, platform: 'linux', scratchDir: '/tmp' });
   const head = systemFor(opts.mode);
 
   const runTurn = async (

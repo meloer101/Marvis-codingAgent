@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os';
+
 import { describe, expect, it } from 'vitest';
 
 import { SYSTEM_SEGMENT_ORDER } from '../context/cache.js';
@@ -19,6 +21,21 @@ describe('buildAgentSystemPrompt', () => {
     const environment = segments.find((s) => s.id === 'environment');
     expect(environment?.text).toContain('/workspace/project');
     expect(environment?.text).toContain('darwin');
+  });
+
+  it('names the scratch directory in the environment segment, defaulting to the system temp dir', () => {
+    const given = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux', scratchDir: '/scratch' });
+    expect(given.find((s) => s.id === 'environment')?.text).toContain('Scratch directory: /scratch');
+    const fallback = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux' });
+    expect(fallback.find((s) => s.id === 'environment')?.text).toContain(`Scratch directory: ${tmpdir()}`);
+    const sub = buildSubagentSystemPrompt({ cwd: '/w', platform: 'linux', role: 'r', scratchDir: '/scratch' });
+    expect(sub.find((s) => s.id === 'environment')?.text).toContain('Scratch directory: /scratch');
+  });
+
+  it('sends throwaway files to the scratch directory instead of asking for them to be deleted', () => {
+    const [, conventions] = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux' });
+    expect(conventions?.text).toMatch(/Throwaway files .* go in the scratch directory/);
+    expect(conventions?.text).not.toMatch(/remove any scratch file/);
   });
 
   it('defaults platform to process.platform when omitted', () => {
