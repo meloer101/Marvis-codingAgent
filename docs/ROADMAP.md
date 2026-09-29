@@ -109,9 +109,6 @@
 
 ## E · Context engineering (in-session)
 
-- **压缩请求自身超窗时的重试**：压缩请求（head + 被压缩区间）本身超出窗口时，现在会失败并跳过压缩，
-  最后由 loop 的 `context_limit` 停止兜底。codex 的做法是裁掉最旧的一项再重试（`core/src/compact.rs`）。
-  *(S)*
 - **工具结果修剪（dsh 方式）**：压缩触发后，单条工具结果超过 8192 字符的，只保留头 4096 + 尾 1024。
   先用 ablation 度量再合入。*(S)* — **measure**
 - **[codex] 其余状态变化也以追加片段注入**：system prompt 已经按变化段追加，工具列表也已经在模式间

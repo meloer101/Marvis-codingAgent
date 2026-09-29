@@ -599,3 +599,39 @@ describe('recent user messages kept verbatim', () => {
   });
 });
 
+describe('compaction request that overflows the summarizer', () => {
+  const pressure = { usedTokens: 1, windowTokens: 1, ratio: 1 };
+  const overflow = { error: { kind: 'context_length' as const, message: 'maximum context length exceeded', retryable: false } };
+
+  it('drops the oldest turns and retries, and says so', async () => {
+    const notes: string[] = [];
+    const provider = new ScriptedProvider([overflow, { text: 'digest' }]);
+    const onCompact = createCompactor({
+      provider, model: 'm', conventions: 'c', minCompactTokens: 0, onSkip: (r) => notes.push(r),
+    });
+    const result = await onCompact(history(12), pressure, ctx);
+    expect(result).toBeDefined();
+    expect(provider.callCount).toBe(2);
+    const [first, second] = provider.requests;
+    expect(second!.messages[0]!.content[0]).toMatchObject({ type: 'text' });
+    // Cold path: the flattened span shrank.
+    const len = (r: typeof first) => JSON.stringify(r!.messages).length;
+    expect(len(second)).toBeLessThan(len(first));
+    expect(notes.join('\n')).toMatch(/oldest 3 turn\(s\) did not fit/);
+  });
+
+  it('gives up at once on an error that is not an overflow', async () => {
+    const provider = new ScriptedProvider([{ error: { kind: 'server', message: 'boom', retryable: false } }]);
+    const onCompact = createCompactor({ provider, model: 'm', conventions: 'c', minCompactTokens: 0 });
+    expect(await onCompact(history(12), pressure, ctx)).toBeUndefined();
+    expect(provider.callCount).toBe(1);
+  });
+
+  it('stops retrying after a bounded number of attempts', async () => {
+    const provider = new ScriptedProvider([overflow, overflow, overflow, overflow, overflow, overflow]);
+    const onCompact = createCompactor({ provider, model: 'm', conventions: 'c', minCompactTokens: 0 });
+    expect(await onCompact(history(40), pressure, ctx)).toBeUndefined();
+    expect(provider.callCount).toBe(5);
+  });
+});
+

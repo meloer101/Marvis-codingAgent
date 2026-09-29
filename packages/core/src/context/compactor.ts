@@ -18,7 +18,7 @@
 
 import type { AgentHooks } from '../agent/hooks.js';
 import type { Message, Provider, ReasoningEffort } from '../provider/types.js';
-import { textOf } from '../provider/types.js';
+import { ProviderError, textOf } from '../provider/types.js';
 import { errorMessage } from '../tools/util.js';
 import { flattenRequestText, heuristicTokenCount } from './tokenizer.js';
 import { ToolOutputStore } from './tool-output.js';
@@ -30,6 +30,9 @@ export const COMPACTION_MARKER = '\n\n---\n[此前对话已压缩 · compacted]\
 export const DEFAULT_KEEP_TURNS = 3;
 export const DEFAULT_MIN_COMPACT_TOKENS = 2000;
 export const DEFAULT_DIGEST_TOKEN_BUDGET = 1800;
+
+/** Times a summarization that overflows its window is retried with the oldest quarter of turns dropped. */
+const MAX_OVERFLOW_RETRIES = 4;
 
 /**
  * Follows the digest inside the merged head: the user's own messages from the
@@ -526,7 +529,7 @@ export interface CompactorOptions {
    * `DEFAULT_KEEP_USER_MESSAGES_TOKENS`; 0 keeps none.
    */
   keepUserMessagesTokens?: number;
-  /** Called with a one-line reason whenever compaction is skipped (empty middle, failed call). */
+  /** Called with a one-line reason whenever compaction is skipped or degraded (empty middle, failed call). */
   onSkip?(reason: string): void;
 }
 
@@ -595,8 +598,8 @@ export function createCompactor(opts: CompactorOptions): NonNullable<AgentHooks[
     const { goal, priorDigest, recentUserMessages } = parseGoalAndPriorDigest(head);
     const warm = opts.warmPrefix === true && ctx.system !== undefined;
 
-    try {
-      const res = await opts.provider.complete({
+    const summarize = (middle: readonly Message[]) =>
+      opts.provider.complete({
         model: opts.model,
         // Warm path: the session's own prefix, the history as the model already
         // saw it, and the instruction last. Cold path: one self-contained
@@ -607,7 +610,7 @@ export function createCompactor(opts: CompactorOptions): NonNullable<AgentHooks[
         messages: warm
           ? [
               head,
-              ...split.middle,
+              ...middle,
               {
                 role: 'user',
                 content: [
@@ -619,7 +622,15 @@ export function createCompactor(opts: CompactorOptions): NonNullable<AgentHooks[
               },
             ]
           : [
-              { role: 'user', content: [{ type: 'text', text: digestUserPrompt(goal, priorDigest, middleText) }] },
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: digestUserPrompt(goal, priorDigest, flattenRequestText({ messages: middle })),
+                  },
+                ],
+              },
             ],
         // Same tools as the turn, so the cached prefix survives — but the answer
         // is prose, so decoding is constrained away from them.
@@ -630,6 +641,34 @@ export function createCompactor(opts: CompactorOptions): NonNullable<AgentHooks[
         maxOutputTokens: Math.ceil(budget * 1.5),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
       });
+
+    try {
+      // The span to summarize can itself overflow the summarizer's window (a
+      // smaller `smallModel`, or a history that grew past it). Drop the oldest
+      // turns and retry rather than give up on compaction — codex's compact.rs
+      // does the same. What is dropped goes unsummarized; the user's own
+      // messages in it are still kept verbatim below.
+      let middle: readonly Message[] = split.middle;
+      let droppedTurns = 0;
+      let res: Awaited<ReturnType<typeof summarize>>;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          res = await summarize(middle);
+          break;
+        } catch (err) {
+          const groups = groupTurns(middle);
+          const overflow = err instanceof ProviderError && err.kind === 'context_length';
+          if (!overflow || attempt >= MAX_OVERFLOW_RETRIES || groups.length <= 1) throw err;
+          const drop = Math.max(1, Math.ceil(groups.length / 4));
+          middle = groups.slice(drop).flat();
+          droppedTurns += drop;
+        }
+      }
+      if (droppedTurns > 0) {
+        opts.onSkip?.(
+          `compaction: the oldest ${droppedTurns} turn(s) did not fit the summarizer's window and were dropped unsummarized`,
+        );
+      }
       const digest = ensureInvariants(
         textOf(res.content).trim(),
         extractCompactionInvariants(working),
