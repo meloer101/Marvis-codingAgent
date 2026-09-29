@@ -97,7 +97,7 @@ describe('SessionSync ↔ hc web --mock', () => {
     await until(() => b.store.getState().views[id!]?.queue[0]?.text === 'and then tidy up', 'tab B sees the queue');
 
     await a.sync.abort(id!);
-    await until(() => a.store.getState().restored[id!] === 'and then tidy up', 'the message handed back');
+    await until(() => a.store.getState().restored[id!]?.text === 'and then tidy up', 'the message handed back');
     await until(() => b.store.getState().views[id!]?.queue.length === 0, 'tab B sees the queue emptied');
     await until(() => !view()?.running, 'the run stopped');
     a.sync.takeRestored(id!);

@@ -48,7 +48,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
   }, [requestId]);
 
   /** `/help` and `/clear` never reach the server — see lib/slash.ts. */
-  const send = async (text: string): Promise<boolean> => {
+  const send = async (text: string, attachments: string[]): Promise<boolean> => {
     const command = /^\/(\S+)\s*$/.exec(text.trim())?.[1];
     if (command === 'help') {
       sync.setHelpOpen(true);
@@ -58,7 +58,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
       onNewSession();
       return true;
     }
-    return sync.send(id, text);
+    return sync.send(id, text, attachments);
   };
 
   if (!view) {
@@ -95,7 +95,7 @@ function SessionComposer({
   connected,
 }: {
   view: SessionViewState;
-  onSend: (text: string) => Promise<boolean>;
+  onSend: (text: string, attachments: string[]) => Promise<boolean>;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   commands: ReturnType<typeof allCommands>;
   connected: boolean;
@@ -119,6 +119,7 @@ function SessionComposer({
       onSend={onSend}
       onAbort={() => void sync.abort(id)}
       onCommandMenu={() => void sync.prepareCommands(id)}
+      {...(view.workspaceId ? { onSearchFiles: (query: string) => sync.searchFiles(view.workspaceId!, query) } : {})}
       onCycleMode={() => setMode(nextPermissionMode(view.mode, { includeAuto: modes.includes('auto') }))}
       inputRef={inputRef}
       {...(restored !== undefined ? { restored } : {})}

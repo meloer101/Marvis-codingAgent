@@ -2,23 +2,48 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode, RefObject } from 'react';
 import { ArrowUp, ListEnd, Square } from 'lucide-react';
 
+import type { FileMatch } from '@harness-code/protocol';
+
+import { FileMenu } from '@/components/FileMenu';
 import { SlashMenu } from '@/components/SlashMenu';
+import { AttachmentChips } from '@/components/Transcript';
 import { Button } from '@/components/ui/button';
+import { insertMention, mentionAt, presentAttachments, removeMention } from '@/lib/mention';
 import { filterCommands, slashQuery } from '@/lib/slash';
 import type { SlashCommand } from '@/lib/slash';
 import { platform } from '@/platform';
 
 const draftKey = (id: string) => `hc.draft.${id}`;
+const filesKey = (id: string) => `hc.draftFiles.${id}`;
+/** Wait this long after a keystroke before asking for files. */
+const SEARCH_DEBOUNCE_MS = 60;
+
+/** Text handed back to the composer, with the files that were attached to it. */
+export interface RestoredDraft {
+  text: string;
+  attachments: string[];
+}
+
+function loadFiles(sessionId: string): string[] {
+  try {
+    const raw = platform.storage.get(filesKey(sessionId));
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Enter sends, Shift+Enter is a newline, and Enter while an IME is composing
  * (Chinese/Japanese input) only confirms the candidate. Typing `/` at the
- * start opens the command menu (↑/↓ to move, Enter or Tab to complete), and
- * Shift+Tab switches the permission mode. While a run is going Stop joins
- * the send button, and what is sent waits in the session's queue; the draft
- * survives reloads per session. The footer
- * holds what the next message runs under (`controls`) and, before the send
- * button, `trailing` (the context meter).
+ * start opens the command menu, and `@` at the start of a word the file menu
+ * (↑/↓ to move, Enter or Tab to pick); a picked file is attached while its
+ * `@path` stays in the text. Shift+Tab switches the permission mode. While a
+ * run is going Stop joins the send button, and what is sent waits in the
+ * session's queue; the draft (and its attachments) survives reloads per
+ * session. The footer holds what the next message runs under (`controls`)
+ * and, before the send button, `trailing` (the context meter).
  */
 export function Composer({
   sessionId,
@@ -28,6 +53,7 @@ export function Composer({
   onSend,
   onAbort,
   onCommandMenu,
+  onSearchFiles,
   onCycleMode,
   inputRef,
   controls,
@@ -39,32 +65,44 @@ export function Composer({
   running: boolean;
   disabled: boolean;
   commands: SlashCommand[];
-  onSend: (text: string) => Promise<boolean>;
+  onSend: (text: string, attachments: string[]) => Promise<boolean>;
   onAbort: () => void;
   /** Called when the `/` menu opens — the session's MCP prompt commands can load then. */
   onCommandMenu?: () => void;
+  /** Files matching an `@` query; without it, `@` is just text. */
+  onSearchFiles?: (query: string) => Promise<FileMatch[]>;
   /** Shift+Tab: move to the next permission mode. */
   onCycleMode?: () => void;
   /** Lets the session view put focus back here (after a prompt is answered). */
   inputRef?: RefObject<HTMLTextAreaElement | null>;
   controls?: ReactNode;
   trailing?: ReactNode;
-  /** Text handed back to edit (queued messages a Stop returned); put in front of the draft, then `onRestored`. */
-  restored?: string;
+  /** Handed back to edit (queued messages a Stop returned): put in front of the draft, then `onRestored`. */
+  restored?: RestoredDraft;
   onRestored?: () => void;
 }) {
   const [text, setText] = useState(() => platform.storage.get(draftKey(sessionId)) ?? '');
+  const [attached, setAttached] = useState<string[]>(() => loadFiles(sessionId));
+  const [caret, setCaret] = useState(() => text.length);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const [files, setFiles] = useState<FileMatch[]>([]);
   const ownRef = useRef<HTMLTextAreaElement>(null);
   const ref = inputRef ?? ownRef;
+  /** Where to put the caret after the text changes under it (a picked file). */
+  const pendingCaret = useRef<number | null>(null);
 
   const query = slashQuery(text);
-  const matches = useMemo(
+  const commandMatches = useMemo(
     () => (query === null ? [] : filterCommands(commands, query)),
     [commands, query],
   );
-  const menuOpen = !dismissed && matches.length > 0;
+  const mention = onSearchFiles ? mentionAt(text, caret) : null;
+  const mentionQuery = mention?.query ?? null;
+  const commandMenuOpen = !dismissed && commandMatches.length > 0;
+  const fileMenuOpen = !dismissed && !commandMenuOpen && mention !== null && files.length > 0;
+  const menuLength = commandMenuOpen ? commandMatches.length : fileMenuOpen ? files.length : 0;
+  const attachments = useMemo(() => presentAttachments(text, attached), [text, attached]);
 
   // Mounted with `key={sessionId}`, so switching sessions remounts with that
   // session's draft instead of saving this one's text under the new id. A
@@ -78,19 +116,47 @@ export function Composer({
     else platform.storage.remove(draftKey(sessionId));
   }, [sessionId, text]);
 
-  // Grow with content up to a cap.
+  useEffect(() => {
+    if (attachments.length > 0) platform.storage.set(filesKey(sessionId), JSON.stringify(attachments));
+    else platform.storage.remove(filesKey(sessionId));
+  }, [sessionId, attachments]);
+
+  // Grow with content up to a cap; put the caret where a pick left it.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+    if (pendingCaret.current !== null) {
+      el.setSelectionRange(pendingCaret.current, pendingCaret.current);
+      pendingCaret.current = null;
+    }
   }, [text]);
 
-  useEffect(() => setActive(0), [query]);
+  useEffect(() => setActive(0), [query, mentionQuery]);
+
+  // Ask for files as the `@` query changes; an answer to an older query is dropped.
+  useEffect(() => {
+    if (mentionQuery === null || !onSearchFiles) {
+      setFiles([]);
+      return;
+    }
+    let current = true;
+    const timer = setTimeout(() => {
+      void onSearchFiles(mentionQuery).then((found) => {
+        if (current) setFiles(found);
+      });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [mentionQuery]);
 
   useEffect(() => {
     if (restored === undefined) return;
-    setText((draft) => (draft.trim() ? `${restored}\n\n${draft}` : restored));
+    setText((draft) => (draft.trim() ? `${restored.text}\n\n${draft}` : restored.text));
+    setAttached((files) => [...new Set([...restored.attachments, ...files])]);
     onRestored?.();
     ref.current?.focus();
   }, [restored]);
@@ -106,8 +172,13 @@ export function Composer({
   const submit = async (): Promise<void> => {
     if (!canSend) return;
     const value = text;
+    const files = attachments;
     setText('');
-    if (!(await onSend(value))) setText(value);
+    setAttached([]);
+    if (!(await onSend(value, files))) {
+      setText(value);
+      setAttached(files);
+    }
   };
 
   const complete = (command: SlashCommand): void => {
@@ -116,17 +187,41 @@ export function Composer({
     ref.current?.focus();
   };
 
+  const pickFile = (path: string): void => {
+    if (!mention) return;
+    const next = insertMention(text, mention, path);
+    pendingCaret.current = next.caret;
+    setText(next.text);
+    setCaret(next.caret);
+    setAttached((files) => (files.includes(path) ? files : [...files, path]));
+    setFiles([]);
+    ref.current?.focus();
+  };
+
+  const detach = (path: string): void => {
+    const next = removeMention(text, path);
+    setText(next);
+    setCaret(Math.min(caret, next.length));
+    setAttached((files) => files.filter((f) => f !== path));
+    ref.current?.focus();
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (menuOpen) {
+    if (menuLength > 0) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
-        setActive((i) => (i + (e.key === 'ArrowDown' ? 1 : matches.length - 1)) % matches.length);
+        setActive((i) => (i + (e.key === 'ArrowDown' ? 1 : menuLength - 1)) % menuLength);
         return;
       }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing)) {
+      if ((e.key === 'Tab' && !e.shiftKey) || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing)) {
         e.preventDefault();
-        const picked = matches[active];
-        if (picked) complete(picked);
+        if (commandMenuOpen) {
+          const picked = commandMatches[active];
+          if (picked) complete(picked);
+        } else {
+          const picked = files[active];
+          if (picked) pickFile(picked.path);
+        }
         return;
       }
       if (e.key === 'Escape') {
@@ -147,21 +242,33 @@ export function Composer({
     void submit();
   };
 
+  const followCaret = (el: HTMLTextAreaElement): void => setCaret(el.selectionStart);
+
   return (
     <div className="relative">
-      {menuOpen && <SlashMenu commands={matches} active={active} onPick={complete} />}
+      {commandMenuOpen && <SlashMenu commands={commandMatches} active={active} onPick={complete} />}
+      {fileMenuOpen && <FileMenu files={files} active={active} onPick={pickFile} />}
       <div className="flex flex-col rounded-xl border bg-card shadow-sm transition-shadow focus-within:border-primary/45 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/25">
+        {attachments.length > 0 && (
+          <div className="px-3 pt-2.5">
+            <AttachmentChips paths={attachments} onRemove={detach} />
+          </div>
+        )}
         <textarea
           ref={ref}
           rows={1}
           value={text}
           onChange={(e) => {
             setText(e.target.value);
+            followCaret(e.target);
             setDismissed(false);
           }}
+          onSelect={(e) => followCaret(e.currentTarget)}
           onKeyDown={onKeyDown}
           placeholder={
-            running ? 'Running… what you send now waits its turn' : 'Message hc — Enter to send, / for commands'
+            running
+              ? 'Running… what you send now waits its turn'
+              : `Message hc — Enter to send, / for commands${onSearchFiles ? ', @ for files' : ''}`
           }
           className="max-h-60 min-h-11 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm outline-none placeholder:text-muted-foreground"
           disabled={disabled}

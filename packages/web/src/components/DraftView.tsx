@@ -38,7 +38,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
     model?: string;
     effort?: ReasoningEffort;
   }>({});
-  const [starting, setStarting] = useState<string | null>(null);
+  const [starting, setStarting] = useState<{ text: string; attachments: string[] } | null>(null);
   const own = choice.workspaceId === workspace?.id ? choice : {};
   const mode = own.mode ?? workspace?.defaults.mode ?? 'ask';
   const modes = workspace?.defaults.modes ?? [mode];
@@ -50,15 +50,16 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
   const keyProblem = picked ? picked.problem : workspace?.defaults.keyProblem;
   const choose = (patch: typeof choice): void => setChoice({ ...own, workspaceId: workspace?.id, ...patch });
 
-  const send = async (text: string): Promise<boolean> => {
+  const send = async (text: string, attachments: string[]): Promise<boolean> => {
     const command = /^\/(\S+)\s*$/.exec(text.trim())?.[1];
     if (command === 'help') {
       sync.setHelpOpen(true);
       return true;
     }
     if (command === 'clear') return true; // already a clean slate
-    setStarting(text);
+    setStarting({ text, attachments });
     const id = await sync.startSession(text, {
+      ...(attachments.length > 0 ? { attachments } : {}),
       ...(workspace ? { workspaceId: workspace.id } : {}),
       mode,
       ...(picked ? { model: picked.ref } : {}),
@@ -86,7 +87,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
           <Welcome workspace={workspace} />
         ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
-            <UserMessage text={starting} />
+            <UserMessage text={starting.text} attachments={starting.attachments} />
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin text-primary" />
               <span className="font-serif italic">Starting the session…</span>
@@ -104,6 +105,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
           commands={BUILTIN_COMMANDS}
           onSend={send}
           onAbort={() => {}}
+          {...(workspace ? { onSearchFiles: (query: string) => sync.searchFiles(workspace.id, query) } : {})}
           onCycleMode={() => choose({ mode: nextPermissionMode(mode, { includeAuto: modes.includes('auto') }) })}
           controls={
             workspace && (

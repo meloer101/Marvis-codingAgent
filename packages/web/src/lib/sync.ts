@@ -25,7 +25,9 @@ import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
 import type {
   AskDecision,
   DirSuggestion,
+  FileMatch,
   PushEvent,
+  QueuedMessage,
   SessionSnapshot,
   SessionSummary,
   WireEvent,
@@ -194,7 +196,13 @@ export class SessionSync {
    */
   async startSession(
     text: string,
-    opts: { workspaceId?: string; model?: string; mode?: PermissionMode; effort?: ReasoningEffort } = {},
+    opts: {
+      attachments?: string[];
+      workspaceId?: string;
+      model?: string;
+      mode?: PermissionMode;
+      effort?: ReasoningEffort;
+    } = {},
   ): Promise<string | null> {
     try {
       const { snapshot } = await this.rpc.call('session.start', { text, ...opts });
@@ -211,9 +219,11 @@ export class SessionSync {
     }
   }
 
-  async send(id: string, text: string): Promise<boolean> {
+  async send(id: string, text: string, attachments: string[] = []): Promise<boolean> {
     try {
-      await this.#act(id, () => this.rpc.call('session.send', { id, text }));
+      await this.#act(id, () =>
+        this.rpc.call('session.send', { id, text, ...(attachments.length > 0 ? { attachments } : {}) }),
+      );
       return true;
     } catch (err) {
       this.#fail(err);
@@ -225,7 +235,7 @@ export class SessionSync {
   async abort(id: string): Promise<void> {
     try {
       const { unqueued } = await this.rpc.call('session.abort', { id });
-      if (unqueued.length > 0) this.#restore(id, unqueued.map((q) => q.text).join('\n\n'));
+      for (const q of unqueued) this.#restore(id, q);
     } catch (err) {
       this.#fail(err);
     }
@@ -235,7 +245,7 @@ export class SessionSync {
   async unqueue(id: string, queuedId: string, opts: { edit?: boolean } = {}): Promise<void> {
     try {
       const taken = await this.rpc.call('session.unqueue', { id, queuedId });
-      if (taken && opts.edit) this.#restore(id, taken.text);
+      if (taken && opts.edit) this.#restore(id, taken);
     } catch (err) {
       this.#fail(err);
     }
@@ -249,10 +259,18 @@ export class SessionSync {
     });
   }
 
-  #restore(id: string, text: string): void {
+  #restore(id: string, message: QueuedMessage): void {
     this.#store.setState((s) => {
       const before = s.restored[id];
-      return { restored: { ...s.restored, [id]: before ? `${before}\n\n${text}` : text } };
+      const attachments = message.attachments ?? [];
+      return {
+        restored: {
+          ...s.restored,
+          [id]: before
+            ? { text: `${before.text}\n\n${message.text}`, attachments: [...before.attachments, ...attachments] }
+            : { text: message.text, attachments },
+        },
+      };
     });
   }
 
@@ -346,6 +364,15 @@ export class SessionSync {
       return await this.rpc.call('workspace.inspect', { path });
     } catch {
       return null;
+    }
+  }
+
+  /** Files matching an `@` query; empty when it can't be asked. Never an error banner: it runs as you type. */
+  async searchFiles(workspaceId: string, query: string): Promise<FileMatch[]> {
+    try {
+      return await this.rpc.call('fs.search', { workspaceId, query, limit: 30 });
+    } catch {
+      return [];
     }
   }
 

@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDown, Brain, Check, ChevronRight, Circle, Info, Loader2, X } from 'lucide-react';
+import { AlertTriangle, ArrowDown, Brain, Check, ChevronRight, Circle, FileText, Info, Loader2, X } from 'lucide-react';
 
 import type { Notice } from '@harness-code/core';
 import type { Entry, LiveSnapshot, ToolItem } from '@harness-code/protocol';
@@ -69,7 +69,7 @@ const EntryRow = memo(function EntryRow({ entry }: { entry: Entry }) {
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 80px' }}
     >
       {entry.kind === 'user' ? (
-        <UserMessage text={entry.text} />
+        <UserMessage text={entry.text} {...(entry.attachments ? { attachments: entry.attachments } : {})} />
       ) : entry.kind === 'assistant' ? (
         <AssistantBlock thinking={entry.thinking} text={entry.text} tools={entry.tools} />
       ) : (
@@ -79,9 +79,40 @@ const EntryRow = memo(function EntryRow({ entry }: { entry: Entry }) {
   );
 });
 
-export function UserMessage({ text }: { text: string }) {
+export function UserMessage({ text, attachments }: { text: string; attachments?: readonly string[] }) {
   return (
-    <div className="rounded-lg border bg-card px-4 py-3 text-sm whitespace-pre-wrap shadow-xs">{text}</div>
+    <div className="flex flex-col gap-2 rounded-lg border bg-card px-4 py-3 text-sm shadow-xs">
+      {text && <div className="whitespace-pre-wrap">{text}</div>}
+      {attachments && attachments.length > 0 && <AttachmentChips paths={attachments} />}
+    </div>
+  );
+}
+
+/** Files attached to a message, as small mono chips. */
+export function AttachmentChips({ paths, onRemove }: { paths: readonly string[]; onRemove?: (path: string) => void }) {
+  return (
+    <ul className="flex flex-wrap gap-1.5" aria-label="Attached files">
+      {paths.map((p) => (
+        <li
+          key={p}
+          title={p}
+          className="flex max-w-72 items-center gap-1 rounded-md border bg-muted/50 py-0.5 pr-1.5 pl-1.5 font-mono text-[11px] text-muted-foreground"
+        >
+          <FileText className="size-3 shrink-0" />
+          <span className="truncate">{p}</span>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={() => onRemove(p)}
+              aria-label={`Detach ${p}`}
+              className="-mr-0.5 rounded p-0.5 transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-3" />
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 

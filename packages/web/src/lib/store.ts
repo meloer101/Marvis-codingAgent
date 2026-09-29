@@ -20,10 +20,10 @@ export interface AppState {
   /** The models on offer per workspace, loaded when a model picker opens. */
   models: Record<string, ModelInfo[]>;
   /**
-   * Text to put back in a session's composer: queued messages a Stop handed
+   * What to put back in a session's composer: queued messages a Stop handed
    * back, or one taken out of the queue to edit. The composer takes it once.
    */
-  restored: Record<string, string>;
+  restored: Record<string, { text: string; attachments: string[] }>;
   /** Last failed action, shown as a dismissible banner. */
   error: string | null;
   /** The `/help` panel. */

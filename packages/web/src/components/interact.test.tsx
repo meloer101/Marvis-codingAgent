@@ -42,7 +42,7 @@ describe('Composer', () => {
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
     expect(onSend).not.toHaveBeenCalled();
     fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('hello');
+    expect(onSend).toHaveBeenCalledWith('hello', []);
   });
 
   it('does not send on the Enter that confirms an IME candidate', () => {
@@ -83,14 +83,43 @@ describe('Composer', () => {
     expect(onAbort).toHaveBeenCalled();
     fireEvent.change(textarea, { target: { value: 'next' } });
     fireEvent.click(screen.getByLabelText('Queue'));
-    expect(onSend).toHaveBeenCalledWith('next');
+    expect(onSend).toHaveBeenCalledWith('next', []);
   });
 
   it('puts restored text in front of the draft, once', () => {
     const onRestored = vi.fn();
-    const { textarea } = renderComposer({ restored: 'queued one', onRestored });
-    expect(textarea.value).toBe('queued one');
+    const { textarea } = renderComposer({ restored: { text: 'queued @a.ts', attachments: ['a.ts'] }, onRestored });
+    expect(textarea.value).toBe('queued @a.ts');
+    expect(screen.getByLabelText('Attached files').textContent).toBe('a.ts');
     expect(onRestored).toHaveBeenCalledTimes(1);
+  });
+
+  it('@ opens the file menu; a picked file is attached while its @path stays in the text', async () => {
+    const onSearchFiles = vi.fn(async (q: string) =>
+      [{ path: 'src/Composer.tsx' }, { path: 'src/lib/sync.ts' }].filter((f) => f.path.toLowerCase().includes(q)),
+    );
+    const { textarea, onSend } = renderComposer({ onSearchFiles });
+    fireEvent.change(textarea, { target: { value: 'look at @comp', selectionStart: 13 } });
+    const option = await screen.findByRole('option');
+    expect(option.textContent).toContain('Composer.tsx');
+    expect(onSearchFiles).toHaveBeenLastCalledWith('comp');
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(textarea.value).toBe('look at @src/Composer.tsx ');
+    expect(screen.getByLabelText('Attached files').textContent).toBe('src/Composer.tsx');
+    expect(onSend).not.toHaveBeenCalled(); // Enter picked the file
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('look at @src/Composer.tsx ', ['src/Composer.tsx']);
+  });
+
+  it('detaching a file takes its @path out of the text', async () => {
+    const { textarea } = renderComposer({
+      onSearchFiles: async () => [{ path: 'a.ts' }],
+      restored: { text: 'fix @a.ts please', attachments: ['a.ts'] },
+    });
+    fireEvent.click(screen.getByLabelText('Detach a.ts'));
+    expect(textarea.value).toBe('fix please');
+    expect(screen.queryByLabelText('Attached files')).toBeNull();
   });
 
   it('Shift+Tab cycles the mode instead of moving focus', () => {

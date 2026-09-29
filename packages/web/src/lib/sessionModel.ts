@@ -141,7 +141,7 @@ export class SessionModel {
       case 'run_start':
         this.#buffer.reset();
         this.#liveDirty = false;
-        this.#dispatch({ type: 'USER', text: event.input });
+        this.#dispatch({ type: 'USER', text: event.input, ...(event.attachments ? { attachments: event.attachments } : {}) });
         this.#state = { ...this.#state, running: true };
         return true;
       case 'run_end': {
