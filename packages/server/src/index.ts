@@ -11,7 +11,7 @@
 
 import { createServer } from 'node:http';
 import type { Server as HttpServer } from 'node:http';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,6 +65,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   const { cwd } = opts;
   const projectRoot = await findProjectRoot(cwd);
   const token = randomBytes(32).toString('hex');
+  const bootId = randomUUID();
 
   // `--mock` sessions record into a throwaway dir (removed on close) so a demo
   // never touches the project's real `.agent/` — see `mockConfigFactory`.
@@ -78,6 +79,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     const providers = new ProviderRegistry({ settings });
     return {
       version: VERSION,
+      bootId,
       cwd,
       projectRoot,
       defaultModel: opts.model ?? settings.model ?? '',

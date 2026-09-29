@@ -26,6 +26,8 @@ import type {
 
 export interface ServerInfo {
   version: string;
+  /** New on every server start: a changed id means `rev`s restarted from zero. */
+  bootId: string;
   cwd: string;
   projectRoot: string;
   defaultModel: string;
@@ -44,6 +46,11 @@ export interface SessionSummary {
   running: boolean;
   /** Waiting on an ask/plan — the sidebar badge. */
   pending: boolean;
+  /**
+   * Server-wide, increasing with every row the server computes (per boot):
+   * of two rows for one session, the higher `rev` is the newer state.
+   */
+  rev: number;
 }
 
 export interface SessionSnapshot {

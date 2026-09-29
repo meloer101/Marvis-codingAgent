@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import { DEFAULT_CAPABILITIES, ScriptedProvider } from '@harness-code/core';
 import type { ResolvedModel, ScriptedTurn } from '@harness-code/core';
-import type { ServerFrame } from '@harness-code/protocol';
+import type { PushEvent, ServerFrame, SessionSummary } from '@harness-code/protocol';
 import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -66,12 +66,17 @@ class Client {
   private nextId = 1;
   private readonly pending = new Map<number, (frame: ServerFrame) => void>();
   readonly events: ServerFrame[] = [];
+  readonly pushes: PushEvent[] = [];
 
   private constructor(private readonly ws: WebSocket) {
     ws.on('message', (data: Buffer) => {
       const frame = JSON.parse(data.toString()) as ServerFrame;
       if (frame.t === 'evt') {
         this.events.push(frame);
+        return;
+      }
+      if (frame.t === 'push') {
+        this.pushes.push(frame.event);
         return;
       }
       this.pending.get(frame.id)?.(frame);
@@ -176,6 +181,43 @@ describe('ws transport', () => {
     expect(texts.join('')).toBe('hello over the wire');
 
     client.close();
+  });
+
+  it('pushes session-list changes to every authed socket, subscribed or not', async () => {
+    const server = await boot([{ text: 'done' }]);
+    const origin = `http://127.0.0.1:${server.port}`;
+    const actor = await Client.open(wsUrl(server), origin);
+    const watcher = await Client.open(wsUrl(server), origin);
+    const stranger = await Client.open(wsUrl(server), origin); // never authenticates
+    await actor.call('auth', { token: server.token });
+    await watcher.call('auth', { token: server.token });
+
+    const created = await actor.call('session.create', {});
+    const id = (created as { result: { id: string } }).result.id;
+    await actor.call('session.send', { id, text: 'fix the flaky test' });
+
+    const rows = async (done: (r: SessionSummary[]) => boolean): Promise<SessionSummary[]> => {
+      const deadline = Date.now() + 5000;
+      for (;;) {
+        const got = watcher.pushes.flatMap((e) => (e.type === 'session_upsert' && e.summary.id === id ? [e.summary] : []));
+        if (done(got) || Date.now() > deadline) return got;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    };
+    // Rows carry the state as of when they were computed, so a run this quick
+    // may never be seen running — but the last row is always the final state.
+    const seen = await rows((r) => r.length >= 2 && r.at(-1)?.running === false && r.at(-1)?.title !== '(new session)');
+    expect(seen[0]).toMatchObject({ live: true, running: false }); // created
+    expect(seen.at(-1)).toMatchObject({ live: true, running: false, pending: false, title: 'fix the flaky test' });
+    const revs = seen.map((s) => s.rev);
+    expect(revs).toEqual([...revs].sort((a, b) => a - b)); // strictly newer each time
+    expect(stranger.pushes).toEqual([]);
+
+    // A later list outranks every push that came before it.
+    const listed = await watcher.call('session.list');
+    const listRow = (listed as { result: SessionSummary[] }).result.find((s) => s.id === id);
+    expect(listRow!.rev).toBeGreaterThan(revs.at(-1)!);
+    for (const c of [actor, watcher, stranger]) c.close();
   });
 
   it('serves server.info once authed', async () => {

@@ -149,6 +149,23 @@ describe('SessionSync ↔ hc web --mock', () => {
     await until(() => a.store.getState().sessions.some((s) => s.id === id && !s.running), 'session in list');
   });
 
+  it('badges a session this tab never opened, from pushes alone', async () => {
+    const { server } = await boot();
+    const a = tab(server);
+    const b = tab(server);
+    await until(() => a.store.getState().info && b.store.getState().info, 'both tabs connected');
+
+    const id = await a.sync.create();
+    expect(await a.sync.send(id!, 'set up a scratch file')).toBe(true);
+    const row = () => b.store.getState().sessions.find((s) => s.id === id);
+    await until(() => row()?.pending, 'tab B sees the pending ask');
+    expect(row()).toMatchObject({ live: true, title: 'set up a scratch file' });
+    expect(b.store.getState().views[id!]).toBeUndefined(); // B never opened it
+
+    await a.sync.abort(id!);
+    await until(() => row() && !row()!.pending && !row()!.running, 'tab B sees the run end');
+  });
+
   it('retries an open that a dropped socket cut off', async () => {
     const { server } = await boot();
     const a = tab(server);

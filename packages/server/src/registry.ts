@@ -9,10 +9,10 @@
  * tests and `--mock` can substitute a `ScriptedProvider`.
  */
 
-import { AgentSession } from '@harness-code/core';
+import { AgentSession, UNTITLED_SESSION } from '@harness-code/core';
 import { listSessionIds, loadTranscript, readSessionMeta, readSessionSummary } from '@harness-code/core';
 import type { AgentSessionConfig, PermissionMode, ReasoningEffort, SessionMeta } from '@harness-code/core';
-import type { SessionSnapshot, SessionSummary } from '@harness-code/protocol';
+import type { PushEvent, SessionSnapshot, SessionSummary } from '@harness-code/protocol';
 
 import { SessionHost } from './host.js';
 
@@ -43,6 +43,12 @@ export interface SessionRegistryOptions {
   previewDefaults: () => Promise<{ modelRef: string; mode: PermissionMode }>;
 }
 
+/** Receives every session-list change (`registry.onChange`). */
+export type RegistryListener = (event: PushEvent) => void;
+
+/** Title of a live session that has neither a log nor a first message yet. */
+const NEW_SESSION_TITLE = '(new session)';
+
 /** Thrown when `session.preview` names a session with no on-disk transcript. */
 export class SessionPreviewNotFoundError extends Error {
   constructor(id: string) {
@@ -57,6 +63,9 @@ export class SessionRegistry {
   readonly #buildConfig: SessionConfigFactory;
   readonly #previewDefaults: SessionRegistryOptions['previewDefaults'];
   readonly #hosts = new Map<string, SessionHost>();
+  readonly #listeners = new Set<RegistryListener>();
+  /** Stamps every summary row computed; see `SessionSummary.rev`. */
+  #rev = 0;
 
   constructor(opts: SessionRegistryOptions) {
     this.#cwd = opts.cwd;
@@ -70,42 +79,73 @@ export class SessionRegistry {
   }
 
   /**
+   * Subscribe to session-list changes: a row whenever a session is created,
+   * starts or ends a run, waits on or resolves a prompt, or is closed.
+   */
+  onChange(listener: RegistryListener): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  /**
    * Every session on disk merged with live in-memory state (live/running/
    * pending), plus any live session not yet flushed to disk, newest first.
+   * All rows share one `rev`, taken before reading anything: a change pushed
+   * while the list is being built outranks it.
    */
   async list(): Promise<SessionSummary[]> {
-    const onDisk = await listSessionIds(this.#agentDir);
-    const rows = new Map<string, SessionSummary>();
-    for (const { id } of onDisk) {
-      try {
-        const summary = await readSessionSummary(this.#agentDir, id);
-        rows.set(id, { ...summary, live: false, running: false, pending: false });
-      } catch {
-        // Vanished or unreadable between listing and reading — skip it.
-      }
+    const rev = ++this.#rev;
+    const ids = new Set((await listSessionIds(this.#agentDir)).map((s) => s.id));
+    for (const id of this.#hosts.keys()) ids.add(id);
+    const rows: SessionSummary[] = [];
+    for (const id of ids) {
+      const row = await this.#summary(id, rev);
+      if (row) rows.push(row);
     }
-    for (const [id, host] of this.#hosts) {
-      const existing = rows.get(id);
-      if (existing) {
-        existing.live = true;
-        existing.running = host.running;
-        existing.pending = host.pending;
-      } else {
-        rows.set(id, {
-          id,
-          mtimeMs: Date.now(),
-          title: '(new session)',
-          live: true,
-          running: host.running,
-          pending: host.pending,
-        });
-      }
+    return rows.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  }
+
+  /** One session's list row — its log merged with live state — or `null` if it exists nowhere. */
+  async #summary(id: string, rev: number): Promise<SessionSummary | null> {
+    const host = this.#hosts.get(id);
+    let disk: Awaited<ReturnType<typeof readSessionSummary>> | null = null;
+    try {
+      disk = await readSessionSummary(this.#agentDir, id);
+    } catch {
+      // Not on disk (yet), or vanished/unreadable since it was listed.
     }
-    return [...rows.values()].sort((a, b) => b.mtimeMs - a.mtimeMs);
+    if (!disk && !host) return null;
+    const title =
+      disk && disk.title !== UNTITLED_SESSION ? disk.title : (host?.title ?? disk?.title ?? NEW_SESSION_TITLE);
+    return {
+      id,
+      mtimeMs: disk?.mtimeMs ?? Date.now(),
+      title,
+      live: host !== undefined,
+      running: host?.running ?? false,
+      pending: host?.pending ?? false,
+      rev,
+    };
+  }
+
+  /** Push `id`'s current row (or its removal) to every `onChange` listener. */
+  #announce(id: string): void {
+    if (this.#listeners.size === 0) return;
+    const rev = ++this.#rev;
+    void this.#summary(id, rev).then(
+      (summary) => {
+        const event: PushEvent = summary ? { type: 'session_upsert', summary } : { type: 'session_removed', id, rev };
+        for (const listener of this.#listeners) listener(event);
+      },
+      () => {
+        // A row that can't be computed now is recomputed on the next change or list.
+      },
+    );
   }
 
   async create(opts: { model?: string; mode?: PermissionMode }): Promise<SessionSnapshot> {
     const host = await this.#spawn({ ...opts });
+    this.#announce(host.id);
     return host.snapshot();
   }
 
@@ -133,6 +173,7 @@ export class SessionRegistry {
       config = await this.#buildConfig(resume);
     }
     const host = await this.#start(config, { hasMeta: meta !== null });
+    this.#announce(host.id);
     return host.snapshot();
   }
 
@@ -170,6 +211,7 @@ export class SessionRegistry {
     if (!host) return;
     this.#hosts.delete(id);
     await host.close();
+    this.#announce(id);
   }
 
   async shutdown(): Promise<void> {
@@ -183,7 +225,12 @@ export class SessionRegistry {
   }
 
   async #start(config: AgentSessionConfig, opts: { hasMeta: boolean }): Promise<SessionHost> {
-    const host = new SessionHost({ agentDir: this.#agentDir, cwd: this.#cwd, hasMeta: opts.hasMeta });
+    const host: SessionHost = new SessionHost({
+      agentDir: this.#agentDir,
+      cwd: this.#cwd,
+      hasMeta: opts.hasMeta,
+      onSummaryChange: () => this.#announce(host.id),
+    });
     const session = await AgentSession.create({
       ...config,
       askHandler: host.ask,

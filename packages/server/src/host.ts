@@ -33,7 +33,7 @@ import type {
   SlashCommandInfo,
   Usage,
 } from '@harness-code/core';
-import { alwaysAllowFor, loadTranscript, updateSessionMeta } from '@harness-code/core';
+import { alwaysAllowFor, loadTranscript, sessionTitleFrom, updateSessionMeta } from '@harness-code/core';
 import type { AlwaysAllow, SessionMetaPatch } from '@harness-code/core';
 import type { ServerFrame, SessionSnapshot, WireEvent } from '@harness-code/protocol';
 
@@ -41,6 +41,15 @@ import type { ServerFrame, SessionSnapshot, WireEvent } from '@harness-code/prot
 const RING_CAPACITY = 5000;
 /** Delta flush cadence — coalesce deltas into ~30 frames/s. */
 const COALESCE_MS = 30;
+/** Wire events after which the session's list row (running / pending / title) may differ. */
+const SUMMARY_EVENTS: ReadonlySet<WireEvent['type']> = new Set([
+  'run_start',
+  'run_end',
+  'run_error',
+  'ask',
+  'plan',
+  'resolved',
+]);
 
 /** Thrown by `send` when a run is already active. The WS layer maps it to `busy`. */
 export class BusyError extends Error {
@@ -91,7 +100,10 @@ export class SessionHost {
 
   readonly #agentDir: string;
   readonly #cwd: string | undefined;
+  readonly #onSummaryChange: (() => void) | undefined;
   #session: AgentSession | undefined;
+  /** The first message sent here — the list title until the log has one. */
+  #firstInput: string | undefined;
   #modelRef = '';
   /** Last mode broadcast (or snapshotted) — `mode` events fire only on change. */
   #lastMode: PermissionMode | undefined;
@@ -124,11 +136,16 @@ export class SessionHost {
   #pending: { type: 'text_delta' | 'thinking_delta'; text: string } | null = null;
   #timer: ReturnType<typeof setTimeout> | undefined;
 
-  /** `hasMeta`: resuming a session whose sidecar exists — patch it from the start. */
-  constructor(opts: { agentDir: string; cwd?: string; hasMeta?: boolean }) {
+  /**
+   * `hasMeta`: resuming a session whose sidecar exists — patch it from the start.
+   * `onSummaryChange`: called after any event that may change the session's list
+   * row, so the registry can push the new row to every client.
+   */
+  constructor(opts: { agentDir: string; cwd?: string; hasMeta?: boolean; onSummaryChange?: () => void }) {
     this.#agentDir = opts.agentDir;
     this.#cwd = opts.cwd;
     this.#metaExists = opts.hasMeta === true;
+    this.#onSummaryChange = opts.onSummaryChange;
   }
 
   /** Wire the live session in. Called once, right after `AgentSession.create`. */
@@ -170,6 +187,11 @@ export class SessionHost {
 
   get lastSeq(): number {
     return this.#seq;
+  }
+
+  /** A title from the first message sent here, for a session whose log has none yet. */
+  get title(): string | undefined {
+    return this.#firstInput === undefined ? undefined : sessionTitleFrom(this.#firstInput) || undefined;
   }
 
   // -- seams handed to AgentSession.create ----------------------------------
@@ -333,6 +355,7 @@ export class SessionHost {
     this.#busy = true;
     this.#currentRunId = runId;
     if (!this.#metaSynced) this.#writeMeta();
+    this.#firstInput ??= text;
     this.#emit({ type: 'run_start', runId, input: text });
     void this.#execute(runId, text);
     return { runId };
@@ -543,5 +566,6 @@ export class SessionHost {
     this.#ring.push({ seq, frame });
     if (this.#ring.length > RING_CAPACITY) this.#ring.shift();
     for (const listener of this.#listeners) listener(frame);
+    if (SUMMARY_EVENTS.has(event.type)) this.#onSummaryChange?.();
   }
 }

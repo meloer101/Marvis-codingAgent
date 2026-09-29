@@ -350,8 +350,15 @@ export interface SessionSummary {
   meta?: SessionMeta;
 }
 
-const UNTITLED = '(untitled)';
+/** The title of a session whose log has no user text yet. */
+export const UNTITLED_SESSION = '(untitled)';
 const TITLE_MAX_LENGTH = 80;
+
+/** A list title from a user message: whitespace collapsed, truncated to 80 characters. */
+export function sessionTitleFrom(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > TITLE_MAX_LENGTH ? `${flat.slice(0, TITLE_MAX_LENGTH - 1)}…` : flat;
+}
 
 /**
  * Pairs with `listSessionIds`: for one session id, its file mtime and a title —
@@ -473,12 +480,12 @@ async function firstUserMessageTitle(path: string): Promise<string> {
         continue; // Corrupt line — keep scanning for a usable title.
       }
       if (event.type !== 'message' || event.message?.role !== 'user') continue;
-      const text = textOf(event.message.content).replace(/\s+/g, ' ').trim();
-      if (text === '') continue; // e.g. a tool_result-only user message.
-      return text.length > TITLE_MAX_LENGTH ? `${text.slice(0, TITLE_MAX_LENGTH - 1)}…` : text;
+      const title = sessionTitleFrom(textOf(event.message.content));
+      if (title === '') continue; // e.g. a tool_result-only user message.
+      return title;
     }
   } finally {
     rl.close();
   }
-  return UNTITLED;
+  return UNTITLED_SESSION;
 }

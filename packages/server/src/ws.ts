@@ -120,6 +120,8 @@ const CLOSE_UNAUTHORIZED = 4001;
 class Connection {
   #authed = false;
   readonly #subs = new Map<string, () => void>();
+  /** Stops forwarding session-list pushes; set once the socket authenticates. */
+  #unwatch: (() => void) | undefined;
 
   constructor(
     private readonly ws: WebSocket,
@@ -131,6 +133,7 @@ class Connection {
     ws.on('close', () => {
       for (const unsub of this.#subs.values()) unsub();
       this.#subs.clear();
+      this.#unwatch?.();
     });
     // A socket-level error just means the peer went away; teardown runs on 'close'.
     ws.on('error', () => {});
@@ -171,6 +174,9 @@ class Connection {
     }
     this.#authed = true;
     this.#replyOk(frame.id, { ok: true });
+    // Session-list changes reach every authenticated socket, subscribed or not:
+    // the sidebar badges every session, not just the ones this tab has open.
+    this.#unwatch = this.opts.registry.onChange((event) => this.#send({ t: 'push', event }));
   }
 
   async #dispatch(frame: ClientFrame): Promise<void> {

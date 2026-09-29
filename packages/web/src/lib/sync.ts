@@ -2,27 +2,27 @@
  * `SessionSync` — glue between the socket and the store.
  *
  *  - Keeps one `SessionModel` per opened session and stays subscribed to it,
- *    so sidebar badges and background sessions keep folding.
+ *    so background sessions keep folding.
  *  - Events land in the model immediately (cheap) but are published to the
  *    store at most once per animation frame, all dirty sessions in one
- *    `setState` (opencode's 16 ms flush, docs/web-frontend.md M4).
+ *    `setState` (opencode's 16 ms flush).
+ *  - The sidebar list follows the server's `session_upsert` / `_removed`
+ *    pushes, which cover every session — including ones this tab never
+ *    opened (lib/sessionList.ts).
  *  - On every (re)connect: reload server info + the session list and
  *    resubscribe each session from its `lastSeq` — the server replays the gap
  *    or answers `reset` with a fresh snapshot.
  */
 
 import type { PermissionMode } from '@harness-code/core';
-import type { AskDecision, WireEvent } from '@harness-code/protocol';
+import type { AskDecision, PushEvent, WireEvent } from '@harness-code/protocol';
 
 import { RpcClient, RpcError } from './rpc';
 import type { ConnectionStatus, RpcClientOptions } from './rpc';
+import { applySessionPush, mergeSessionList } from './sessionList';
 import { SessionModel } from './sessionModel';
 import { useAppStore } from './store';
 import type { AppState } from './store';
-
-/** Events that change a session's sidebar badges (running / pending). */
-const LIST_EVENTS = new Set<WireEvent['type']>(['run_start', 'run_end', 'run_error', 'ask', 'plan', 'resolved']);
-const LIST_REFRESH_MS = 250;
 
 export interface SyncOptions {
   url: string;
@@ -45,7 +45,8 @@ export class SessionSync {
   #retryOpen = new Set<string>();
   #dirty = new Set<string>();
   #frameQueued = false;
-  #listTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The server boot the held session rows came from (`ServerInfo.bootId`). */
+  #bootId: string | null = null;
 
   constructor(opts: SyncOptions) {
     this.#store = opts.store ?? useAppStore;
@@ -56,6 +57,7 @@ export class SessionSync {
       url: opts.url,
       token: opts.token,
       onEvent: (id, seq, event) => this.#onEvent(id, seq, event),
+      onPush: (event) => this.#onPush(event),
       onStatus: (status) => this.#onStatus(status),
       ...(opts.createSocket ? { createSocket: opts.createSocket } : {}),
     });
@@ -66,7 +68,6 @@ export class SessionSync {
   }
 
   stop(): void {
-    if (this.#listTimer) clearTimeout(this.#listTimer);
     this.rpc.close();
   }
 
@@ -123,7 +124,6 @@ export class SessionSync {
       this.#publish(snapshot.id);
       await this.#subscribe(snapshot.id);
       void this.#loadSlash(snapshot.id);
-      this.#scheduleListRefresh();
       return snapshot.id;
     } catch (err) {
       this.#fail(err);
@@ -207,7 +207,10 @@ export class SessionSync {
     const model = this.#models.get(id);
     if (!model || !model.apply(seq, event)) return;
     this.#publish(id);
-    if (LIST_EVENTS.has(event.type)) this.#scheduleListRefresh();
+  }
+
+  #onPush(event: PushEvent): void {
+    this.#store.setState((s) => ({ sessions: applySessionPush(s.sessions, event) }));
   }
 
   #onStatus(status: ConnectionStatus): void {
@@ -221,7 +224,9 @@ export class SessionSync {
         this.rpc.call('server.info'),
         this.rpc.call('session.list'),
       ]);
-      this.#store.setState({ info, sessions });
+      const bootChanged = info.bootId !== this.#bootId;
+      this.#bootId = info.bootId;
+      this.#store.setState((s) => ({ info, sessions: mergeSessionList(s.sessions, sessions, bootChanged) }));
     } catch (err) {
       this.#fail(err);
     }
@@ -262,19 +267,6 @@ export class SessionSync {
     }
     this.#dirty.clear();
     this.#store.setState((s) => ({ views: { ...s.views, ...updates } }));
-  }
-
-  #scheduleListRefresh(): void {
-    if (this.#listTimer) return;
-    this.#listTimer = setTimeout(() => {
-      this.#listTimer = null;
-      this.rpc.call('session.list').then(
-        (sessions) => this.#store.setState({ sessions }),
-        () => {
-          // Transient — the next connect or event refreshes it.
-        },
-      );
-    }, LIST_REFRESH_MS);
   }
 
   async #run(p: Promise<unknown>): Promise<void> {
