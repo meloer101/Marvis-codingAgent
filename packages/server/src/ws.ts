@@ -272,6 +272,12 @@ class Connection {
         const { id } = params as MethodParams<'session.close'>;
         return hub.close(id);
       }
+      case 'session.update': {
+        const { id, ...patch } = params as MethodParams<'session.update'>;
+        return hub.update(id, patch);
+      }
+      case 'session.delete':
+        return hub.delete((params as MethodParams<'session.delete'>).id);
       case 'ask.answer': {
         const { sessionId, askId, decision, feedback } = params as MethodParams<'ask.answer'>;
         this.#host(sessionId).answerAsk(askId, decision, feedback);

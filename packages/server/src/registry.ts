@@ -9,9 +9,18 @@
  * tests and `--mock` can substitute a `ScriptedProvider`.
  */
 
-import { access } from 'node:fs/promises';
+import { access, readdir, rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
-import { AgentSession, UNTITLED_SESSION, sessionPath } from '@harness-code/core';
+import {
+  AgentSession,
+  UNTITLED_SESSION,
+  sessionArtifactsDir,
+  sessionMetaPath,
+  sessionPath,
+  tracePath,
+  updateSessionMeta,
+} from '@harness-code/core';
 import { listSessionIds, loadTranscript, readSessionMeta, readSessionSummary } from '@harness-code/core';
 import type {
   AgentSessionConfig,
@@ -22,7 +31,7 @@ import type {
 } from '@harness-code/core';
 import type { PushEvent, SessionSnapshot, SessionSummary } from '@harness-code/protocol';
 
-import { InvalidRequestError, SessionHost } from './host.js';
+import { BusyError, InvalidRequestError, SessionHost } from './host.js';
 
 /** Builds an `AgentSessionConfig` for a new or resumed session. */
 export type SessionConfigFactory = (opts: {
@@ -186,6 +195,8 @@ export class SessionRegistry {
       live: host !== undefined,
       running: host?.running ?? false,
       pending: host?.pending ?? false,
+      pinned: disk?.meta?.pinned === true,
+      archived: disk?.meta?.archived === true,
       rev,
     };
   }
@@ -327,6 +338,52 @@ export class SessionRegistry {
       if (code === 'ENOENT') throw new SessionPreviewNotFoundError(opts.id);
       throw err;
     }
+  }
+
+  /**
+   * Rename, pin or archive `id` (its metadata sidecar); resolves with its new
+   * row, which is also pushed. An empty title clears it, so the list goes
+   * back to the first message.
+   */
+  async update(id: string, patch: { title?: string; pinned?: boolean; archived?: boolean }): Promise<SessionSummary> {
+    if (!(await this.has(id))) throw new SessionPreviewNotFoundError(id);
+    const title = patch.title?.replace(/\s+/g, ' ').trim();
+    await updateSessionMeta(this.#agentDir, id, {
+      ...(patch.title !== undefined ? { title: title || undefined } : {}),
+      ...(patch.pinned !== undefined ? { pinned: patch.pinned || undefined } : {}),
+      ...(patch.archived !== undefined ? { archived: patch.archived || undefined } : {}),
+    });
+    this.#announce(id);
+    const row = await this.#summary(id, this.#nextRev());
+    if (!row) throw new SessionPreviewNotFoundError(id);
+    return row;
+  }
+
+  /**
+   * Delete `id` for good: log, metadata, offloaded tool output, trace. Not
+   * while it runs; a live, idle session is closed first — its writers would
+   * otherwise recreate what was just removed.
+   */
+  async delete(id: string): Promise<void> {
+    await this.#resuming.get(id)?.catch(() => {});
+    if (!(await this.has(id))) throw new SessionPreviewNotFoundError(id);
+    const host = this.#hosts.get(id);
+    if (host?.running) throw new BusyError('the session is running; stop it first');
+    if (host) {
+      this.#hosts.delete(id);
+      await host.close();
+    }
+    const metaPath = sessionMetaPath(this.#agentDir, id);
+    const leftovers = (await readdir(dirname(metaPath)).catch(() => [] as string[]))
+      .filter((name) => name.startsWith(`${id}.meta.json.`) && name.endsWith('.tmp'))
+      .map((name) => join(dirname(metaPath), name));
+    await Promise.all(
+      [sessionPath(this.#agentDir, id), metaPath, tracePath(this.#agentDir, id), ...leftovers].map((path) =>
+        rm(path, { force: true }),
+      ),
+    );
+    await rm(sessionArtifactsDir(this.#agentDir, id), { recursive: true, force: true });
+    this.#announce(id);
   }
 
   async close(id: string): Promise<void> {

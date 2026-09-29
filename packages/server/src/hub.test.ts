@@ -4,7 +4,7 @@
  * (live, remembered, or on disk after a restart).
  */
 
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -229,5 +229,57 @@ describe('WorkspaceHub add / remove', () => {
     expect((await hub.workspaces()).map((w) => w.id)).toEqual([launchId]);
     expect(hub.host(running.snapshot.id)).toBeUndefined(); // its live session closed with it
     await expect(hub.remove(launchId)).rejects.toThrow(/last workspace/);
+  });
+});
+
+describe('session update / delete', () => {
+  it('renames, pins and archives through the metadata, and an empty title goes back to the first message', async () => {
+    const a = await project('a');
+    const { hub } = await hubOn(memoryWorkspaceStore(), a);
+    const started = await hub.start({ text: 'first message' });
+    const id = started.snapshot.id;
+    await runToEnd(hub, id);
+
+    expect(await hub.update(id, { title: '  Login   flake ', pinned: true })).toMatchObject({
+      title: 'Login flake',
+      pinned: true,
+      archived: false,
+    });
+    expect(await hub.update(id, { archived: true, pinned: false })).toMatchObject({ pinned: false, archived: true });
+    expect((await hub.update(id, { title: '' })).title).toBe('first message');
+    expect((await hub.list()).find((r) => r.id === id)).toMatchObject({ archived: true, title: 'first message' });
+    await expect(hub.update('nope', { pinned: true })).rejects.toBeInstanceOf(SessionPreviewNotFoundError);
+  });
+
+  it('deletes every file a session left, closing its live host first', async () => {
+    const a = await project('a');
+    const { hub } = await hubOn(memoryWorkspaceStore(), a);
+    const events: PushEvent[] = [];
+    hub.onChange((e) => events.push(e));
+    const started = await hub.start({ text: 'to delete' });
+    const id = started.snapshot.id;
+    if (hub.host(id)?.running) await expect(hub.delete(id)).rejects.toBeInstanceOf(BusyError);
+    await runToEnd(hub, id);
+    await hub.update(id, { pinned: true }); // a metadata sidecar
+
+    const sessions = join(a, '.agent', 'sessions');
+    await mkdir(join(sessions, id), { recursive: true });
+    await writeFile(join(sessions, id, 'toolout-1.txt'), 'offloaded output');
+    await writeFile(join(sessions, `${id}.meta.json.4f2a.tmp`), '{}'); // left by a crash
+    await mkdir(join(a, '.agent', 'traces'), { recursive: true });
+    await writeFile(join(a, '.agent', 'traces', `${id}.jsonl`), '{}\n');
+    expect(hub.host(id)).toBeDefined(); // live, and idle
+
+    await hub.delete(id);
+    expect(hub.host(id)).toBeUndefined();
+    expect((await readdir(sessions)).filter((n) => n.startsWith(id))).toEqual([]);
+    await expect(access(join(a, '.agent', 'traces', `${id}.jsonl`))).rejects.toThrow();
+    expect((await hub.list()).some((r) => r.id === id)).toBe(false);
+    const deadline = Date.now() + 2000;
+    while (!events.some((e) => e.type === 'session_removed' && e.id === id) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(events.some((e) => e.type === 'session_removed' && e.id === id)).toBe(true);
+    await expect(hub.delete(id)).rejects.toBeInstanceOf(SessionPreviewNotFoundError);
   });
 });

@@ -11,6 +11,8 @@ const row = (id: string, over: Partial<SessionSummary> = {}): SessionSummary => 
   live: true,
   running: false,
   pending: false,
+  pinned: false,
+  archived: false,
   rev: 1,
   ...over,
 });

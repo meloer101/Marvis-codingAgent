@@ -411,6 +411,20 @@ describe('SessionHost lifecycle', () => {
     expect(events().some((e) => e.type === 'resolved' && e.by === 'abort')).toBe(true);
   });
 
+  it('cannot be deleted while a run is going', async () => {
+    const { host, registry } = await makeHost(
+      [{ toolCalls: [{ name: 'write', input: { path: 'note.txt', content: 'hi' } }] }, { text: 'done' }],
+      { mode: 'ask' },
+    );
+    const askP = firstEvent(host, 'ask');
+    const settled = runSettled(host);
+    host.send('go');
+    await askP;
+    await expect(registry.delete(host.id)).rejects.toBeInstanceOf(BusyError);
+    host.abort();
+    await settled;
+  });
+
   it('refuses to compact while a run is going', async () => {
     const { host } = await makeHost(
       [{ toolCalls: [{ name: 'write', input: { path: 'note.txt', content: 'hi' } }] }, { text: 'done' }],

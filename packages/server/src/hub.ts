@@ -238,6 +238,18 @@ export class WorkspaceHub {
     return (await this.#registryOf(id)).preview({ id });
   }
 
+  async update(
+    id: string,
+    patch: { title?: string; pinned?: boolean; archived?: boolean },
+  ): Promise<SessionSummary> {
+    return (await this.#registryOf(id)).update(id, patch);
+  }
+
+  async delete(id: string): Promise<void> {
+    await (await this.#registryOf(id)).delete(id);
+    this.#sessionIndex.delete(id);
+  }
+
   async close(id: string): Promise<void> {
     for (const e of this.#entries.values()) {
       if (e.registry.get(id)) return e.registry.close(id);

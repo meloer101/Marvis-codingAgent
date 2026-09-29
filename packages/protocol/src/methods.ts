@@ -116,6 +116,10 @@ export interface SessionSummary {
   running: boolean;
   /** Waiting on an ask/plan — the sidebar badge. */
   pending: boolean;
+  /** Kept at the top of its workspace's list. */
+  pinned: boolean;
+  /** Put away: listed only on request. */
+  archived: boolean;
   /**
    * Server-wide, increasing with every row the server computes (per boot):
    * of two rows for one session, the higher `rev` is the newer state.
@@ -286,6 +290,26 @@ export const methods = {
   >(z.object({ id: sessionIdSchema })),
   'session.slashCommands': method<{ id: string }, SlashCommandInfo[]>(z.object({ id: sessionIdSchema })),
   'session.close': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
+  /**
+   * Rename, pin or archive a session; answers with its new row (also pushed).
+   * An empty title goes back to the one taken from its first message.
+   */
+  'session.update': method<
+    { id: string; title?: string; pinned?: boolean; archived?: boolean },
+    SessionSummary
+  >(
+    z.object({
+      id: sessionIdSchema,
+      title: z.string().max(200).optional(),
+      pinned: z.boolean().optional(),
+      archived: z.boolean().optional(),
+    }),
+  ),
+  /**
+   * Delete a session for good: its log, metadata, offloaded output and trace.
+   * `busy` while it runs; a live, idle one is closed first.
+   */
+  'session.delete': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
   'ask.answer': method<
     { sessionId: string; askId: string; decision: AskDecision; feedback?: string },
     void
