@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, MessageSquarePlus, WifiOff, X } from 'lucide-react';
+import { Loader2, WifiOff, X } from 'lucide-react';
 import type { SessionSummary } from '@harness-code/protocol';
 
+import { DraftView } from '@/components/DraftView';
 import { HelpDialog } from '@/components/HelpDialog';
 import { SessionSidebar } from '@/components/SessionSidebar';
 import { SessionView } from '@/components/SessionView';
-import { Button } from '@/components/ui/button';
 import { attentionChanges, documentTitle, notificationsOn } from '@/lib/attention';
 import { parseRoute, routeToHash } from '@/lib/route';
 import type { Route } from '@/lib/route';
@@ -54,9 +54,9 @@ export function App() {
   const activeId = route.kind === 'session' ? route.id : null;
   useAttention();
 
-  const newSession = async (): Promise<void> => {
-    const id = await sync.create();
-    if (id) window.location.hash = routeToHash({ kind: 'session', id });
+  /** A new session starts as a draft on the home route; it exists once its first message is sent. */
+  const newSession = (): void => {
+    window.location.hash = routeToHash({ kind: 'home' });
   };
 
   // Global keys: new session anywhere, Esc stops the active run. The composer's
@@ -66,7 +66,7 @@ export function App() {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        void newSession();
+        newSession();
         return;
       }
       if (e.key === 'Escape' && activeId && !e.defaultPrevented) {
@@ -80,15 +80,11 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      <SessionSidebar activeId={activeId} onNew={() => void newSession()} />
+      <SessionSidebar activeId={activeId} onNew={newSession} />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <ConnectionBanner />
         <ErrorBanner />
-        {activeId ? (
-          <SessionView key={activeId} id={activeId} onNewSession={() => void newSession()} />
-        ) : (
-          <Home onNew={() => void newSession()} />
-        )}
+        {activeId ? <SessionView key={activeId} id={activeId} onNewSession={newSession} /> : <DraftView />}
       </main>
       <Help activeId={activeId} />
     </div>
@@ -102,30 +98,6 @@ function Help({ activeId }: { activeId: string | null }) {
   const mcp = useAppStore((s) => (activeId ? s.slash[activeId] : undefined));
   if (!open) return null;
   return <HelpDialog commands={allCommands(mcp ?? [])} onClose={() => sync.setHelpOpen(false)} />;
-}
-
-function Home({ onNew }: { onNew: () => void }) {
-  const connected = useAppStore((s) => s.status === 'open');
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-5 px-6 text-center">
-      <div className="flex flex-col items-center gap-2">
-        <span className="font-serif text-[34px] font-semibold tracking-[-0.02em]">
-          hc<span className="text-brass">·</span>web
-        </span>
-        <p className="max-w-52 font-serif text-[15px] leading-relaxed text-muted-foreground italic">
-          A coding agent, bound for the browser.
-        </p>
-      </div>
-      <Button onClick={onNew} disabled={!connected} size="lg">
-        <MessageSquarePlus />
-        New session
-      </Button>
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <kbd className="rounded border bg-muted/60 px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd>
-        starts one anywhere
-      </p>
-    </div>
-  );
 }
 
 function ConnectionBanner() {

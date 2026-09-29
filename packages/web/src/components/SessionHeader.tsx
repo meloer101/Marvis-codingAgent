@@ -20,32 +20,44 @@ const MODE_LABELS: Record<PermissionMode, string> = {
 
 export function SessionHeader({ view }: { view: SessionViewState }) {
   const sync = useSync();
-  const modes = useAppStore((s) => s.info?.modes) ?? [view.mode];
-
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4 text-sm">
-      <span className="flex min-w-0 items-center gap-2" title="Model">
-        <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-        <span className="truncate font-mono text-xs text-muted-foreground">{view.modelRef}</span>
-      </span>
-      <span className="relative">
-        <select
-          aria-label="Permission mode"
-          className="h-7 cursor-pointer appearance-none rounded-md border bg-card pr-7 pl-2.5 text-xs font-medium shadow-xs transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-          value={view.mode}
-          onChange={(e) => void sync.setMode(view.id, e.target.value as PermissionMode)}
-        >
-          {modes.map((m) => (
-            <option key={m} value={m}>
-              {MODE_LABELS[m]}
-            </option>
-          ))}
-        </select>
-        <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-      </span>
+      <ModelLabel modelRef={view.modelRef} />
+      <ModePicker mode={view.mode} onChange={(mode) => void sync.setMode(view.id, mode)} />
       <div className="flex-1" />
       <UsageMeter view={view} />
     </header>
+  );
+}
+
+export function ModelLabel({ modelRef }: { modelRef: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2" title="Model">
+      <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+      <span className="truncate font-mono text-xs text-muted-foreground">{modelRef}</span>
+    </span>
+  );
+}
+
+/** The permission-mode dropdown, over the modes the server offers. */
+export function ModePicker({ mode, onChange }: { mode: PermissionMode; onChange: (mode: PermissionMode) => void }) {
+  const modes = useAppStore((s) => s.info?.modes) ?? [mode];
+  return (
+    <span className="relative">
+      <select
+        aria-label="Permission mode"
+        className="h-7 cursor-pointer appearance-none rounded-md border bg-card pr-7 pl-2.5 text-xs font-medium shadow-xs transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+        value={mode}
+        onChange={(e) => onChange(e.target.value as PermissionMode)}
+      >
+        {modes.map((m) => (
+          <option key={m} value={m}>
+            {MODE_LABELS[m]}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+    </span>
   );
 }
 

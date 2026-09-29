@@ -288,10 +288,11 @@ describe('global shortcuts', () => {
     expect(sync.abort).not.toHaveBeenCalled();
   });
 
-  it('Cmd/Ctrl+K starts a new session', () => {
+  it('Cmd/Ctrl+K opens a draft for a new session, creating nothing yet', () => {
     const sync = renderApp(dockView({ pendingAsk: null, askId: null, running: false }));
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
-    expect(sync.create).toHaveBeenCalled();
+    expect(window.location.hash).toBe('#/');
+    expect(sync.create).not.toHaveBeenCalled();
   });
 
   it('the Escape that closes help does not stop the run', () => {

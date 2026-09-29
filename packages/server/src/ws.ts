@@ -217,6 +217,8 @@ class Connection {
         return registry.list();
       case 'session.create':
         return registry.create(params as MethodParams<'session.create'>);
+      case 'session.start':
+        return registry.start(params as MethodParams<'session.start'>);
       case 'session.open':
         return registry.open(params as MethodParams<'session.open'>);
       case 'session.preview':

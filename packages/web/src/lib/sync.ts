@@ -179,6 +179,26 @@ export class SessionSync {
     }
   }
 
+  /**
+   * Turn a draft into a session: create it and send its first message in one
+   * call. Resolves with the new id (null on failure, the error shown).
+   */
+  async startSession(text: string, opts: { model?: string; mode?: PermissionMode } = {}): Promise<string | null> {
+    try {
+      const { snapshot } = await this.rpc.call('session.start', { text, ...opts });
+      // The snapshot predates the message; everything since — the startup
+      // notices, then the run — replays from seq 0.
+      this.#models.set(snapshot.id, new SessionModel({ ...snapshot, lastSeq: 0 }));
+      this.#publish(snapshot.id);
+      await this.#subscribe(snapshot.id);
+      void this.#loadSlash(snapshot.id);
+      return snapshot.id;
+    } catch (err) {
+      this.#fail(err);
+      return null;
+    }
+  }
+
   async send(id: string, text: string): Promise<boolean> {
     try {
       await this.#act(id, () => this.rpc.call('session.send', { id, text }));

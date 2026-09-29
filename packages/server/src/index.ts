@@ -30,7 +30,7 @@ import type { ServerInfo } from '@harness-code/protocol';
 
 import { createStaticHandler, resolveStaticDir } from './http.js';
 import type { HealthInfo } from './instance.js';
-import { mockConfigFactory } from './mock.js';
+import { MOCK_MODEL_REF, mockConfigFactory } from './mock.js';
 import { SessionRegistry } from './registry.js';
 import type { SessionConfigFactory } from './registry.js';
 import { attachWsServer } from './ws.js';
@@ -87,7 +87,9 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       bootId,
       cwd,
       projectRoot,
-      defaultModel: opts.model ?? settings.model ?? '',
+      // A mock server's sessions all run the scripted model, whatever settings say.
+      defaultModel: opts.mock && !opts.buildConfig ? MOCK_MODEL_REF : (opts.model ?? settings.model ?? ''),
+      defaultMode: settings.permissions?.mode ?? 'ask',
       models: providers.list(),
       modes: PERMISSION_MODES.filter(
         (m) =>
@@ -103,9 +105,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
     buildConfig,
     previewDefaults: async () => {
       const info = await serverInfo();
-      const { settings } = await loadSettings(cwd);
-      const mode = settings.permissions?.mode ?? 'ask';
-      return { modelRef: info.defaultModel, mode };
+      return { modelRef: info.defaultModel, mode: info.defaultMode };
     },
   });
 

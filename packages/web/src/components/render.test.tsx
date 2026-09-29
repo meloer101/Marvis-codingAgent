@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { Markdown } from './Markdown';
 import { toolPreview, toolView } from './tools/registry';
+import { briefNotice, transcriptRows } from '@/lib/rows';
 
 afterEach(cleanup);
 
@@ -114,5 +115,22 @@ describe('tool renderers', () => {
     expect(container.textContent).toContain('docs/a.md');
     expect(container.textContent).toContain('old line');
     expect(container.textContent).toContain('new line');
+  });
+});
+
+describe('startup notices', () => {
+  it('fold into one session-details line; other notices stay rows of their own', () => {
+    const notice = (id: number, kind: string, text: string, level = 'info') =>
+      ({ kind: 'notice', id, notice: { kind, level, text } }) as never;
+    const rows = transcriptRows([
+      notice(0, 'skills-discovered', 'skills: 2 discovered (project 0, user 0, builtin 2)'),
+      notice(1, 'mcp-status', 'mcp: 1/1 server ready, 68 tools'),
+      notice(2, 'session-start', 'session abc · cwd /w · m · mode ask'),
+      { kind: 'user', id: 3, text: 'hi' } as never,
+      notice(4, 'context-warn', 'context 81% full', 'warn'),
+    ]);
+    expect(rows.map((r) => r.kind)).toEqual(['details', 'entry', 'entry']);
+    const details = rows[0]!;
+    expect(details.kind === 'details' && details.notices.map(briefNotice)).toEqual(['skills 2', 'mcp 1/1 ready', null]);
   });
 });

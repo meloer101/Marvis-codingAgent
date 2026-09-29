@@ -166,6 +166,20 @@ export class SessionRegistry {
     return host.snapshot();
   }
 
+  /** Create a session and send `text` as its first message (`session.start`). */
+  async start(opts: {
+    text: string;
+    model?: string;
+    mode?: PermissionMode;
+  }): Promise<{ snapshot: SessionSnapshot; runId: string }> {
+    const { text, ...spawnOpts } = opts;
+    const host = await this.#spawn(spawnOpts);
+    this.#announce(host.id);
+    const snapshot = await host.snapshot();
+    const { runId } = host.send(text);
+    return { snapshot, runId };
+  }
+
   /** The live snapshot, resuming the session from disk first if it has no host. */
   async open(opts: { id: string }): Promise<SessionSnapshot> {
     return (await this.ensure(opts.id)).snapshot();

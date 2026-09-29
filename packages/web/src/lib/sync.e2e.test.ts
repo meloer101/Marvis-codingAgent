@@ -150,6 +150,27 @@ describe('SessionSync ↔ hc web --mock', () => {
     await until(() => a.store.getState().sessions.some((s) => s.id === id && !s.running), 'session in list');
   });
 
+  it('turns a draft into a session with its first message', async () => {
+    const { server } = await boot();
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'tab A connected');
+    const before = a.store.getState().sessions.length;
+
+    const id = await a.sync.startSession('set up a scratch file', { mode: 'ask' });
+    expect(id).toBeTruthy();
+    const view = () => a.store.getState().views[id!];
+    // The snapshot predates the message: the notices and the run replay after it.
+    await until(
+      () => view()?.entries.some((e) => e.kind === 'notice' && e.notice.kind === 'session-start'),
+      'startup notices',
+    );
+    await until(() => view()?.entries.some((e) => e.kind === 'user' && e.text === 'set up a scratch file'), 'message');
+    await until(() => view()?.askId, 'the run reaches its first ask');
+    expect(a.store.getState().sessions).toHaveLength(before + 1);
+    expect(a.store.getState().sessions.find((s) => s.id === id)?.title).toBe('set up a scratch file');
+    await a.sync.abort(id!);
+  });
+
   it('badges a session this tab never opened, from pushes alone', async () => {
     const { server } = await boot();
     const a = tab(server);

@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDown, Brain, Check, ChevronRight, Circle, Info, Loader2, X } from 'lucide-react';
 
 import type { Notice } from '@harness-code/core';
@@ -8,6 +8,7 @@ import { Markdown } from '@/components/Markdown';
 import { toolView } from '@/components/tools/registry';
 import { Button } from '@/components/ui/button';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
+import { briefNotice, transcriptRows } from '@/lib/rows';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { cn } from '@/lib/utils';
 
@@ -17,19 +18,25 @@ export function Transcript({ view }: { view: SessionViewState }) {
     `${entries.length}:${live.text.length}:${live.thinking.length}:${live.tools.length}:${running}`,
   );
   const liveEmpty = live.text === '' && live.thinking === '' && live.tools.length === 0;
+  const rows = useMemo(() => transcriptRows(entries), [entries]);
+  const conversationEmpty = rows.every((r) => r.kind === 'details');
 
   return (
     <div className="relative min-h-0 flex-1">
       <div ref={ref} onScroll={onScroll} className="h-full overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
-          {entries.length === 0 && liveEmpty && !running && (
+          {rows.map((row) =>
+            row.kind === 'entry' ? (
+              <EntryRow key={row.key} entry={row.entry} />
+            ) : (
+              <SessionDetails key={row.key} notices={row.notices} />
+            ),
+          )}
+          {conversationEmpty && liveEmpty && !running && (
             <p className="py-16 text-center font-serif text-[15px] text-muted-foreground italic">
               Send a message to start.
             </p>
           )}
-          {entries.map((e) => (
-            <EntryRow key={e.id} entry={e} />
-          ))}
           {!liveEmpty && <AssistantBlock thinking={live.thinking} text={live.text} tools={live.tools} streaming />}
           {running && liveEmpty && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -72,7 +79,7 @@ const EntryRow = memo(function EntryRow({ entry }: { entry: Entry }) {
   );
 });
 
-function UserMessage({ text }: { text: string }) {
+export function UserMessage({ text }: { text: string }) {
   return (
     <div className="rounded-lg border bg-card px-4 py-3 text-sm whitespace-pre-wrap shadow-xs">{text}</div>
   );
@@ -155,6 +162,43 @@ function ToolCard({ tool }: { tool: ToolItem }) {
       </button>
       {open && <div className="border-t bg-muted/40">{view.body}</div>}
     </div>
+  );
+}
+
+/**
+ * The startup diagnostics as one quiet line — "skills 2 · memory 1 · mcp 1/1
+ * ready" — that opens to the full notices. It starts open, and takes the
+ * warning colour, when one of them is a warning or an error (an MCP server
+ * that failed to start should not hide behind a disclosure).
+ */
+function SessionDetails({ notices }: { notices: Notice[] }) {
+  const worst = notices.some((n) => n.level === 'error')
+    ? 'error'
+    : notices.some((n) => n.level === 'warn')
+      ? 'warn'
+      : 'info';
+  const brief = notices.map(briefNotice).filter((b): b is string => b !== null);
+  const Icon = worst === 'info' ? Info : AlertTriangle;
+  return (
+    <details
+      open={worst !== 'info'}
+      className={cn(
+        'group text-xs',
+        worst === 'error' ? 'text-destructive' : worst === 'warn' ? 'text-brass' : 'text-muted-foreground',
+      )}
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 select-none">
+        <ChevronRight className="size-3 shrink-0 transition-transform group-open:rotate-90" />
+        <Icon className="size-3.5 shrink-0" />
+        <span className="shrink-0">Session details</span>
+        {brief.length > 0 && <span className="truncate font-mono text-[11px] opacity-80">{brief.join(' · ')}</span>}
+      </summary>
+      <div className="mt-2 ml-1.5 flex flex-col gap-1 border-l pl-3">
+        {notices.map((n, i) => (
+          <NoticeRow key={i} notice={n} />
+        ))}
+      </div>
+    </details>
   );
 }
 

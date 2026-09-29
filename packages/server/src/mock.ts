@@ -74,6 +74,9 @@ function mockScript(): ScriptedTurn[] {
   ];
 }
 
+/** The model ref every mock session reports. */
+export const MOCK_MODEL_REF = 'mock/mock-model';
+
 /** A `ResolvedModel` whose provider is a fresh `ScriptedProvider`. */
 function mockModel(): ResolvedModel {
   const provider = new ScriptedProvider(mockScript(), 'mock');
@@ -81,7 +84,7 @@ function mockModel(): ResolvedModel {
     provider,
     providerId: provider.id,
     model: 'mock-model',
-    ref: 'mock/mock-model',
+    ref: MOCK_MODEL_REF,
     capabilities: { ...DEFAULT_CAPABILITIES },
   };
 }

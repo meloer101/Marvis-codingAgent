@@ -31,6 +31,8 @@ export interface ServerInfo {
   cwd: string;
   projectRoot: string;
   defaultModel: string;
+  /** The permission mode a new session starts in (settings, else `ask`). */
+  defaultMode: PermissionMode;
   models: string[];
   modes: PermissionMode[];
 }
@@ -119,6 +121,16 @@ export const methods = {
   'session.create': method<{ model?: string; mode?: PermissionMode }, SessionSnapshot>(
     z.object({ model: z.string().optional(), mode: permissionModeSchema.optional() }),
   ),
+  /**
+   * Create a session and send its first message in one step — how a draft
+   * becomes a session, so nothing is created until there is something to say.
+   * The snapshot is taken before the message is sent: subscribing from seq 0
+   * replays the startup notices and then the run.
+   */
+  'session.start': method<
+    { text: string; model?: string; mode?: PermissionMode },
+    { snapshot: SessionSnapshot; runId: string }
+  >(z.object({ text: z.string(), model: z.string().optional(), mode: permissionModeSchema.optional() })),
   'session.open': method<{ id: string }, SessionSnapshot>(z.object({ id: z.string() })),
   /** Disk transcript only — no MCP / `AgentSession.create`. Used to render old sessions fast. */
   'session.preview': method<{ id: string }, SessionSnapshot>(z.object({ id: z.string() })),
