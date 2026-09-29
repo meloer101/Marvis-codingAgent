@@ -32,7 +32,8 @@ export function App() {
   };
 
   // Global keys: new session anywhere, Esc stops the active run. The composer's
-  // `/` menu swallows its own Escape, so it can't abort by accident.
+  // `/` menu and the pending dock swallow their own Escape, and an Escape that
+  // closes the help panel (open, or already handled) never aborts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
@@ -40,9 +41,9 @@ export function App() {
         void newSession();
         return;
       }
-      if (e.key === 'Escape' && activeId) {
-        const view = useAppStore.getState().views[activeId];
-        if (view?.running) void sync.abort(activeId);
+      if (e.key === 'Escape' && activeId && !e.defaultPrevented) {
+        const { views, helpOpen } = useAppStore.getState();
+        if (!helpOpen && views[activeId]?.running) void sync.abort(activeId);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -61,18 +62,18 @@ export function App() {
           <Home onNew={() => void newSession()} />
         )}
       </main>
-      <Help />
+      <Help activeId={activeId} />
     </div>
   );
 }
 
-function Help() {
+/** The commands listed are the active session's (its MCP prompts differ per session). */
+function Help({ activeId }: { activeId: string | null }) {
   const sync = useSync();
   const open = useAppStore((s) => s.helpOpen);
-  const mcp = useAppStore((s) => (s.status === 'open' ? s.slash : null));
+  const mcp = useAppStore((s) => (activeId ? s.slash[activeId] : undefined));
   if (!open) return null;
-  const commands = allCommands(Object.values(mcp ?? {})[0] ?? []);
-  return <HelpDialog commands={commands} onClose={() => sync.setHelpOpen(false)} />;
+  return <HelpDialog commands={allCommands(mcp ?? [])} onClose={() => sync.setHelpOpen(false)} />;
 }
 
 function Home({ onNew }: { onNew: () => void }) {

@@ -12,7 +12,7 @@
  */
 
 export { describeToolInput } from './tools/util.js';
-export { planApprovalLabel } from './permissions/cycle.js';
+export { offerAutoSwitch, planApprovalLabel } from './permissions/cycle.js';
 export { fmtTokens, fmtUSD } from './util/format.js';
 
 export type { TranscriptItem } from './agent/session.js';

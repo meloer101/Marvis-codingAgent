@@ -45,7 +45,7 @@ async function boot(): Promise<{ server: RunningServer; cwd: string }> {
   return { server, cwd };
 }
 
-function tab(server: RunningServer) {
+function tab(server: RunningServer, wrap?: (socket: SocketLike) => void) {
   const store = createStore<AppState>(() => emptyState());
   const origin = `http://127.0.0.1:${server.port}`;
   const sync = new SessionSync({
@@ -53,7 +53,11 @@ function tab(server: RunningServer) {
     token: server.token,
     store,
     scheduleFrame: (fn) => setTimeout(fn, 0),
-    createSocket: (url) => new WebSocket(url, { origin }) as unknown as SocketLike,
+    createSocket: (url) => {
+      const socket = new WebSocket(url, { origin }) as unknown as SocketLike;
+      wrap?.(socket);
+      return socket;
+    },
   });
   sync.start();
   cleanups.push(() => sync.stop());
@@ -143,6 +147,33 @@ describe('SessionSync ↔ hc web --mock', () => {
 
     // The sidebar list shows the session.
     await until(() => a.store.getState().sessions.some((s) => s.id === id && !s.running), 'session in list');
+  });
+
+  it('retries an open that a dropped socket cut off', async () => {
+    const { server } = await boot();
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'server info');
+    const id = await a.sync.create();
+    expect(id).toBeTruthy();
+
+    // Tab B's first socket dies the moment it asks for the preview.
+    let dropped = false;
+    const b = tab(server, (socket) => {
+      const send = socket.send.bind(socket);
+      socket.send = (data: string) => {
+        if (!dropped && data.includes('"session.preview"')) {
+          dropped = true;
+          socket.close();
+          return;
+        }
+        send(data);
+      };
+    });
+    await until(() => b.store.getState().status === 'open', 'tab B connected');
+    await b.sync.open(id!);
+    expect(dropped).toBe(true);
+    const bView = () => b.store.getState().views[id!];
+    await until(() => bView() && !bView()!.hydrating, 'tab B view after the reconnect', 8000);
   });
 
   it('reports a bad token as unauthorized without retrying', async () => {

@@ -41,6 +41,8 @@ export class SessionSync {
   #scheduleFrame: (fn: () => void) => void;
   #models = new Map<string, SessionModel>();
   #opening = new Map<string, Promise<void>>();
+  /** Sessions whose open was cut off by a dropped socket; retried on reconnect. */
+  #retryOpen = new Set<string>();
   #dirty = new Set<string>();
   #frameQueued = false;
   #listTimer: ReturnType<typeof setTimeout> | null = null;
@@ -98,6 +100,10 @@ export class SessionSync {
         await this.#subscribe(id);
         void this.#loadSlash(id);
       } catch (err) {
+        // Cut off mid-open, the session has no model (the view waits on
+        // "Loading session…" forever) or a half-hydrated one: start it over
+        // once the socket is back.
+        if (err instanceof RpcError && err.code === 'disconnected') this.#retryOpen.add(id);
         this.#fail(err);
       } finally {
         this.#opening.delete(id);
@@ -219,6 +225,9 @@ export class SessionSync {
     } catch (err) {
       this.#fail(err);
     }
+    const retry = [...this.#retryOpen];
+    this.#retryOpen.clear();
+    for (const id of retry) this.#models.delete(id);
     for (const id of [...this.#models.keys()]) {
       try {
         await this.#subscribe(id);
@@ -232,6 +241,7 @@ export class SessionSync {
         }
       }
     }
+    for (const id of retry) void this.open(id);
   }
 
   /** Mark a session dirty and publish all dirty sessions on the next frame. */

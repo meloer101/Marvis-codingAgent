@@ -9,15 +9,19 @@ const SHORTCUTS: Array<[string, string]> = [
   ['/', 'Command menu'],
   ['⌘K / Ctrl+K', 'New session'],
   ['Esc', 'Stop the current run'],
-  ['y / a / n', 'Permission prompt: allow once / always / deny'],
-  ['y / n', 'Plan prompt: approve / reject'],
+  ['y / a / s / n', 'Permission prompt: allow once / always / auto mode / deny'],
+  ['y / m / e', 'Plan prompt: approve / approve, then review edits / revise'],
+  ['Esc (prompt)', 'Deny, or keep planning'],
+  ['Esc / ⌘↵ (note)', 'Send the typed note with the deny or revision'],
 ];
 
 /** `/help`: the commands and keys, as a dismissible panel. */
 export function HelpDialog({ commands, onClose }: { commands: SlashCommand[]; onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
+      if (e.key !== 'Escape') return;
+      e.preventDefault(); // this Escape closes the panel; it must not also stop the run
+      onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

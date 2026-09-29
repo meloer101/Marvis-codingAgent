@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../App';
@@ -166,9 +166,63 @@ describe('PendingDock', () => {
     );
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'smaller steps' } });
     fireEvent.click(screen.getByText(/Revise/));
-    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', false, 'revise');
+    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', false, 'smaller steps');
     fireEvent.click(screen.getByText(/Yes, auto-accept edits/));
     expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', true);
+  });
+
+  it('Revise with nothing typed asks for the note instead of sending an empty one', () => {
+    const sync = renderDock(
+      dockView({ pendingAsk: null, askId: null, pendingPlan: { title: 'Plan', body: '1. do it' }, planId: 'p1' }),
+    );
+    fireEvent.keyDown(sync.dock, { key: 'e' });
+    expect(sync.answerPlan).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole('textbox'));
+  });
+
+  it('Esc in the feedback box denies with the note and never reaches the window', () => {
+    const onWindowKey = vi.fn();
+    window.addEventListener('keydown', onWindowKey);
+    const sync = renderDock(dockView());
+    const box = screen.getByRole('textbox');
+    fireEvent.change(box, { target: { value: 'not on main' } });
+    fireEvent.keyDown(box, { key: 'Escape' });
+    expect(sync.answerAsk).toHaveBeenCalledWith('s1', 'a1', 'deny', 'not on main');
+    expect(onWindowKey).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', onWindowKey);
+  });
+
+  it('⌘Enter in the plan note sends the plan back with it', () => {
+    const sync = renderDock(
+      dockView({ pendingAsk: null, askId: null, pendingPlan: { title: 'Plan', body: '1. do it' }, planId: 'p1' }),
+    );
+    const box = screen.getByRole('textbox');
+    fireEvent.change(box, { target: { value: 'split step 2' } });
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', false, 'split step 2');
+  });
+
+  it('takes focus for its keys, but not from a text box the user is typing in', () => {
+    const idle = renderDock(dockView());
+    expect(document.activeElement).toBe(idle.dock);
+    cleanup();
+
+    const composer = document.createElement('textarea');
+    document.body.append(composer);
+    composer.value = 'yes and also';
+    composer.focus();
+    renderDock(dockView());
+    expect(document.activeElement).toBe(composer);
+    composer.remove();
+  });
+
+  it('uses the auto-mode offer rule from core (bash only, ask/acceptEdits only)', () => {
+    useAppStore.setState({ info: { modes: ['ask', 'auto'] } as never });
+    renderDock(dockView());
+    expect(screen.getByText(/Yes, auto mode/)).toBeTruthy();
+    cleanup();
+    renderDock(dockView({ pendingAsk: { toolName: 'write', input: { path: 'a' }, reason: 'r' } }));
+    expect(screen.queryByText(/Yes, auto mode/)).toBeNull();
   });
 
   it('labels y from the session-resolved yesMode and lets the session apply it', () => {
@@ -236,5 +290,36 @@ describe('global shortcuts', () => {
     const sync = renderApp(dockView({ pendingAsk: null, askId: null, running: false }));
     fireEvent.keyDown(window, { key: 'k', metaKey: true });
     expect(sync.create).toHaveBeenCalled();
+  });
+
+  it('the Escape that closes help does not stop the run', () => {
+    const sync = renderApp(dockView({ pendingAsk: null, askId: null, running: true }));
+    act(() => useAppStore.setState({ helpOpen: true }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(sync.setHelpOpen).toHaveBeenCalledWith(false);
+    expect(sync.abort).not.toHaveBeenCalled();
+  });
+
+  it("help lists the active session's MCP commands, not another session's", () => {
+    renderApp(dockView({ pendingAsk: null, askId: null, running: false }));
+    act(() =>
+      useAppStore.setState({
+        helpOpen: true,
+        slash: {
+          other: [{ command: 'deploy', server: 'ops', name: 'deploy' }],
+          s1: [{ command: 'review', server: 'gh', name: 'review' }],
+        },
+      }),
+    );
+    expect(screen.getAllByText('/review').length).toBeGreaterThan(0);
+    expect(screen.queryByText('/deploy')).toBeNull();
+  });
+
+  it('hands focus back to the composer once a prompt is answered', () => {
+    const view = dockView();
+    renderApp(view);
+    expect(document.activeElement?.getAttribute('tabindex')).toBe('-1'); // the dock
+    act(() => useAppStore.setState({ views: { s1: { ...view, pendingAsk: null, askId: null } } }));
+    expect(document.activeElement).toBe(screen.getByPlaceholderText(/Running…/));
   });
 });

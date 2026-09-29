@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, RefObject } from 'react';
 import { ArrowUp, Square } from 'lucide-react';
 
 import { SlashMenu } from '@/components/SlashMenu';
@@ -24,6 +24,7 @@ export function Composer({
   commands,
   onSend,
   onAbort,
+  inputRef,
 }: {
   sessionId: string;
   running: boolean;
@@ -31,11 +32,14 @@ export function Composer({
   commands: SlashCommand[];
   onSend: (text: string) => Promise<boolean>;
   onAbort: () => void;
+  /** Lets the session view put focus back here (after a prompt is answered). */
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
 }) {
   const [text, setText] = useState(() => platform.storage.get(draftKey(sessionId)) ?? '');
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState(false);
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const ownRef = useRef<HTMLTextAreaElement>(null);
+  const ref = inputRef ?? ownRef;
 
   const query = slashQuery(text);
   const matches = useMemo(
@@ -45,9 +49,10 @@ export function Composer({
   const menuOpen = !dismissed && matches.length > 0;
 
   // Mounted with `key={sessionId}`, so switching sessions remounts with that
-  // session's draft instead of saving this one's text under the new id.
+  // session's draft instead of saving this one's text under the new id. A
+  // prompt that mounted alongside (a session opened mid-ask) keeps the focus.
   useEffect(() => {
-    ref.current?.focus();
+    if (!document.activeElement?.closest('[data-pending-dock]')) ref.current?.focus();
   }, []);
 
   useEffect(() => {

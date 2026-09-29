@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
 
 import { Composer } from '@/components/Composer';
@@ -15,10 +15,26 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
   const connected = useAppStore((s) => s.status === 'open');
   const mcp = useAppStore((s) => s.slash[id]);
   const commands = useMemo(() => allCommands(mcp ?? []), [mcp]);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const requestId = view ? (view.askId ?? view.planId) : null;
+  const hadRequest = useRef(false);
 
   useEffect(() => {
     void sync.open(id);
   }, [sync, id]);
+
+  // Answering a prompt unmounts the dock, which drops focus to <body>; hand it
+  // back to the composer so the next message can be typed straight away.
+  useEffect(() => {
+    if (requestId) {
+      hadRequest.current = true;
+      return;
+    }
+    if (!hadRequest.current) return;
+    hadRequest.current = false;
+    const active = document.activeElement;
+    if (!active || active === document.body) composerRef.current?.focus();
+  }, [requestId]);
 
   /** `/help` and `/clear` never reach the server — see lib/slash.ts. */
   const send = async (text: string): Promise<boolean> => {
@@ -57,6 +73,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
           commands={commands}
           onSend={send}
           onAbort={() => void sync.abort(id)}
+          inputRef={composerRef}
         />
       </div>
     </div>
