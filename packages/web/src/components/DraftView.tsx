@@ -10,7 +10,8 @@ import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerContro
 import { UserMessage } from '@/components/Transcript';
 import { relativeTime } from '@/lib/format';
 import { routeToHash } from '@/lib/route';
-import { allCommands } from '@/lib/slash';
+import { allCommands, clientCommand } from '@/lib/slash';
+import type { CommandSurface } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
 
@@ -42,27 +43,58 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
   const own = choice.workspaceId === workspace?.id ? choice : {};
   const mode = own.mode ?? workspace?.defaults.mode ?? 'ask';
   const modes = workspace?.defaults.modes ?? [mode];
-  // A model picked here brings its own effort levels and key status.
+  // A model picked here brings its own effort levels and key status (a ref
+  // typed with /model that the list doesn't know: none, until it runs).
   const picked = own.model ? models?.find((m) => m.ref === own.model) : undefined;
-  const modelRef = picked?.ref ?? workspace?.defaults.model ?? '';
-  const effortLevels = picked ? picked.effortLevels : (workspace?.defaults.effortLevels ?? []);
-  const effort = own.effort ?? (picked ? picked.defaultEffort : workspace?.defaults.effort);
-  const keyProblem = picked ? picked.problem : workspace?.defaults.keyProblem;
+  const modelRef = own.model ?? workspace?.defaults.model ?? '';
+  const effortLevels = own.model ? (picked?.effortLevels ?? []) : (workspace?.defaults.effortLevels ?? []);
+  const effort = own.effort ?? (own.model ? picked?.defaultEffort : workspace?.defaults.effort);
+  const keyProblem = own.model ? picked?.problem : workspace?.defaults.keyProblem;
   const choose = (patch: typeof choice): void => setChoice({ ...own, workspaceId: workspace?.id, ...patch });
+  /** The picker a command opened (`/model`, …). */
+  const [surface, setSurface] = useState<CommandSurface | null>(null);
+  const control = (which: CommandSurface) => ({
+    open: surface === which,
+    onOpenChange: (open: boolean) => setSurface(open ? which : null),
+  });
 
   const send = async (text: string, attachments: string[]): Promise<boolean> => {
-    const command = /^\/(\S+)\s*$/.exec(text.trim())?.[1];
-    if (command === 'help') {
-      sync.setHelpOpen(true);
-      return true;
+    const action = clientCommand(text, { effortLevels, modes });
+    switch (action?.kind) {
+      case undefined:
+        break;
+      case 'help':
+        sync.setHelpOpen(true);
+        return true;
+      case 'clear':
+        return true; // already a clean slate
+      case 'open':
+        if (action.surface === 'usage' || action.surface === 'skills') {
+          sync.showError(`/${action.surface === 'usage' ? 'cost' : 'skills'} is for a session that has started.`);
+          return false;
+        }
+        if (action.surface === 'model' && workspace) void sync.loadModels(workspace.id);
+        setSurface(action.surface);
+        return true;
+      case 'model':
+        choose({ model: action.ref, effort: undefined });
+        return true;
+      case 'effort':
+        choose({ effort: action.effort });
+        return true;
+      case 'mode':
+        choose({ mode: action.mode });
+        return true;
+      case 'error':
+        sync.showError(action.message);
+        return false;
     }
-    if (command === 'clear') return true; // already a clean slate
     setStarting({ text, attachments });
     const id = await sync.startSession(text, {
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(workspace ? { workspaceId: workspace.id } : {}),
       mode,
-      ...(picked ? { model: picked.ref } : {}),
+      ...(own.model ? { model: own.model } : {}),
       ...(effort && effortLevels.includes(effort) ? { effort } : {}),
     });
     if (!id) {
@@ -110,15 +142,21 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
           controls={
             workspace && (
               <>
-                <ModeChip mode={mode} modes={modes} onChange={(m) => choose({ mode: m })} />
+                <ModeChip mode={mode} modes={modes} onChange={(m) => choose({ mode: m })} {...control('mode')} />
                 <ModelPicker
                   modelRef={modelRef}
                   models={models}
                   onOpen={() => void sync.loadModels(workspace.id)}
                   // The effort goes back to the new model's own default.
                   onChange={(m) => choose({ model: m, effort: undefined })}
+                  {...control('model')}
                 />
-                <EffortPicker effort={effort} levels={effortLevels} onChange={(e) => choose({ effort: e })} />
+                <EffortPicker
+                  effort={effort}
+                  levels={effortLevels}
+                  onChange={(e) => choose({ effort: e })}
+                  {...control('effort')}
+                />
               </>
             )
           }

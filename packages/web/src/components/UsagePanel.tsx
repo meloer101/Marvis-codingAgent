@@ -49,11 +49,29 @@ export function ContextRing({ context, size = 16 }: { context: ContextSnapshot |
 }
 
 /** The ring as a footer button opening the usage breakdown. */
-export function ContextButton({ context, usage, modelRef }: { context?: ContextSnapshot; usage?: Usage; modelRef: string }) {
+export function ContextButton({
+  context,
+  usage,
+  modelRef,
+  open,
+  onOpenChange,
+}: {
+  context?: ContextSnapshot;
+  usage?: Usage;
+  modelRef: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const pct = context ? Math.round(context.ratio * 100) : null;
   const level = context ? contextLevel(context.ratio) : 'ok';
   return (
-    <UsagePopover context={context} usage={usage} modelRef={modelRef}>
+    <UsagePopover
+      context={context}
+      usage={usage}
+      modelRef={modelRef}
+      {...(open !== undefined ? { open } : {})}
+      {...(onOpenChange ? { onOpenChange } : {})}
+    >
       <button
         type="button"
         aria-label="Context and usage"
@@ -76,15 +94,19 @@ export function UsagePopover({
   modelRef,
   children,
   side = 'top',
+  open,
+  onOpenChange,
 }: {
   context: ContextSnapshot | undefined;
   usage: Usage | undefined;
   modelRef: string;
   children: ReactElement;
   side?: 'top' | 'bottom';
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <Popover.Root>
+    <Popover.Root {...(open !== undefined ? { open } : {})} {...(onOpenChange ? { onOpenChange } : {})}>
       <Popover.Trigger asChild>{children}</Popover.Trigger>
       <Popover.Portal>
         <Popover.Content

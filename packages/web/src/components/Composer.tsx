@@ -22,6 +22,8 @@ const SEARCH_DEBOUNCE_MS = 60;
 export interface RestoredDraft {
   text: string;
   attachments: string[];
+  /** Goes right before the draft (a command), not as a paragraph of its own. */
+  inline?: boolean;
 }
 
 function loadFiles(sessionId: string): string[] {
@@ -38,7 +40,8 @@ function loadFiles(sessionId: string): string[] {
  * Enter sends, Shift+Enter is a newline, and Enter while an IME is composing
  * (Chinese/Japanese input) only confirms the candidate. Typing `/` at the
  * start opens the command menu, and `@` at the start of a word the file menu
- * (↑/↓ to move, Enter or Tab to pick); a picked file is attached while its
+ * (↑/↓ to move, Enter or Tab to pick — Enter on a command typed out in full
+ * sends it); a picked file is attached while its
  * `@path` stays in the text. Shift+Tab switches the permission mode. While a
  * run is going Stop joins the send button, and what is sent waits in the
  * session's queue; the draft (and its attachments) survives reloads per
@@ -155,7 +158,10 @@ export function Composer({
 
   useEffect(() => {
     if (restored === undefined) return;
-    setText((draft) => (draft.trim() ? `${restored.text}\n\n${draft}` : restored.text));
+    const joined = (draft: string): string =>
+      restored.inline ? `${restored.text}${draft}` : draft.trim() ? `${restored.text}\n\n${draft}` : restored.text;
+    setText(joined);
+    pendingCaret.current = restored.text.length;
     setAttached((files) => [...new Set([...restored.attachments, ...files])]);
     onRestored?.();
     ref.current?.focus();
@@ -217,7 +223,9 @@ export function Composer({
         e.preventDefault();
         if (commandMenuOpen) {
           const picked = commandMatches[active];
-          if (picked) complete(picked);
+          // Enter on a command typed out in full runs it; Tab only completes.
+          if (picked && e.key === 'Enter' && picked.name === query) void submit();
+          else if (picked) complete(picked);
         } else {
           const picked = files[active];
           if (picked) pickFile(picked.path);

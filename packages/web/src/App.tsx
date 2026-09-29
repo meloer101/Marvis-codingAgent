@@ -106,8 +106,9 @@ function Help({ activeId }: { activeId: string | null }) {
   const sync = useSync();
   const open = useAppStore((s) => s.helpOpen);
   const mcp = useAppStore((s) => (activeId ? s.slash[activeId] : undefined));
+  const skills = useAppStore((s) => (activeId ? s.skills[activeId] : undefined));
   if (!open) return null;
-  return <HelpDialog commands={allCommands(mcp ?? [])} onClose={() => sync.setHelpOpen(false)} />;
+  return <HelpDialog commands={allCommands(mcp ?? [], skills ?? [])} onClose={() => sync.setHelpOpen(false)} />;
 }
 
 function ConnectionBanner() {

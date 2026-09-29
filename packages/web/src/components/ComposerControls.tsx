@@ -63,6 +63,12 @@ const itemClass =
   'relative flex cursor-default items-start gap-2 rounded-md py-1.5 pr-2 pl-7 text-[13px] outline-none select-none data-[disabled]:opacity-55 data-[highlighted]:bg-accent';
 const labelClass = 'px-2 pt-1.5 pb-1 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase';
 
+/** Open it from outside (a `/model` command), and hear when it opens or closes. */
+export interface MenuControl {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}
+
 /** A footer menu: a trigger and a single-choice list opening above it. */
 function ChoiceMenu({
   trigger,
@@ -71,6 +77,7 @@ function ChoiceMenu({
   heading,
   value,
   onChange,
+  open,
   onOpenChange,
   disabled,
   children,
@@ -82,13 +89,12 @@ function ChoiceMenu({
   heading?: string;
   value: string;
   onChange: (value: string) => void;
-  onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   children: ReactNode;
   wide?: boolean;
-}) {
+} & MenuControl) {
   return (
-    <DropdownMenu.Root {...(onOpenChange ? { onOpenChange } : {})}>
+    <DropdownMenu.Root {...(open !== undefined ? { open } : {})} {...(onOpenChange ? { onOpenChange } : {})}>
       <DropdownMenu.Trigger asChild disabled={disabled === true}>
         <button type="button" aria-label={label} title={title ?? label} className={triggerClass}>
           {trigger}
@@ -122,11 +128,12 @@ export function ModeChip({
   mode,
   modes,
   onChange,
+  ...control
 }: {
   mode: PermissionMode;
   modes: readonly PermissionMode[];
   onChange: (mode: PermissionMode) => void;
-}) {
+} & MenuControl) {
   const meta = MODES[mode];
   const Icon = meta.icon;
   // A mode the list doesn't offer (set elsewhere) still shows as the current one.
@@ -138,6 +145,7 @@ export function ModeChip({
       heading="Permission mode"
       value={mode}
       onChange={(m) => onChange(m as PermissionMode)}
+      {...control}
       trigger={
         <span className={cn('-mx-2 flex h-7 items-center gap-1.5 rounded-md px-2', meta.tone)}>
           <Icon />
@@ -177,6 +185,8 @@ export function ModelPicker({
   onOpen,
   onChange,
   disabledReason,
+  open,
+  onOpenChange,
 }: {
   modelRef: string;
   /** Undefined while loading. */
@@ -185,7 +195,7 @@ export function ModelPicker({
   onChange: (ref: string) => void;
   /** Why it can't be changed right now (a run is going). */
   disabledReason?: string;
-}) {
+} & MenuControl) {
   // The current model is always listed, even when settings no longer offer it.
   const list = models && !models.some((m) => m.ref === modelRef) ? [{ ref: modelRef } as ModelInfo, ...models] : models;
   return (
@@ -195,7 +205,11 @@ export function ModelPicker({
       heading="Model"
       value={modelRef}
       onChange={onChange}
-      onOpenChange={(open) => open && onOpen()}
+      {...(open !== undefined ? { open: open && !disabledReason } : {})}
+      onOpenChange={(opened) => {
+        if (opened) onOpen();
+        onOpenChange?.(opened);
+      }}
       {...(disabledReason ? { disabled: true } : {})}
       wide
       trigger={
@@ -263,11 +277,12 @@ export function EffortPicker({
   effort,
   levels,
   onChange,
+  ...control
 }: {
   effort: ReasoningEffort | undefined;
   levels: readonly ReasoningEffort[];
   onChange: (effort: ReasoningEffort) => void;
-}) {
+} & MenuControl) {
   if (levels.length === 0) return null;
   // A level set elsewhere (settings, a flag) that the picker doesn't offer still shows as the current one.
   const shown = effort && !levels.includes(effort) ? [effort, ...levels] : levels;
@@ -278,6 +293,7 @@ export function EffortPicker({
       heading="Reasoning effort"
       value={effort ?? ''}
       onChange={(l) => onChange(l as ReasoningEffort)}
+      {...control}
       trigger={
         <>
           <Gauge />

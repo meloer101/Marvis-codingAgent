@@ -7,6 +7,8 @@ const SHORTCUTS: Array<[string, string]> = [
   ['Enter', 'Send message'],
   ['Shift+Enter', 'New line'],
   ['/', 'Command menu'],
+  ['@', 'Attach a file'],
+  ['Shift+Tab', 'Switch permission mode'],
   ['⌘K / Ctrl+K', 'New session'],
   ['Esc', 'Stop the current run'],
   ['y / a / s / n', 'Permission prompt: allow once / always / auto mode / deny'],

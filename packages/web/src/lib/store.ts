@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import type { SlashCommandInfo } from '@harness-code/core';
-import type { ModelInfo, ServerInfo, SessionSummary, Workspace } from '@harness-code/protocol';
+import type { ModelInfo, ServerInfo, SessionSummary, SkillInfo, Workspace } from '@harness-code/protocol';
 
 import type { ConnectionStatus } from './rpc';
 import type { SessionViewState } from './sessionModel';
@@ -17,13 +17,15 @@ export interface AppState {
   views: Record<string, SessionViewState>;
   /** MCP prompt commands per session, for the `/` menu. */
   slash: Record<string, SlashCommandInfo[]>;
+  /** Installed skills per session, for the `/` menu and `/skills`. */
+  skills: Record<string, SkillInfo[]>;
   /** The models on offer per workspace, loaded when a model picker opens. */
   models: Record<string, ModelInfo[]>;
   /**
    * What to put back in a session's composer: queued messages a Stop handed
    * back, or one taken out of the queue to edit. The composer takes it once.
    */
-  restored: Record<string, { text: string; attachments: string[] }>;
+  restored: Record<string, { text: string; attachments: string[]; inline?: boolean }>;
   /** Last failed action, shown as a dismissible banner. */
   error: string | null;
   /** The `/help` panel. */
@@ -39,6 +41,7 @@ export const useAppStore = create<AppState>(() => ({
   sessions: [],
   views: {},
   slash: {},
+  skills: {},
   models: {},
   restored: {},
   error: null,

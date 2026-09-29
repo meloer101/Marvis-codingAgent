@@ -27,6 +27,7 @@ const emptyState = (): AppState => ({
   sessions: [],
   views: {},
   slash: {},
+  skills: {},
   models: {},
   restored: {},
   error: null,

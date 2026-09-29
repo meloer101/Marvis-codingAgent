@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { Loader2 } from 'lucide-react';
 
@@ -10,10 +10,12 @@ import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerContro
 import { PendingDock } from '@/components/PendingDock';
 import { QueuedMessages } from '@/components/QueuedMessages';
 import { SessionHeader } from '@/components/SessionHeader';
+import { SkillsDialog } from '@/components/SkillsDialog';
 import { Transcript } from '@/components/Transcript';
 import { ContextButton } from '@/components/UsagePanel';
 import type { SessionViewState } from '@/lib/sessionModel';
-import { allCommands } from '@/lib/slash';
+import { allCommands, clientCommand } from '@/lib/slash';
+import type { CommandSurface, SlashCommand } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
 
@@ -24,10 +26,14 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
   const view = useAppStore((s) => s.views[id]);
   const connected = useAppStore((s) => s.status === 'open');
   const mcp = useAppStore((s) => s.slash[id]);
-  const commands = useMemo(() => allCommands(mcp ?? []), [mcp]);
+  const skills = useAppStore((s) => s.skills[id]);
+  const commands = useMemo(() => allCommands(mcp ?? [], skills ?? []), [mcp, skills]);
+  const modes = useSessionModes(view);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const requestId = view ? (view.askId ?? view.planId) : null;
   const hadRequest = useRef(false);
+  /** The picker or dialog a command opened (`/model`, `/skills`, …). */
+  const [surface, setSurface] = useState<CommandSurface | null>(null);
 
   useEffect(() => {
     void sync.open(id);
@@ -47,18 +53,37 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
     if (!active || active === document.body) composerRef.current?.focus();
   }, [requestId]);
 
-  /** `/help` and `/clear` never reach the server — see lib/slash.ts. */
+  /** Client-side commands never reach the server — see lib/slash.ts. */
   const send = async (text: string, attachments: string[]): Promise<boolean> => {
-    const command = /^\/(\S+)\s*$/.exec(text.trim())?.[1];
-    if (command === 'help') {
-      sync.setHelpOpen(true);
-      return true;
+    if (!view) return false;
+    const action = clientCommand(text, { effortLevels: view.effortLevels, modes });
+    switch (action?.kind) {
+      case undefined:
+        return sync.send(id, text, attachments);
+      case 'help':
+        sync.setHelpOpen(true);
+        return true;
+      case 'clear':
+        onNewSession();
+        return true;
+      case 'open':
+        if (action.surface === 'model' && view.workspaceId) void sync.loadModels(view.workspaceId);
+        if (action.surface === 'skills') void sync.prepareCommands(id);
+        setSurface(action.surface);
+        return true;
+      case 'model':
+        void sync.setModel(id, action.ref);
+        return true;
+      case 'effort':
+        void sync.setEffort(id, action.effort);
+        return true;
+      case 'mode':
+        void sync.setMode(id, action.mode);
+        return true;
+      case 'error':
+        sync.showError(action.message);
+        return false;
     }
-    if (command === 'clear') {
-      onNewSession();
-      return true;
-    }
-    return sync.send(id, text, attachments);
   };
 
   if (!view) {
@@ -81,32 +106,66 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
           onEdit={(queuedId) => void sync.unqueue(id, queuedId, { edit: true })}
           onRemove={(queuedId) => void sync.unqueue(id, queuedId)}
         />
-        <SessionComposer view={view} onSend={send} inputRef={composerRef} commands={commands} connected={connected} />
+        <SessionComposer
+          view={view}
+          modes={modes}
+          onSend={send}
+          inputRef={composerRef}
+          commands={commands}
+          connected={connected}
+          surface={surface}
+          onSurface={setSurface}
+        />
       </div>
+      {surface === 'skills' && (
+        <SkillsDialog
+          skills={skills}
+          onClose={() => setSurface(null)}
+          onPick={(name) => {
+            setSurface(null);
+            sync.prefill(id, `/${name} `);
+          }}
+        />
+      )}
     </div>
   );
 }
 
+/** The modes a session can switch to: its workspace's (auto only where available). */
+function useSessionModes(view: SessionViewState | undefined): readonly PermissionMode[] {
+  const workspaceModes = useAppStore((s) => s.workspaces.find((w) => w.id === view?.workspaceId)?.defaults.modes);
+  const serverModes = useAppStore((s) => s.info?.modes);
+  return workspaceModes ?? serverModes ?? FALLBACK_MODES;
+}
+
 function SessionComposer({
   view,
+  modes,
   onSend,
   inputRef,
   commands,
   connected,
+  surface,
+  onSurface,
 }: {
   view: SessionViewState;
+  modes: readonly PermissionMode[];
   onSend: (text: string, attachments: string[]) => Promise<boolean>;
   inputRef: RefObject<HTMLTextAreaElement | null>;
-  commands: ReturnType<typeof allCommands>;
+  commands: SlashCommand[];
   connected: boolean;
+  surface: CommandSurface | null;
+  onSurface: (surface: CommandSurface | null) => void;
 }) {
   const sync = useSync();
   const { id } = view;
-  const workspaceModes = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId)?.defaults.modes);
-  const serverModes = useAppStore((s) => s.info?.modes);
   const models = useAppStore((s) => (view.workspaceId ? s.models[view.workspaceId] : undefined));
   const restored = useAppStore((s) => s.restored[view.id]);
-  const modes = workspaceModes ?? serverModes ?? FALLBACK_MODES;
+  /** A picker a command opened, closed by the picker as usual. */
+  const control = (which: CommandSurface) => ({
+    open: surface === which,
+    onOpenChange: (open: boolean) => onSurface(open ? which : null),
+  });
 
   const setMode = (mode: PermissionMode): void => void sync.setMode(id, mode);
   return (
@@ -126,18 +185,24 @@ function SessionComposer({
       onRestored={() => sync.takeRestored(id)}
       controls={
         <>
-          <ModeChip mode={view.mode} modes={modes} onChange={setMode} />
+          <ModeChip mode={view.mode} modes={modes} onChange={setMode} {...control('mode')} />
           <ModelPicker
             modelRef={view.modelRef}
             models={models}
             onOpen={() => view.workspaceId && void sync.loadModels(view.workspaceId)}
             onChange={(model) => void sync.setModel(id, model)}
             {...(view.running ? { disabledReason: 'The model can be switched once this run ends' } : {})}
+            {...control('model')}
           />
-          <EffortPicker effort={view.effort} levels={view.effortLevels} onChange={(effort) => void sync.setEffort(id, effort)} />
+          <EffortPicker
+            effort={view.effort}
+            levels={view.effortLevels}
+            onChange={(effort) => void sync.setEffort(id, effort)}
+            {...control('effort')}
+          />
         </>
       }
-      trailing={<ContextButton context={view.context} usage={view.usage} modelRef={view.modelRef} />}
+      trailing={<ContextButton context={view.context} usage={view.usage} modelRef={view.modelRef} {...control('usage')} />}
     />
   );
 }

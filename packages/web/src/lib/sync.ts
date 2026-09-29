@@ -320,14 +320,23 @@ export class SessionSync {
     );
   }
 
-  /** MCP prompt commands for the `/` menu; absent until loaded, never fatal. */
+  /** MCP prompt commands and skills for the `/` menu; absent until loaded, never fatal. */
   async #loadSlash(id: string): Promise<void> {
-    try {
-      const commands = await this.rpc.call('session.slashCommands', { id });
-      this.#store.setState((s) => ({ slash: { ...s.slash, [id]: commands } }));
-    } catch {
-      // The menu falls back to the built-in commands.
-    }
+    await Promise.all([
+      this.rpc.call('session.slashCommands', { id }).then(
+        (commands) => this.#store.setState((s) => ({ slash: { ...s.slash, [id]: commands } })),
+        () => {}, // the menu falls back to the built-in commands
+      ),
+      this.rpc.call('session.skills', { id }).then(
+        (skills) => this.#store.setState((s) => ({ skills: { ...s.skills, [id]: skills } })),
+        () => {},
+      ),
+    ]);
+  }
+
+  /** Put `text` at the start of the session's composer (`/skills` picks a skill). */
+  prefill(id: string, text: string): void {
+    this.#store.setState((s) => ({ restored: { ...s.restored, [id]: { text, attachments: [], inline: true } } }));
   }
 
   setHelpOpen(open: boolean): void {
@@ -405,6 +414,11 @@ export class SessionSync {
 
   dismissError(): void {
     this.#store.setState({ error: null });
+  }
+
+  /** Show `message` in the error banner (a command the page itself refused). */
+  showError(message: string): void {
+    this.#store.setState({ error: message });
   }
 
   // -- internals --------------------------------------------------------------

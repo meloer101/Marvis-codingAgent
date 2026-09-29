@@ -5,6 +5,7 @@ import { App } from '../App';
 import { Composer } from './Composer';
 import { PendingDock } from './PendingDock';
 import { QueuedMessages } from './QueuedMessages';
+import { SkillsDialog } from './SkillsDialog';
 import { allCommands } from '@/lib/slash';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { useAppStore } from '@/lib/store';
@@ -63,6 +64,13 @@ describe('Composer', () => {
     fireEvent.keyDown(textarea, { key: 'Enter' });
     expect(onSend).not.toHaveBeenCalled(); // completed, not sent
     expect(textarea.value).toBe('/compact ');
+  });
+
+  it('Enter on a command typed out in full sends it; on a partial one it completes', () => {
+    const { textarea, onSend } = renderComposer();
+    fireEvent.change(textarea, { target: { value: '/help' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('/help', []);
   });
 
   it('Escape closes the menu without reaching the window (which would abort)', () => {
@@ -397,5 +405,17 @@ describe('global shortcuts', () => {
     expect(document.activeElement?.getAttribute('tabindex')).toBe('-1'); // the dock
     act(() => useAppStore.setState({ views: { s1: { ...view, pendingAsk: null, askId: null } } }));
     expect(document.activeElement).toBe(screen.getByPlaceholderText(/Running…/));
+  });
+});
+
+describe('SkillsDialog', () => {
+  it('lists the skills, filters them, and picks one', () => {
+    const onPick = vi.fn();
+    const skills = Array.from({ length: 8 }, (_, i) => ({ name: `skill-${i}`, description: `does thing ${i}` }));
+    render(<SkillsDialog skills={[...skills, { name: 'pdf', description: 'Work with PDF files' }]} onPick={onPick} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Filter skills'), { target: { value: 'pdf' } });
+    expect(screen.queryByText('/skill-0')).toBeNull();
+    fireEvent.click(screen.getByText('/pdf'));
+    expect(onPick).toHaveBeenCalledWith('pdf');
   });
 });

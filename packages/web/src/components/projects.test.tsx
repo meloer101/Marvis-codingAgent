@@ -40,6 +40,7 @@ function fakeSync(over: Record<string, unknown> = {}) {
     inspectPath: vi.fn(async () => null),
     addWorkspace: vi.fn(async () => null),
     loadModels: vi.fn(async () => {}),
+    showError: vi.fn(),
     ...over,
   };
 }
@@ -108,6 +109,32 @@ describe('DraftView', () => {
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() =>
       expect(sync.startSession).toHaveBeenCalledWith('hi', { workspaceId: 'aaa', mode: 'ask', model: 'moonshot/kimi-k2' }),
+    );
+  });
+
+  it('/mode and /effort set the draft\'s choices; /cost waits for a session', async () => {
+    const sync = fakeSync();
+    useAppStore.setState({ status: 'open', workspaces: [workspace('aaa', 'alpha')] });
+    render(
+      <SyncProvider sync={sync as unknown as SessionSync}>
+        <DraftView workspaceId="aaa" />
+      </SyncProvider>,
+    );
+    const box = screen.getByRole('textbox') as HTMLTextAreaElement;
+    for (const line of ['/mode plan', '/effort max']) {
+      fireEvent.change(box, { target: { value: line } });
+      fireEvent.keyDown(box, { key: 'Enter' });
+      await waitFor(() => expect(box.value).toBe(''));
+    }
+    expect(screen.getByLabelText('Permission mode').textContent).toBe('Plan');
+    fireEvent.change(box, { target: { value: '/cost' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() => expect(sync.showError).toHaveBeenCalled());
+    expect(box.value).toBe('/cost'); // kept, as it wasn't done
+    fireEvent.change(box, { target: { value: 'go' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() =>
+      expect(sync.startSession).toHaveBeenCalledWith('go', { workspaceId: 'aaa', mode: 'plan', effort: 'max' }),
     );
   });
 

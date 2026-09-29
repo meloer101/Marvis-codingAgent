@@ -7,6 +7,7 @@ const SOURCE_LABEL: Record<SlashCommand['source'], string> = {
   client: 'app',
   server: 'session',
   mcp: 'mcp',
+  skill: 'skill',
 };
 
 /** The `/` completion list, anchored above the composer. */
