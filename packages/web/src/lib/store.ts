@@ -4,6 +4,7 @@ import type { SlashCommandInfo } from '@harness-code/core';
 import type { ModelInfo, ServerInfo, SessionSummary, SkillInfo, Workspace } from '@harness-code/protocol';
 
 import type { ConnectionStatus } from './rpc';
+import type { CommandSurface } from './slash';
 import type { SessionViewState } from './sessionModel';
 
 export interface AppState {
@@ -32,6 +33,13 @@ export interface AppState {
   helpOpen: boolean;
   /** The "add project" dialog. */
   addProjectOpen: boolean;
+  /** The command palette (⌘K). */
+  paletteOpen: boolean;
+  /**
+   * Something the palette asked a session's view to open — a picker, a dialog,
+   * or its title for renaming. The view takes it once.
+   */
+  request: { sessionId: string; kind: CommandSurface | 'rename' } | null;
 }
 
 export const useAppStore = create<AppState>(() => ({
@@ -47,4 +55,6 @@ export const useAppStore = create<AppState>(() => ({
   error: null,
   helpOpen: false,
   addProjectOpen: false,
+  paletteOpen: false,
+  request: null,
 }));

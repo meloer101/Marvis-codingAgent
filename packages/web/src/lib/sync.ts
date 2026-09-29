@@ -40,6 +40,7 @@ import type { ConnectionStatus, RpcClientOptions } from './rpc';
 import { applySessionPush, mergeSessionList } from './sessionList';
 import { SessionModel } from './sessionModel';
 import { useAppStore } from './store';
+import type { CommandSurface } from './slash';
 import type { AppState } from './store';
 
 export interface SyncOptions {
@@ -345,6 +346,20 @@ export class SessionSync {
 
   setAddProjectOpen(open: boolean): void {
     this.#store.setState({ addProjectOpen: open });
+  }
+
+  setPaletteOpen(open: boolean): void {
+    this.#store.setState({ paletteOpen: open });
+  }
+
+  /** Ask the view of `sessionId` to open a picker or dialog, or to rename it. */
+  request(sessionId: string, kind: CommandSurface | 'rename'): void {
+    this.#store.setState({ request: { sessionId, kind } });
+  }
+
+  /** The view took the request. */
+  takeRequest(): void {
+    this.#store.setState({ request: null });
   }
 
   // -- workspaces ---------------------------------------------------------------

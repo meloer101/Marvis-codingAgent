@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { App } from './App';
@@ -19,7 +19,7 @@ function renderApp() {
 afterEach(() => {
   cleanup();
   window.location.hash = '';
-  useAppStore.setState({ status: 'closed', info: null, sessions: [], views: {}, error: null });
+  useAppStore.setState({ status: 'closed', info: null, sessions: [], views: {}, error: null, paletteOpen: false });
 });
 
 describe('App', () => {
@@ -66,5 +66,37 @@ describe('App', () => {
     expect(screen.getByText('hello there')).toBeTruthy();
     expect(screen.getByText('General Kenobi')).toBeTruthy();
     expect(screen.getByLabelText('Model').textContent).toBe('mock-model');
+  });
+
+  it('⌘K opens the palette; a session found there opens on Enter', () => {
+    useAppStore.setState({
+      workspaces: [
+        { id: 'aaa', root: '/code/alpha', name: 'alpha', projectRoot: '/code/alpha', lastUsedAt: 1, defaults: { model: 'm', mode: 'ask', modes: ['ask'], effortLevels: [] } },
+      ],
+      sessions: [
+        { id: 's1', workspaceId: 'aaa', title: 'fix the login flake', mtimeMs: 1, live: false, running: false, pending: false, pinned: false, archived: false, rev: 1 },
+        { id: 's2', workspaceId: 'aaa', title: 'write the release notes', mtimeMs: 2, live: false, running: false, pending: false, pinned: false, archived: false, rev: 1 },
+      ],
+    });
+    renderApp();
+    act(() => {
+      fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    });
+    const input = screen.getByLabelText('Command');
+    expect(screen.getByRole('option', { selected: true }).textContent).toContain('New session');
+    fireEvent.change(input, { target: { value: 'release' } });
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(window.location.hash).toBe('#/s/s2');
+    expect(screen.queryByLabelText('Command')).toBeNull();
+  });
+
+  it('⇧⌘O starts a new session', () => {
+    window.location.hash = '#/s/abc';
+    renderApp();
+    act(() => {
+      fireEvent.keyDown(window, { key: 'O', metaKey: true, shiftKey: true });
+    });
+    expect(window.location.hash).toBe('#/');
   });
 });

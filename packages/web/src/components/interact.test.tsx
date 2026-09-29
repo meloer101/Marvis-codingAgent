@@ -345,6 +345,8 @@ describe('global shortcuts', () => {
       abort: vi.fn(async () => {}),
       send: vi.fn(async () => true),
       setHelpOpen: vi.fn(),
+      setPaletteOpen: vi.fn((open: boolean) => useAppStore.setState({ paletteOpen: open })),
+      takeRequest: vi.fn(),
       dismissError: vi.fn(),
     };
     window.location.hash = '#/s/s1';
@@ -369,11 +371,19 @@ describe('global shortcuts', () => {
     expect(sync.abort).not.toHaveBeenCalled();
   });
 
-  it('Cmd/Ctrl+K opens a draft for a new session, creating nothing yet', () => {
+  it('Cmd/Ctrl+Shift+O opens a draft for a new session, creating nothing yet', () => {
     const sync = renderApp(dockView({ pendingAsk: null, askId: null, running: false }));
-    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    fireEvent.keyDown(window, { key: 'o', metaKey: true, shiftKey: true });
     expect(window.location.hash).toBe('#/');
     expect(sync.create).not.toHaveBeenCalled();
+  });
+
+  it('the Escape that closes the palette does not stop the run', () => {
+    const sync = renderApp(dockView({ pendingAsk: null, askId: null, running: true }));
+    act(() => useAppStore.setState({ paletteOpen: true }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(sync.abort).not.toHaveBeenCalled();
+    act(() => useAppStore.setState({ paletteOpen: false }));
   });
 
   it('the Escape that closes help does not stop the run', () => {

@@ -33,6 +33,8 @@ const emptyState = (): AppState => ({
   error: null,
   helpOpen: false,
   addProjectOpen: false,
+  paletteOpen: false,
+  request: null,
 });
 
 const cleanups: Array<() => Promise<void> | void> = [];

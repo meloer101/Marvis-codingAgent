@@ -3,6 +3,7 @@ import { Loader2, WifiOff, X } from 'lucide-react';
 import type { SessionSummary } from '@harness-code/protocol';
 
 import { AddProjectDialog } from '@/components/AddProjectDialog';
+import { CommandPalette } from '@/components/CommandPalette';
 import { DraftView } from '@/components/DraftView';
 import { HelpDialog } from '@/components/HelpDialog';
 import { SessionSidebar } from '@/components/SessionSidebar';
@@ -64,19 +65,26 @@ export function App() {
     window.location.hash = routeToHash(workspaceId ? { kind: 'new', workspaceId } : { kind: 'home' });
   };
 
-  // Global keys: new session anywhere, Esc stops the active run. The composer's
-  // `/` menu and the pending dock swallow their own Escape, and an Escape that
-  // closes the help panel (open, or already handled) never aborts.
+  // Global keys: the command palette and a new session anywhere, Esc stops
+  // the active run. The composer's menus and the pending dock swallow their
+  // own Escape, and an Escape that closes a dialog or the palette never aborts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
+        sync.setPaletteOpen(!useAppStore.getState().paletteOpen);
+        return;
+      }
+      if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        sync.setPaletteOpen(false);
         newSession();
         return;
       }
       if (e.key === 'Escape' && activeId && !e.defaultPrevented) {
-        const { views, helpOpen, addProjectOpen } = useAppStore.getState();
-        if (!helpOpen && !addProjectOpen && views[activeId]?.running) void sync.abort(activeId);
+        const { views, helpOpen, addProjectOpen, paletteOpen } = useAppStore.getState();
+        if (!helpOpen && !addProjectOpen && !paletteOpen && views[activeId]?.running) void sync.abort(activeId);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -97,6 +105,7 @@ export function App() {
       </main>
       <Help activeId={activeId} />
       <AddProjectDialog />
+      <CommandPalette activeId={activeId} onNewSession={newSession} />
     </div>
   );
 }

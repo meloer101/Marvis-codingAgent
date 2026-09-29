@@ -40,6 +40,15 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
     return () => sync.release(id);
   }, [sync, id]);
 
+  // The palette asked for a picker or dialog here.
+  const request = useAppStore((s) => (s.request?.sessionId === id ? s.request.kind : null));
+  useEffect(() => {
+    if (request === null || request === 'rename') return;
+    sync.takeRequest();
+    if (request === 'skills') void sync.prepareCommands(id);
+    setSurface(request);
+  }, [request]);
+
   // Answering a prompt unmounts the dock, which drops focus to <body>; hand it
   // back to the composer so the next message can be typed straight away.
   useEffect(() => {

@@ -100,7 +100,7 @@ export function SessionSidebar({ activeId, onNew }: { activeId: string | null; o
         >
           <MessageSquarePlus className="size-4 text-primary" />
           <span className="flex-1 text-left">New session</span>
-          <kbd className="font-mono text-[10px] text-muted-foreground">⌘K</kbd>
+          <kbd className="font-mono text-[10px] text-muted-foreground">⇧⌘O</kbd>
         </button>
         <label className="flex items-center gap-2 rounded-md border bg-background/60 px-2 py-1 focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/20">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
@@ -117,9 +117,19 @@ export function SessionSidebar({ activeId, onNew }: { activeId: string | null; o
             aria-label="Search sessions"
             className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
           />
-          {query !== '' && (
+          {query !== '' ? (
             <button type="button" aria-label="Clear search" onClick={() => setQuery('')}>
               <X className="size-3.5 text-muted-foreground" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => sync.setPaletteOpen(true)}
+              title="Command palette — every action and session"
+              aria-label="Command palette"
+              className="rounded border bg-muted/60 px-1 font-mono text-[9px] leading-4 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              ⌘K
             </button>
           )}
         </label>

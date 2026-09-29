@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Folder } from 'lucide-react';
 
@@ -42,6 +42,13 @@ export function ProjectChip({ name, root }: { name: string; root: string }) {
 function SessionTitle({ id, title }: { id: string; title: string }) {
   const sync = useSync();
   const [editing, setEditing] = useState<string | null>(null);
+  // The palette's "Rename session".
+  const renameAsked = useAppStore((s) => s.request?.sessionId === id && s.request.kind === 'rename');
+  useEffect(() => {
+    if (!renameAsked) return;
+    sync.takeRequest();
+    setEditing(title);
+  }, [renameAsked]);
 
   const done = (value: string): void => {
     setEditing(null);
