@@ -349,12 +349,21 @@ program
           ? `${opts.devOrigin.replace(/\/+$/, '')}/#token=${token}`
           : `http://127.0.0.1:${port}/#token=${token}`;
 
-      // Already running for this workspace? Open that one instead of a second.
+      // Already running? One server hosts every project: open that one, with
+      // this directory added to it, instead of starting a second.
       if (persistent && opts.port === undefined && !opts.devOrigin && !opts.rotateToken) {
         const running = await server.findRunningInstance(stateDir);
-        if (running && running.cwd === cwd && running.version === VERSION) {
-          const url = pageUrl(running.port, await server.loadOrCreateToken(stateDir));
-          console.log(`hc web is already running for ${cwd}`);
+        if (running && running.version === VERSION) {
+          const token = await server.loadOrCreateToken(stateDir);
+          let url = pageUrl(running.port, token);
+          try {
+            const workspace = await server.callRunningServer(running.port, token, 'workspace.add', { path: cwd });
+            url += `&w=${workspace.id}`; // the page opens a new session there
+            console.log(`hc web is already running; ${workspace.root} is one of its projects`);
+          } catch (err) {
+            console.log(`hc web is already running, but couldn't add ${cwd}: ${(err as Error).message}`);
+            console.log('  (add it from the sidebar instead)');
+          }
           console.log(`  ${url}`);
           if (opts.open) openBrowser(url);
           return;

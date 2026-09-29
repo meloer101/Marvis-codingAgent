@@ -15,7 +15,9 @@ export interface TokenEnv {
 }
 
 export function takeToken(env: TokenEnv = defaultEnv()): string | null {
-  const match = /^#token=([0-9a-fA-F]+)$/.exec(env.location.hash);
+  // `&w=<workspace>` rides along when `hc web` added a project to a running
+  // server: the page opens on a new session there.
+  const match = /^#token=([0-9a-fA-F]+)(?:&w=([0-9a-f]+))?$/.exec(env.location.hash);
   if (match?.[1]) {
     const token = match[1];
     try {
@@ -23,7 +25,8 @@ export function takeToken(env: TokenEnv = defaultEnv()): string | null {
     } catch {
       // storage blocked — the token still works for this page load
     }
-    env.history.replaceState(null, '', `${env.location.pathname}${env.location.search}#/`);
+    const route = match[2] ? `#/new/${match[2]}` : '#/';
+    env.history.replaceState(null, '', `${env.location.pathname}${env.location.search}${route}`);
     return token;
   }
   try {

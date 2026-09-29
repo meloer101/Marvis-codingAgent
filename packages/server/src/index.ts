@@ -243,6 +243,7 @@ function listen(server: HttpServer, port: number): Promise<number> {
 }
 
 export { SessionRegistry } from './registry.js';
+export { callRunningServer } from './remote.js';
 export { WorkspaceHub, WorkspaceNotFoundError } from './hub.js';
 export type { WorkspaceSetup, WorkspaceSetupFactory } from './hub.js';
 export { fileWorkspaceStore, memoryWorkspaceStore, workspaceId, workspacesFile } from './workspaces.js';
