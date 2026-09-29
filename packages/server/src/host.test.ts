@@ -9,7 +9,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { DEFAULT_CAPABILITIES, ScriptedProvider } from '@harness-code/core';
+import { DEFAULT_CAPABILITIES, ScriptedProvider, readSessionMeta } from '@harness-code/core';
 import type { PermissionMode, ResolvedModel, ScriptedTurn } from '@harness-code/core';
 import type { ServerFrame, WireEvent } from '@harness-code/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -18,7 +18,10 @@ import { BusyError, type SessionHost } from './host.js';
 import { SessionRegistry } from './registry.js';
 
 const tmpDirs: string[] = [];
+const registries: SessionRegistry[] = [];
 afterEach(async () => {
+  // Close hosts first: they finish their metadata writes before the dir goes.
+  await Promise.all(registries.splice(0).map((r) => r.shutdown()));
   await Promise.all(tmpDirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
 });
 
@@ -38,6 +41,8 @@ interface Fixture {
   registry: SessionRegistry;
   frames: ServerFrame[];
   events: () => WireEvent[];
+  cwd: string;
+  agentDir: string;
 }
 
 async function makeHost(
@@ -66,13 +71,21 @@ async function makeHost(
       }),
     previewDefaults: async () => ({ modelRef: 'scripted/test-model', mode: opts.mode ?? 'yolo' }),
   });
+  registries.push(registry);
   const snapshot = await registry.create({});
   const host = registry.get(snapshot.id);
   if (!host) throw new Error('host not registered after create');
 
   const frames: ServerFrame[] = [];
   host.addListener((f) => frames.push(f));
-  return { host, registry, frames, events: () => frames.flatMap((f) => (f.t === 'evt' ? [f.event] : [])) };
+  return {
+    host,
+    registry,
+    frames,
+    events: () => frames.flatMap((f) => (f.t === 'evt' ? [f.event] : [])),
+    cwd,
+    agentDir: join(cwd, '.agent'),
+  };
 }
 
 /** Resolve once the current run reaches a terminal event. */
@@ -338,5 +351,34 @@ describe('SessionHost', () => {
     expect(host.canReplay(host.lastSeq + 100)).toBe(false);
     const snapshot = await host.snapshot();
     expect(snapshot.lastSeq).toBe(host.lastSeq);
+  });
+});
+
+describe('SessionHost metadata sidecar', () => {
+  async function metaOf(agentDir: string, id: string, ready: (m: Awaited<ReturnType<typeof readSessionMeta>>) => boolean) {
+    const deadline = Date.now() + 2000;
+    for (;;) {
+      const meta = await readSessionMeta(agentDir, id);
+      if (ready(meta)) return meta;
+      if (Date.now() > deadline) return meta;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  it('is written when the first run starts, then follows mode changes', async () => {
+    const { host, agentDir, cwd } = await makeHost([{ text: 'hi' }], { mode: 'ask' });
+    host.setMode('plan'); // before any run: nothing to write to yet
+    expect(await readSessionMeta(agentDir, host.id)).toBeNull();
+
+    const settled = runSettled(host);
+    host.send('go');
+    await settled;
+    const written = await metaOf(agentDir, host.id, (m) => m !== null);
+    expect(written).toMatchObject({ v: 1, model: 'scripted/test-model', mode: 'plan', cwd });
+    expect(written?.createdAt).toBeTypeOf('number');
+
+    host.setMode('acceptEdits');
+    const patched = await metaOf(agentDir, host.id, (m) => m?.mode === 'acceptEdits');
+    expect(patched).toMatchObject({ mode: 'acceptEdits', createdAt: written?.createdAt });
   });
 });

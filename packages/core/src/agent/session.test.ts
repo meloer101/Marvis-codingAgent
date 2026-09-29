@@ -14,9 +14,12 @@ import {
   loadSession,
   loadTranscript,
   normalizeHistory,
+  readSessionMeta,
   readSessionSummary,
   rebuildSessionState,
   sessionArtifactsDir,
+  sessionMetaPath,
+  updateSessionMeta,
 } from './session.js';
 
 describe('sessionArtifactsDir', () => {
@@ -416,5 +419,68 @@ describe('rebuildSessionState', () => {
     const session = await rebuildSessionState(agentDir, 'test-session', cwd);
 
     expect(session.getTodos()).toEqual([]); // sanity: a fresh, otherwise-empty session
+  });
+});
+
+describe('session metadata sidecar', () => {
+  let agentDir: string;
+
+  beforeEach(async () => {
+    agentDir = await realpath(await mkdtemp(join(tmpdir(), 'hc-session-meta-')));
+  });
+
+  afterEach(async () => {
+    await rm(agentDir, { recursive: true, force: true });
+  });
+
+  it('reads as null when missing or unreadable', async () => {
+    expect(await readSessionMeta(agentDir, 'none')).toBeNull();
+    await updateSessionMeta(agentDir, 'torn', { title: 'x' });
+    await writeFile(sessionMetaPath(agentDir, 'torn'), '{"v":1,"tit', 'utf8');
+    expect(await readSessionMeta(agentDir, 'torn')).toBeNull();
+  });
+
+  it('merges patches, clears keys set to undefined, and only fills defaults once', async () => {
+    await updateSessionMeta(agentDir, 's', { model: 'a/one', mode: 'plan' }, { createdAt: 1 });
+    await updateSessionMeta(agentDir, 's', { mode: 'ask', title: 'Named' }, { createdAt: 2 });
+    expect(await readSessionMeta(agentDir, 's')).toEqual({
+      v: 1,
+      createdAt: 1,
+      model: 'a/one',
+      mode: 'ask',
+      title: 'Named',
+    });
+    const cleared = await updateSessionMeta(agentDir, 's', { title: undefined });
+    expect(cleared.title).toBeUndefined();
+    expect('title' in cleared).toBe(false);
+  });
+
+  it('serializes concurrent patches so none is lost', async () => {
+    await Promise.all([
+      updateSessionMeta(agentDir, 's', { pinned: true }),
+      updateSessionMeta(agentDir, 's', { archived: true }),
+      updateSessionMeta(agentDir, 's', { mode: 'readOnly' }),
+      updateSessionMeta(agentDir, 's', { effort: 'high' }),
+    ]);
+    expect(await readSessionMeta(agentDir, 's')).toMatchObject({
+      pinned: true,
+      archived: true,
+      mode: 'readOnly',
+      effort: 'high',
+    });
+  });
+
+  it('gives a set title precedence in summaries, and stays out of the session list', async () => {
+    const recorder = new SessionRecorder(agentDir, 'named');
+    await recorder.recordMessage(userText('fix the flaky login test'));
+    const before = await readSessionSummary(agentDir, 'named');
+    expect(before.meta).toBeUndefined();
+
+    await updateSessionMeta(agentDir, 'named', { title: 'Login flake', pinned: true });
+    const after = await readSessionSummary(agentDir, 'named');
+    expect(after.title).toBe('Login flake');
+    expect(after.meta).toMatchObject({ pinned: true });
+    expect(after.mtimeMs).toBe(before.mtimeMs); // the log itself was not touched
+    expect((await listSessionIds(agentDir)).map((s) => s.id)).toEqual(['named']);
   });
 });

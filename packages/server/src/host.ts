@@ -33,8 +33,8 @@ import type {
   SlashCommandInfo,
   Usage,
 } from '@harness-code/core';
-import { alwaysAllowFor, loadTranscript } from '@harness-code/core';
-import type { AlwaysAllow } from '@harness-code/core';
+import { alwaysAllowFor, loadTranscript, updateSessionMeta } from '@harness-code/core';
+import type { AlwaysAllow, SessionMetaPatch } from '@harness-code/core';
 import type { ServerFrame, SessionSnapshot, WireEvent } from '@harness-code/protocol';
 
 /** The current run's events plus enough history to serve a reconnect gap. */
@@ -90,10 +90,20 @@ export class SessionHost {
   id = '';
 
   readonly #agentDir: string;
+  readonly #cwd: string | undefined;
   #session: AgentSession | undefined;
   #modelRef = '';
   /** Last mode broadcast (or snapshotted) — `mode` events fire only on change. */
   #lastMode: PermissionMode | undefined;
+  /**
+   * The metadata sidecar is written in full when this host's first run starts
+   * (a session nobody sent anything to has no transcript and gets none) and
+   * patched on every mode/effort change once it exists.
+   */
+  #metaExists: boolean;
+  #metaSynced = false;
+  /** The latest sidecar write; `close` waits for it so shutdown never tears one. */
+  #metaWrite: Promise<unknown> = Promise.resolve();
 
   #seq = 0;
   readonly #ring: RingEntry[] = [];
@@ -114,8 +124,11 @@ export class SessionHost {
   #pending: { type: 'text_delta' | 'thinking_delta'; text: string } | null = null;
   #timer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(opts: { agentDir: string }) {
+  /** `hasMeta`: resuming a session whose sidecar exists — patch it from the start. */
+  constructor(opts: { agentDir: string; cwd?: string; hasMeta?: boolean }) {
     this.#agentDir = opts.agentDir;
+    this.#cwd = opts.cwd;
+    this.#metaExists = opts.hasMeta === true;
   }
 
   /** Wire the live session in. Called once, right after `AgentSession.create`. */
@@ -176,6 +189,7 @@ export class SessionHost {
     // announcing it only as a notice: turn that into the `mode` event clients
     // key their mode picker on.
     if (notice.kind === 'mode-changed') this.#syncMode();
+    if (notice.kind === 'effort-changed' && this.#session?.effort) this.#patchMeta({ effort: this.#session.effort });
   };
 
   /** Broadcast the session's current mode if it differs from the last one sent. */
@@ -184,6 +198,29 @@ export class SessionHost {
     if (mode === undefined || mode === this.#lastMode) return;
     this.#lastMode = mode;
     this.#emit({ type: 'mode', mode });
+    this.#patchMeta({ mode });
+  }
+
+  /** Write the whole sidecar (this host's first run), stamping `createdAt` if it is new. */
+  #writeMeta(): void {
+    const session = this.#session;
+    if (!session) return;
+    this.#metaSynced = true;
+    this.#metaExists = true;
+    const patch: SessionMetaPatch = { model: this.#modelRef, mode: session.mode };
+    if (session.effort) patch.effort = session.effort;
+    if (this.#cwd) patch.cwd = this.#cwd;
+    this.#trackMeta(updateSessionMeta(this.#agentDir, this.id, patch, { createdAt: Date.now() }));
+  }
+
+  #patchMeta(patch: SessionMetaPatch): void {
+    if (!this.#metaExists) return; // the first run writes everything
+    this.#trackMeta(updateSessionMeta(this.#agentDir, this.id, patch));
+  }
+
+  #trackMeta(write: Promise<unknown>): void {
+    // Metadata is a convenience (resume defaults, titles): never fail a run over it.
+    this.#metaWrite = write.catch(() => {});
   }
 
   readonly ask = (req: {
@@ -295,6 +332,7 @@ export class SessionHost {
     const runId = randomUUID();
     this.#busy = true;
     this.#currentRunId = runId;
+    if (!this.#metaSynced) this.#writeMeta();
     this.#emit({ type: 'run_start', runId, input: text });
     void this.#execute(runId, text);
     return { runId };
@@ -461,6 +499,7 @@ export class SessionHost {
     this.#pending = null;
     this.#listeners.clear();
     await this.#session?.close();
+    await this.#metaWrite;
   }
 
   // -- event pipeline -------------------------------------------------------

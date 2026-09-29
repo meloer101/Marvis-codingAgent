@@ -10,8 +10,8 @@
  */
 
 import { AgentSession } from '@harness-code/core';
-import { listSessionIds, loadTranscript, readSessionSummary } from '@harness-code/core';
-import type { AgentSessionConfig, PermissionMode } from '@harness-code/core';
+import { listSessionIds, loadTranscript, readSessionMeta, readSessionSummary } from '@harness-code/core';
+import type { AgentSessionConfig, PermissionMode, ReasoningEffort, SessionMeta } from '@harness-code/core';
 import type { SessionSnapshot, SessionSummary } from '@harness-code/protocol';
 
 import { SessionHost } from './host.js';
@@ -20,8 +20,20 @@ import { SessionHost } from './host.js';
 export type SessionConfigFactory = (opts: {
   model?: string;
   mode?: PermissionMode;
+  effort?: ReasoningEffort;
   resumeId?: string;
 }) => Promise<AgentSessionConfig>;
+
+/**
+ * Modes a resumed session gets back from its metadata. `yolo` and `auto` stop
+ * asking before acting, so they are never re-entered implicitly: a session
+ * left in one of them resumes in the default mode.
+ */
+const RESTORABLE_MODES: ReadonlySet<PermissionMode> = new Set(['ask', 'plan', 'acceptEdits', 'readOnly']);
+
+function restoredMode(meta: SessionMeta | null): PermissionMode | undefined {
+  return meta?.mode && RESTORABLE_MODES.has(meta.mode) ? meta.mode : undefined;
+}
 
 export interface SessionRegistryOptions {
   cwd: string;
@@ -40,12 +52,14 @@ export class SessionPreviewNotFoundError extends Error {
 }
 
 export class SessionRegistry {
+  readonly #cwd: string;
   readonly #agentDir: string;
   readonly #buildConfig: SessionConfigFactory;
   readonly #previewDefaults: SessionRegistryOptions['previewDefaults'];
   readonly #hosts = new Map<string, SessionHost>();
 
   constructor(opts: SessionRegistryOptions) {
+    this.#cwd = opts.cwd;
     this.#agentDir = opts.agentDir;
     this.#buildConfig = opts.buildConfig;
     this.#previewDefaults = opts.previewDefaults;
@@ -95,28 +109,51 @@ export class SessionRegistry {
     return host.snapshot();
   }
 
-  /** Return the live snapshot if the session is in memory, else resume from disk. */
+  /**
+   * Return the live snapshot if the session is in memory, else resume it from
+   * disk with the model, mode and effort its metadata recorded. A recorded
+   * model that no longer resolves (provider removed, key gone) falls back to
+   * the defaults rather than making the session unopenable.
+   */
   async open(opts: { id: string }): Promise<SessionSnapshot> {
     const live = this.#hosts.get(opts.id);
     if (live) return live.snapshot();
-    const host = await this.#spawn({ resumeId: opts.id });
+    const meta = await readSessionMeta(this.#agentDir, opts.id);
+    const mode = restoredMode(meta);
+    const resume = {
+      resumeId: opts.id,
+      ...(mode ? { mode } : {}),
+      ...(meta?.effort ? { effort: meta.effort } : {}),
+    };
+    let config: AgentSessionConfig;
+    try {
+      config = await this.#buildConfig(meta?.model ? { ...resume, model: meta.model } : resume);
+    } catch (err) {
+      if (!meta?.model) throw err;
+      config = await this.#buildConfig(resume);
+    }
+    const host = await this.#start(config, { hasMeta: meta !== null });
     return host.snapshot();
   }
 
   /**
    * Cheap snapshot for the UI: live host when in memory, else transcript from
-   * disk without spawning `AgentSession` (no MCP connect).
+   * disk without spawning `AgentSession` (no MCP connect). Model and mode come
+   * from the session's metadata, as `open` will restore them.
    */
   async preview(opts: { id: string }): Promise<SessionSnapshot> {
     const live = this.#hosts.get(opts.id);
     if (live) return live.snapshot();
     try {
       const transcript = await loadTranscript(this.#agentDir, opts.id);
-      const { modelRef, mode } = await this.#previewDefaults();
+      const [defaults, meta] = await Promise.all([
+        this.#previewDefaults(),
+        readSessionMeta(this.#agentDir, opts.id),
+      ]);
       return {
         id: opts.id,
-        modelRef,
-        mode,
+        modelRef: meta?.model ?? defaults.modelRef,
+        mode: restoredMode(meta) ?? defaults.mode,
         transcript,
         running: false,
         lastSeq: 0,
@@ -141,9 +178,12 @@ export class SessionRegistry {
     await Promise.all(hosts.map((h) => h.close()));
   }
 
-  async #spawn(opts: { model?: string; mode?: PermissionMode; resumeId?: string }): Promise<SessionHost> {
-    const config = await this.#buildConfig(opts);
-    const host = new SessionHost({ agentDir: this.#agentDir });
+  async #spawn(opts: { model?: string; mode?: PermissionMode }): Promise<SessionHost> {
+    return this.#start(await this.#buildConfig(opts), { hasMeta: false });
+  }
+
+  async #start(config: AgentSessionConfig, opts: { hasMeta: boolean }): Promise<SessionHost> {
+    const host = new SessionHost({ agentDir: this.#agentDir, cwd: this.#cwd, hasMeta: opts.hasMeta });
     const session = await AgentSession.create({
       ...config,
       askHandler: host.ask,

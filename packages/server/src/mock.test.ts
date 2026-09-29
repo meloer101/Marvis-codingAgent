@@ -17,7 +17,10 @@ import { mockConfigFactory } from './mock.js';
 import { SessionRegistry } from './registry.js';
 
 const tmpDirs: string[] = [];
+const registries: SessionRegistry[] = [];
 afterEach(async () => {
+  // Close hosts first: they finish their metadata writes before the dir goes.
+  await Promise.all(registries.splice(0).map((r) => r.shutdown()));
   await Promise.all(tmpDirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
 });
 
@@ -42,6 +45,7 @@ describe('mock mode', () => {
       buildConfig: mockConfigFactory(cwd),
       previewDefaults: async () => ({ modelRef: 'mock/mock', mode: 'ask' }),
     });
+    registries.push(registry);
     const snapshot = await registry.create({});
     const host = registry.get(snapshot.id);
     if (!host) throw new Error('mock host not registered');

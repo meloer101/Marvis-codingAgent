@@ -13,12 +13,13 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { appendFile, mkdir, readFile, stat } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { assertInsideWorkspace } from '../permissions/paths.js';
+import type { PermissionMode } from '../permissions/types.js';
 import { textOf } from '../provider/types.js';
-import type { ContentBlock, Message, ToolResultBlock, ToolUseBlock } from '../provider/types.js';
+import type { ContentBlock, Message, ReasoningEffort, ToolResultBlock, ToolUseBlock } from '../provider/types.js';
 import type { ToolResult } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
@@ -345,21 +346,116 @@ export interface SessionSummary {
   id: string;
   mtimeMs: number;
   title: string;
+  /** The session's sidecar metadata, when it has one. */
+  meta?: SessionMeta;
 }
 
 const UNTITLED = '(untitled)';
 const TITLE_MAX_LENGTH = 80;
 
 /**
- * Pairs with `listSessionIds`: for one session id, its file mtime and a title
- * derived from the first user message. Stops reading the file the moment
- * that message is found — cheap even for a session with a long, compacted
- * history, since the title never lives past the first few lines.
+ * Pairs with `listSessionIds`: for one session id, its file mtime and a title —
+ * the one it was given (`meta.title`), else derived from the first user
+ * message. Stops reading the file the moment that message is found — cheap
+ * even for a session with a long, compacted history, since the title never
+ * lives past the first few lines.
  */
 export async function readSessionSummary(agentDir: string, id: string): Promise<SessionSummary> {
   const path = sessionPath(agentDir, id);
-  const [stats, title] = await Promise.all([stat(path), firstUserMessageTitle(path)]);
-  return { id, mtimeMs: stats.mtimeMs, title };
+  const [stats, meta] = await Promise.all([stat(path), readSessionMeta(agentDir, id)]);
+  const title = meta?.title ?? (await firstUserMessageTitle(path));
+  return { id, mtimeMs: stats.mtimeMs, title, ...(meta ? { meta } : {}) };
+}
+
+// ---------------------------------------------------------------------------
+// Session metadata (sidecar)
+// ---------------------------------------------------------------------------
+
+/**
+ * The mutable, UI-facing facts about a session that don't belong in its event
+ * log: a given title, pin/archive flags, and the model / permission mode /
+ * effort it last ran with, so a resumed session comes back the way it was left.
+ *
+ * It lives in a sidecar, `sessions/<id>.meta.json`, not as a jsonl record:
+ * rewriting it must not touch the log's mtime (lists sort by it, so pinning
+ * would reorder them), `loadSession` and eval cassettes never see it, and a
+ * session without one behaves exactly as before.
+ */
+export interface SessionMeta {
+  v: 1;
+  /** Set by a rename; wins over the first-user-message title. */
+  title?: string;
+  /** `provider/model` the session last ran with. */
+  model?: string;
+  mode?: PermissionMode;
+  effort?: ReasoningEffort;
+  pinned?: boolean;
+  archived?: boolean;
+  /** Epoch ms of the first write (≈ the first run). */
+  createdAt?: number;
+  /** The working directory the session ran in. */
+  cwd?: string;
+}
+
+export type SessionMetaPatch = Partial<Omit<SessionMeta, 'v'>>;
+
+export function sessionMetaPath(agentDir: string, id: string): string {
+  return join(agentDir, SESSIONS_DIR, `${id}.meta.json`);
+}
+
+/** The session's metadata, or `null` when it has none (or it is unreadable). */
+export async function readSessionMeta(agentDir: string, id: string): Promise<SessionMeta | null> {
+  let raw: string;
+  try {
+    raw = await readFile(sessionMetaPath(agentDir, id), 'utf8');
+  } catch {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return typeof parsed === 'object' && parsed !== null && (parsed as { v?: unknown }).v === 1
+      ? (parsed as SessionMeta)
+      : null;
+  } catch {
+    return null; // A torn or hand-edited file reads as "no metadata".
+  }
+}
+
+/** Per-file write chains, so two patches can't interleave their read-merge-write. */
+const metaWrites = new Map<string, Promise<unknown>>();
+
+/**
+ * Merge `patch` into the session's metadata and write it atomically (temp
+ * file, then rename). A key set to `undefined` in `patch` clears that field;
+ * `defaults` only fill fields the metadata doesn't have yet (e.g. `createdAt`).
+ * Resolves with the merged result.
+ */
+export function updateSessionMeta(
+  agentDir: string,
+  id: string,
+  patch: SessionMetaPatch,
+  defaults: SessionMetaPatch = {},
+): Promise<SessionMeta> {
+  const path = sessionMetaPath(agentDir, id);
+  const write = async (): Promise<SessionMeta> => {
+    const current = await readSessionMeta(agentDir, id);
+    const next: SessionMeta = { ...defaults, ...current, ...patch, v: 1 };
+    for (const key of Object.keys(next) as (keyof SessionMeta)[]) {
+      if (next[key] === undefined) delete next[key];
+    }
+    await mkdir(dirname(path), { recursive: true });
+    const tmp = `${path}.${randomUUID()}.tmp`;
+    await writeFile(tmp, `${JSON.stringify(next)}\n`, 'utf8');
+    await rename(tmp, path);
+    return next;
+  };
+  const result = (metaWrites.get(path) ?? Promise.resolve()).then(write, write);
+  metaWrites.set(path, result);
+  const forget = (): void => {
+    if (metaWrites.get(path) === result) metaWrites.delete(path);
+  };
+  result.then(forget, forget);
+  return result;
 }
 
 async function firstUserMessageTitle(path: string): Promise<string> {

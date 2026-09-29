@@ -150,6 +150,7 @@ function resolveConfigFactory(opts: StartServerOptions, mockDir?: string): Sessi
       cwd: opts.cwd,
       ...(o.model ?? opts.model ? { modelRef: o.model ?? opts.model } : {}),
       ...(o.mode ? { mode: o.mode } : {}),
+      ...(o.effort ? { reasoningEffort: o.effort } : {}),
       ...(o.resumeId ? { resumeId: o.resumeId } : {}),
     });
 }
