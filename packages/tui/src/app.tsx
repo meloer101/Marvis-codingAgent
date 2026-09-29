@@ -19,6 +19,7 @@ import {
   loadTranscript,
   nextPermissionMode,
   offerAutoSwitch,
+  skillInvocation,
 } from '@harness-code/core';
 import type { EventBuffer } from '@harness-code/protocol';
 import { entriesFromTranscript } from '@harness-code/protocol';
@@ -264,7 +265,7 @@ export function App({
   const loadSkill = useCallback(
     (name: string) => {
       d({ type: 'CLOSE_OVERLAY' });
-      void runTurn(`Load the "${name}" skill and follow its instructions.`);
+      void runTurn(skillInvocation(name));
     },
     [d, runTurn],
   );

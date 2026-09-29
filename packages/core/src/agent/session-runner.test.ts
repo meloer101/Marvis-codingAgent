@@ -12,7 +12,7 @@ import type { Provider } from '../provider/types.js';
 import type { ResolvedModel } from '../provider/router.js';
 import type { AgentEvent } from './loop.js';
 import { readSessionSummary } from './session.js';
-import { AgentSession, AttachmentError } from './session-runner.js';
+import { AgentSession, AttachmentError, skillInvocation } from './session-runner.js';
 import type { AgentSessionConfig, Notice } from './session-runner.js';
 
 const ECHO_SERVER = fileURLToPath(new URL('../mcp/__fixtures__/echo-server.mjs', import.meta.url));
@@ -660,6 +660,21 @@ describe('AgentSession', () => {
     expect(await session.expandSlash('/nope')).toBeNull();
 
     await session.close();
+  });
+
+  it('expandSlash turns /skill-name into a request to load that skill, with the rest as the task', async () => {
+    const cwd = await tempDir();
+    await mkdir(join(cwd, '.git'));
+    const dir = join(cwd, '.agent', 'skills', 'zz-review-fixture');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'SKILL.md'), '---\nname: zz-review-fixture\ndescription: Review a diff\n---\n\nBody.', 'utf8');
+    const { session } = await createSession({ cwd, skills: true });
+
+    expect(session.listSkills().some((s) => s.name === 'zz-review-fixture')).toBe(true);
+    expect(await session.expandSlash('/zz-review-fixture the last commit')).toBe(
+      'Load the "zz-review-fixture" skill and follow its instructions.\n\nthe last commit',
+    );
+    expect(await session.expandSlash('/zz-review-fixture')).toBe(skillInvocation('zz-review-fixture'));
   });
 
   it('compactNow() returns token savings and rewrites history', async () => {

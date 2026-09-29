@@ -37,7 +37,14 @@ import type {
 } from '@harness-code/core';
 import { AttachmentError, alwaysAllowFor, loadTranscript, sessionTitleFrom, updateSessionMeta } from '@harness-code/core';
 import type { AlwaysAllow, SessionMetaPatch } from '@harness-code/core';
-import type { QueuedMessage, SendResult, ServerFrame, SessionSnapshot, WireEvent } from '@harness-code/protocol';
+import type {
+  QueuedMessage,
+  SendResult,
+  ServerFrame,
+  SessionSnapshot,
+  SkillInfo,
+  WireEvent,
+} from '@harness-code/protocol';
 
 /** The current run's events plus enough history to serve a reconnect gap. */
 const RING_CAPACITY = 5000;
@@ -616,6 +623,10 @@ export class SessionHost {
 
   slashCommands(): SlashCommandInfo[] {
     return this.#requireSession().listSlashCommands();
+  }
+
+  skills(): SkillInfo[] {
+    return this.#requireSession().listSkills();
   }
 
   // -- subscribe / replay ---------------------------------------------------

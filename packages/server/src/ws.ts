@@ -282,6 +282,10 @@ class Connection {
         const { id } = params as MethodParams<'session.slashCommands'>;
         return this.#host(id).slashCommands();
       }
+      case 'session.skills': {
+        const { id } = params as MethodParams<'session.skills'>;
+        return this.#host(id).skills();
+      }
       case 'session.close': {
         const { id } = params as MethodParams<'session.close'>;
         return hub.close(id);

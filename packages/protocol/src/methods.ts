@@ -142,6 +142,12 @@ export interface QueuedMessage {
   attachments?: string[];
 }
 
+/** An installed skill, for the `/` menu (`/name` loads it). */
+export interface SkillInfo {
+  name: string;
+  description: string;
+}
+
 /** A file matching an `@` query (`fs.search`). */
 export interface FileMatch {
   /** Relative to the workspace root, `/`-separated. */
@@ -362,6 +368,8 @@ export const methods = {
     { tokensBefore: number; tokensAfter: number } | null
   >(z.object({ id: sessionIdSchema })),
   'session.slashCommands': method<{ id: string }, SlashCommandInfo[]>(z.object({ id: sessionIdSchema })),
+  /** The session's skills; sending `/name [task]` asks the model to load one. */
+  'session.skills': method<{ id: string }, SkillInfo[]>(z.object({ id: sessionIdSchema })),
   'session.close': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
   /**
    * Rename, pin or archive a session; answers with its new row (also pushed).

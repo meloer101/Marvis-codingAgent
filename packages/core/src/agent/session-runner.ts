@@ -164,6 +164,16 @@ export class AttachmentError extends Error {
   }
 }
 
+/**
+ * The message a user's `/skill-name` becomes: it asks the model to load the
+ * skill through the `skill` tool, so the load takes the normal path (active
+ * skill, `allowed-tools` narrowing), with what followed the command as the task.
+ */
+export function skillInvocation(name: string, args = ''): string {
+  const task = args.trim();
+  return `Load the "${name}" skill and follow its instructions.${task ? `\n\n${task}` : ''}`;
+}
+
 /** Past this, a file is for the agent to read in parts, not to attach whole. */
 export const MAX_ATTACHMENT_BYTES = 256 * 1024;
 
@@ -1108,12 +1118,19 @@ export class AgentSession {
     return { tokensBefore: before, tokensAfter: after };
   }
 
-  /** Resolve a `/name` slash command to an MCP prompt body, or null if unknown. */
+  /**
+   * Resolve a `/name` slash command to the message it stands for: an MCP
+   * prompt's body, else a skill's invocation (`skillInvocation`). Null if it
+   * names neither.
+   */
   async expandSlash(text: string): Promise<string | null> {
     if (!text.startsWith('/')) return null;
     const [cmd, ...rest] = text.slice(1).split(/\s+/);
     const ref = cmd ? this.#mcpPrompts.get(cmd) : undefined;
-    if (!ref) return null;
+    if (!ref) {
+      const skill = cmd ? this.#skillCatalog.get(cmd) : undefined;
+      return skill ? skillInvocation(skill.name, text.slice(1 + cmd!.length)) : null;
+    }
     const conn = this.#hub.connection(ref.server);
     const body = await conn?.getPrompt(ref.name, rest.length > 0 ? { input: rest.join(' ') } : {});
     return body ?? null;
