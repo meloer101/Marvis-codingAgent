@@ -95,24 +95,29 @@ the server with the same schemas the client is typed from.
 |---|---|
 | `server.info` | version, `bootId`, and the launch workspace's defaults |
 | `workspace.list` | every workspace with its defaults (model, mode, modes, effort levels, `keyProblem`) |
+| `model.list {workspaceId?}` | the models a session there can be given, each with its windows, effort levels, price and why it can't run, if it can't |
 | `workspace.inspect {path}` | what adding a directory would mean — nothing started |
 | `workspace.add {path, createMarker?}` / `workspace.remove {id}` | host a project / stop hosting it |
 | `fs.suggestDirs {prefix}` | directory completion for the add dialog |
+| `fs.search {workspaceId, query, limit?}` | a workspace's files matching an `@` query, best first; no ignored files, no secrets |
 | `session.list` | every workspace's sessions (on disk plus live), newest first |
-| `session.start {text, workspaceId?, model?, mode?, effort?}` | create a session and send its first message (how a draft becomes a session) |
+| `session.start {text, attachments?, workspaceId?, model?, mode?, effort?}` | create a session and send its first message (how a draft becomes a session); a bad attachment creates nothing |
 | `session.create {workspaceId?, model?, mode?, effort?}` | create an empty live session |
 | `session.preview {id}` | the live snapshot, or the transcript from disk — never resumes |
 | `session.open {id}` | the live snapshot, resuming the session first if needed |
 | `session.subscribe {id, sinceSeq?, epoch?}` | start receiving the session's events; replays the gap or answers `{reset, snapshot}` |
 | `session.unsubscribe {id}` | stop receiving them |
-| `session.send {id, text}` | start a run (`busy` while one is going) |
-| `session.abort {id}` | stop the run; pending prompts settle as a deny |
+| `session.send {id, text, attachments?}` | start a run, or queue the message behind the one going (`{runId}` or `{queued}`) |
+| `session.unqueue {id, queuedId}` | take a queued message back before it goes |
+| `session.abort {id}` | stop the run; pending prompts settle as a deny, and the queue comes back as `{unqueued}` |
 | `session.setMode {id, mode}` | change the permission mode |
+| `session.setModel {id, model}` | switch the model, history kept (`busy` mid-run, `bad_request` for a model that can't be resolved) |
 | `session.setEffort {id, effort}` | change the reasoning effort, from the next message (`bad_request` for a level the model lacks) |
 | `session.update {id, title?, pinned?, archived?}` | rename, pin, archive; answers with the new row |
 | `session.delete {id}` | delete for good: log, metadata, offloaded output, trace (`busy` while it runs) |
 | `session.compact {id}` | compact the history now (`busy` while a run is going) |
 | `session.slashCommands {id}` | the session's MCP prompt commands |
+| `session.skills {id}` | the session's skills (`/name [task]` loads one) |
 | `session.close {id}` | close its live host (the log stays on disk) |
 | `ask.answer`, `plan.answer` | answer a permission ask or a plan review |
 
@@ -120,8 +125,11 @@ the server with the same schemas the client is typed from.
 
 `{t:'evt'}` frames carry `WireEvent`s (`packages/protocol/src/events.ts`): the
 agent loop's `AgentEvent`s and `Notice`s forwarded as they are, plus the run
-lifecycle (`run_start` / `run_end` / `run_error`), human-in-the-loop requests
-(`ask`, `plan`, `resolved`) and mode and effort changes (`mode`, `effort`).
+lifecycle (`run_start`, carrying the message's attachments, / `run_end` /
+`run_error`), human-in-the-loop requests (`ask`, `plan`, `resolved`), the
+queue (`queue`, the whole of it after every change) and state changes
+(`mode`, `effort`, and `model`, which carries the effort levels, effort and
+context meter that come with the new model).
 
 Every event gets a per-session, per-host `seq`, and the host keeps the last 5000
 frames, so a client that reconnects resubscribes with its `lastSeq` and gets
@@ -173,6 +181,31 @@ processes. The two are managed separately.
 - **Abort** hands each run its own signal, so a Stop right after sending still
   lands, and an ask arriving after its run was aborted is refused rather than
   left waiting.
+- **Queue.** A message sent while a run is going (or waiting on a prompt)
+  waits in the host's queue — every client sees it, in `queue` events and the
+  snapshot — and the oldest goes the moment the run ends, whatever ended it.
+  Abort empties the queue and hands its messages back in its answer (the tab
+  that stopped puts them in front of its draft); one sent after the Stop, while
+  the run winds down, still goes. Closing a host sends nothing more.
+- **Switching models** (`session.setModel`) happens between runs. The history
+  carries over; the effort is kept where the new model offers it and folded to
+  its nearest level otherwise; compaction follows the model unless a small
+  model is set; the system prompt starts fresh for the new model's cache; the
+  meter is re-read against the new window. The auto-mode classifier keeps the
+  model it started with. The metadata records the new model, so a resume uses
+  it.
+- **Attachments.** `@path` files a message carries are read with the `read`
+  tool into blocks ahead of its text (`<attached_file path="…">`, line numbers
+  and all) — the model sees them as it would a read, they enter the
+  read-before-write ledger, and a recorded read call makes a resumed session
+  remember them. Anything the session may not read is refused before a word is
+  sent: outside the workspace, a secret or a denied path, not a regular file,
+  binary, or over 256 KB (for those, mention the path and let the agent read
+  what it needs). Titles and what a compaction keeps of the user's messages
+  leave the file bodies out.
+- **Skills** run as `/name [task]`: after the MCP prompts, the server expands a
+  skill's name into the request to load it through the `skill` tool — the text
+  the TUI's skill picker sends — with the rest of the line as the task.
 
 ## Session list
 
@@ -222,12 +255,38 @@ The token is as powerful as the user's shell — a client can switch a session t
 8. **Adding a project is trusting it.** Its `.mcp.json` commands run with every
    session and its settings apply; the add dialog shows both before it asks.
    Directory completion lists folder names, which the token already reaches.
+9. **Attachments go through the permission engine.** `fs.search` lists a
+   workspace's files without the ones the engine treats as secrets (`.env`,
+   keys, credentials), and an attachment is checked as a `read` of that path
+   would be: a deny rule or the sensitive-file stance refuses it.
 
 ## The web app
 
 - **Routes** are the URL hash: `#/` is the draft for a new session in the most
   recently used project, `#/new/<workspace>` one in a given project, `#/s/<id>`
-  a session (`lib/route.ts`). The draft picks the project, mode and effort.
+  a session (`lib/route.ts`). The draft picks the project, mode, model and
+  effort.
+- **Composer** (`components/Composer.tsx`): Enter sends, Shift+Enter is a new
+  line, an IME's Enter only confirms. `/` at the start opens the command menu,
+  `@` at the start of a word the file menu (`fs.search`); a picked file is
+  attached while its `@path` stays in the text, shown as a chip, and kept with
+  the draft across reloads. Its footer holds the mode chip (Shift+Tab cycles
+  ask → acceptEdits → plan → auto), the model menu (each model's window, price
+  and key status; `model.list` loads as it opens), the effort menu and, before
+  the send button, the context ring that opens the breakdown and usage. While a
+  run is going Stop sits beside a Queue button; queued messages dock above the
+  composer, each to edit or remove.
+- **Commands** (`lib/slash.ts`): `/help`, `/clear`, `/model`, `/effort`,
+  `/mode`, `/cost` and `/skills` stay in the page — given an argument they set
+  it (`/effort max`, `/mode accept-edits`), without one they open their picker;
+  `/compact`, `/plan`, MCP prompts and skills go to the server. Enter on a
+  command typed out in full runs it; Tab completes.
+- **Header**: the project, the title (click to rename) and the session's
+  spend, which opens the same usage breakdown as the ring.
+- **Command palette** (⌘K, `components/CommandPalette.tsx`): start a session
+  or add a project; stop, rename, pin, archive or compact the session on
+  screen, open its usage or skills, switch its mode, model or effort; jump to
+  any session; switch the theme. ⇧⌘O starts a new session directly.
 - **Sidebar** groups sessions by project (`lib/sidebar.ts`): pinned first, then
   newest, archived on request, a search across projects, rename in place and a
   ⋯ / right-click menu per row, and waiting / running / unread / time at the

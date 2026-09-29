@@ -1,6 +1,7 @@
 {
   "model": "deepseek/deepseek-v4-pro",
   "smallModel": "deepseek/deepseek-flash",
+  "models": ["deepseek/deepseek-v4-pro", "my-proxy/qwen3-coder"],
   "temperature": 0,
   "maxTurns": 50,
   "maxCostUSD": 2.0,

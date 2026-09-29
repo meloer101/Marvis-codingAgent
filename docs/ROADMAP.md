@@ -252,11 +252,6 @@
 浏览器优先，桌面壳最后做；一个 `hc web` 管多个项目。现状见 [`web.md`](./web.md)。硬约束：不改任何模型可见的内容
 （工具 schema、system prompt、默认消息形状），否则 eval cassette 全部失效。
 
-- **M2 会话控制与输入框**：`model.list`（ref、上下文窗口、effort 档位、价格）、`session.setModel`（在原会话内切换，
-  运行中拒绝）；输入框底栏放模式 chip（Shift+Tab）、模型、上下文环，并把头部的模式和 effort 下拉挪进去；
-  server 端消息排队（运行中可继续发，结束后自动发出）；@文件：`fs.search` + `session.send{attachments}`，core 用
-  `read` 工具读入并记入先读后写台账；内置 / 命令补 `/model /effort /mode /cost /skills`，skills 进 / 菜单；
-  头部可改标题，上下文细分和用量弹层；命令面板。*(L)*
 - **M3 转录可读性**：连续只读工具调用合并成一行摘要，Normal/Verbose 切换；bash 流式输出
   （`tool_call_progress`）、退出码和耗时、ANSI；子代理在 task 卡里嵌套实时展示；任务清单（由最近一次 `todo` 输入
   推导）；复制、重试；diff 行号、词级高亮、语法着色、去掉 400 行截断。*(L)*
