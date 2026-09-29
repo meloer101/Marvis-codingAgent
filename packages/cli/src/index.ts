@@ -64,7 +64,11 @@ import {
 } from './auto-mode.js';
 
 const program = new Command();
-program.hook('preAction', (_program, action) => loadDotEnvFor(action.opts()['cwd']));
+// `hc web` is the exception: it hosts several projects, so the server builds
+// each its own environment (`projectEnv`) instead of this process-wide load.
+program.hook('preAction', (_program, action) => {
+  if (action.name() !== 'web') loadDotEnvFor(action.opts()['cwd']);
+});
 
 program
   .name('hc')

@@ -51,6 +51,15 @@ describe('parseMcpConfig', () => {
     expect(s?.transport === 'http' && s.headers.Authorization).toContain('Bearer ');
   });
 
+  it('substitutes from the env it is given, and runs stdio servers in the given directory', () => {
+    const [server] = parseMcpConfig(
+      JSON.stringify({ mcpServers: { fs: { command: 'srv', args: ['--token', '${PROJECT_TOKEN}'] } } }),
+      '.mcp.json',
+      { env: { PROJECT_TOKEN: 'from-project' }, cwd: '/work/project' },
+    );
+    expect(server).toMatchObject({ transport: 'stdio', args: ['--token', 'from-project'], cwd: '/work/project' });
+  });
+
   it('empty / missing mcpServers is not an error', () => {
     expect(parseMcpConfig('{}')).toEqual([]);
     expect(parseMcpConfig(JSON.stringify({ mcpServers: {} }))).toEqual([]);

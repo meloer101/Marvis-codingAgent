@@ -15,8 +15,13 @@
  * to exist.
  *
  * `${ENV_VAR}` in any string value (url, args, env values, header values) is
- * substituted from the process environment. This is the whole of the HTTP auth
- * story: put `Bearer ${TOKEN}` in a header and keep the secret in the env.
+ * substituted from the environment (the process's, or the one a caller passes:
+ * a server hosting several projects gives each its own). This is the whole of
+ * the HTTP auth story: put `Bearer ${TOKEN}` in a header and keep the secret in
+ * the env.
+ *
+ * Stdio servers run in the directory the config was loaded for, not wherever
+ * the host process happens to be — `server-filesystem .` means the project.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -31,6 +36,8 @@ export interface McpStdioServerConfig {
   command: string;
   args: string[];
   env: Record<string, string>;
+  /** Working directory for the server process; the host's own when omitted. */
+  cwd?: string;
 }
 
 export interface McpHttpServerConfig {
@@ -56,7 +63,17 @@ export interface LoadedMcpConfig {
   sources: string[];
 }
 
-export async function loadMcpConfig(cwd = process.cwd()): Promise<LoadedMcpConfig> {
+/** Where `loadMcpConfig` / `parseMcpConfig` read `${VAR}`s from, and run stdio servers. */
+export interface McpConfigOptions {
+  env?: NodeJS.ProcessEnv;
+  /** Working directory for stdio servers. */
+  cwd?: string;
+}
+
+export async function loadMcpConfig(
+  cwd = process.cwd(),
+  opts: Pick<McpConfigOptions, 'env'> = {},
+): Promise<LoadedMcpConfig> {
   const candidates = [
     join(homedir(), AGENT_DIR, MCP_CONFIG_FILE),
     join(await findProjectRoot(cwd), MCP_CONFIG_FILE),
@@ -68,7 +85,7 @@ export async function loadMcpConfig(cwd = process.cwd()): Promise<LoadedMcpConfi
   for (const path of candidates) {
     const raw = await readOptional(path);
     if (raw === undefined) continue;
-    for (const server of parseMcpConfig(raw, path)) byName.set(server.name, server);
+    for (const server of parseMcpConfig(raw, path, { ...opts, cwd })) byName.set(server.name, server);
     sources.push(path);
   }
 
@@ -84,7 +101,16 @@ async function readOptional(path: string): Promise<string | undefined> {
 }
 
 /** Exported for tests; the file loader is a thin wrapper over this. */
-export function parseMcpConfig(raw: string, label = '.mcp.json'): McpServerConfig[] {
+export function parseMcpConfig(
+  raw: string,
+  label = '.mcp.json',
+  opts: McpConfigOptions = {},
+): McpServerConfig[] {
+  const env = opts.env ?? process.env;
+  const sub = (value: string): string => interpolate(value, env);
+  const subList = (list: string[]): string[] => list.map(sub);
+  const subRecord = (rec: Record<string, string>): Record<string, string> =>
+    Object.fromEntries(Object.entries(rec).map(([k, v]) => [k, sub(v)]));
   let doc: unknown;
   try {
     doc = JSON.parse(raw);
@@ -110,7 +136,7 @@ export function parseMcpConfig(raw: string, label = '.mcp.json'): McpServerConfi
       if (typeof entry.url !== 'string') {
         throw new Error(`${label}: server "${name}" is http but has no "url"`);
       }
-      const url = interpolate(entry.url);
+      const url = sub(entry.url);
       // SSE is chosen explicitly, or inferred from the conventional `/sse` path.
       const transport: 'http' | 'sse' =
         type === 'sse' || (type === undefined && /\/sse\/?(?:$|\?)/.test(url)) ? 'sse' : 'http';
@@ -122,7 +148,7 @@ export function parseMcpConfig(raw: string, label = '.mcp.json'): McpServerConfi
         name,
         transport,
         url,
-        headers: interpolateRecord(asStringRecord(entry.headers, `${label}: server "${name}" headers`)),
+        headers: subRecord(asStringRecord(entry.headers, `${label}: server "${name}" headers`)),
         ...(auth !== undefined ? { auth: auth as 'oauth' | 'none' } : {}),
       });
       continue;
@@ -135,8 +161,9 @@ export function parseMcpConfig(raw: string, label = '.mcp.json'): McpServerConfi
       name,
       transport: 'stdio',
       command: entry.command,
-      args: interpolateList(asStringList(entry.args, `${label}: server "${name}" args`)),
-      env: interpolateRecord(asStringRecord(entry.env, `${label}: server "${name}" env`)),
+      args: subList(asStringList(entry.args, `${label}: server "${name}" args`)),
+      env: subRecord(asStringRecord(entry.env, `${label}: server "${name}" env`)),
+      ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
     });
   }
   return out;
@@ -163,17 +190,7 @@ function asStringRecord(value: unknown, label: string): Record<string, string> {
   return out;
 }
 
-/** `${VAR}` -> process.env.VAR, or empty string with a warning left to the caller. */
+/** `${VAR}` -> env.VAR (the process's by default), or empty string with a warning left to the caller. */
 export function interpolate(value: string, env: NodeJS.ProcessEnv = process.env): string {
   return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, name: string) => env[name] ?? '');
-}
-
-function interpolateList(list: string[]): string[] {
-  return list.map((v) => interpolate(v));
-}
-
-function interpolateRecord(rec: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(rec)) out[k] = interpolate(v);
-  return out;
 }

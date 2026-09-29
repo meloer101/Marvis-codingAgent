@@ -12,6 +12,7 @@ export * from './context/truncate.js';
 export * from './context/cache.js';
 export * from './context/budget.js';
 export * from './config/settings.js';
+export * from './config/dotenv.js';
 export * from './config/budgets.js';
 export * from './permissions/index.js';
 export * from './tools/index.js';

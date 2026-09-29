@@ -27,6 +27,7 @@ import {
   isAutoModeAvailable,
   loadSettings,
   modelEffort,
+  projectEnv,
 } from '@harness-code/core';
 import type { PermissionMode } from '@harness-code/core';
 import type { ServerInfo } from '@harness-code/protocol';
@@ -78,13 +79,16 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   // `--mock` sessions record into a throwaway dir (removed on close) so a demo
   // never touches the project's real `.agent/` — see `mockConfigFactory`.
   const mockDir = opts.mock && !opts.buildConfig ? await mkdtemp(join(tmpdir(), 'hc-web-mock-')) : undefined;
-  const agentDir = mockDir ?? (await resolveStateDir(cwd));
+  // The project's own environment — the real one, its `.env`, `~/.agent/.env` —
+  // for provider keys and MCP `${VAR}`s, never merged into `process.env`.
+  const env = projectEnv(cwd);
+  const agentDir = mockDir ?? (await resolveStateDir(cwd, { env }));
 
-  const buildConfig = resolveConfigFactory(opts, mockDir);
+  const buildConfig = resolveConfigFactory(opts, env, mockDir);
 
   const serverInfo = async (): Promise<ServerInfo> => {
     const { settings } = await loadSettings(cwd);
-    const providers = new ProviderRegistry({ settings });
+    const providers = new ProviderRegistry({ settings, env });
     return {
       version: VERSION,
       bootId,
@@ -167,12 +171,17 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
 }
 
 /** Pick the session factory: explicit injection > `--mock` > the real config assembly. */
-function resolveConfigFactory(opts: StartServerOptions, mockDir?: string): SessionConfigFactory {
+function resolveConfigFactory(
+  opts: StartServerOptions,
+  env: NodeJS.ProcessEnv,
+  mockDir?: string,
+): SessionConfigFactory {
   if (opts.buildConfig) return opts.buildConfig;
   if (opts.mock) return mockConfigFactory(opts.cwd, mockDir);
   return (o) =>
     buildSessionConfig({
       cwd: opts.cwd,
+      env,
       ...(o.model ?? opts.model ? { modelRef: o.model ?? opts.model } : {}),
       ...(o.mode ? { mode: o.mode } : {}),
       ...(o.effort ? { reasoningEffort: o.effort } : {}),

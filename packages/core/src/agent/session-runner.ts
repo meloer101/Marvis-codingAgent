@@ -159,6 +159,12 @@ export interface SlashCommandInfo {
 export interface AgentSessionConfig {
   cwd: string;
   model: ResolvedModel;
+  /**
+   * Where provider keys (the session's own lookups: auto-mode classifier,
+   * summarizer, sub-agent models) and MCP `${VAR}`s come from. Default
+   * `process.env`; see `BuildSessionConfigOptions.env`.
+   */
+  env?: NodeJS.ProcessEnv;
   /** Cheaper model for compaction summaries. Defaults to `settings.smallModel`, then `model`. */
   summarizerModel?: ResolvedModel;
   settings: Settings;
@@ -375,7 +381,7 @@ export class AgentSession {
     const settings = config.settings;
     const platform = config.platform ?? process.platform;
     const notify = (n: Notice): void => config.onNotice?.(n);
-    const registry = new ProviderRegistry({ settings });
+    const registry = new ProviderRegistry({ settings, ...(config.env ? { env: config.env } : {}) });
 
     const memory =
       config.projectMemory !== undefined
@@ -454,7 +460,9 @@ export class AgentSession {
     }
 
     const mcpEnabled = config.mcp !== false;
-    const mcpConfig = mcpEnabled ? await loadMcpConfig(cwd) : { servers: [], sources: [] };
+    const mcpConfig = mcpEnabled
+      ? await loadMcpConfig(cwd, config.env ? { env: config.env } : {})
+      : { servers: [], sources: [] };
     const hub = new McpHub(mcpConfig.servers);
     const mcpToolSpecs = hub.empty ? [] : await hub.toolSpecs();
     if (!hub.empty) {

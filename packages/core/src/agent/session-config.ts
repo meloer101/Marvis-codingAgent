@@ -40,6 +40,12 @@ export interface BuildSessionConfigOptions {
   memory?: boolean;
   /** Continue a previous session by id. */
   resumeId?: string;
+  /**
+   * The environment provider keys and MCP `${VAR}`s are read from; default
+   * `process.env`. A server hosting several projects passes each its own
+   * (`projectEnv`), so one project's `.env` never reaches another's sessions.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Thrown by `buildSessionConfig` when no model ref is configured anywhere. */
@@ -57,7 +63,7 @@ export async function buildSessionConfig(
   const ref = opts.modelRef ?? settings.model;
   if (!ref) throw new NoModelConfiguredError();
 
-  const registry = new ProviderRegistry({ settings });
+  const registry = new ProviderRegistry({ settings, ...(opts.env ? { env: opts.env } : {}) });
   const resolved = registry.resolve(ref);
   const budgets = resolveBudgets(
     {
@@ -89,5 +95,6 @@ export async function buildSessionConfig(
     trace: opts.trace,
     memory: opts.memory,
     ...(opts.resumeId ? { resumeId: opts.resumeId } : {}),
+    ...(opts.env ? { env: opts.env } : {}),
   };
 }

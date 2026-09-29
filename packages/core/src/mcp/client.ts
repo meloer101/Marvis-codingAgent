@@ -175,6 +175,7 @@ export class McpConnection {
       command: config.command,
       args: config.args,
       env: { ...pickInheritedEnv(), ...config.env },
+      ...(config.cwd !== undefined ? { cwd: config.cwd } : {}),
       stderr: 'ignore',
     });
   }
