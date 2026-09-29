@@ -49,6 +49,9 @@ export class UiStore {
     });
 
   pushNotice(n: Notice): void {
+    // A mode switch (Shift+Tab, plan approval) is already shown by the status
+    // line's mode indicator; a transcript row per switch just piles up.
+    if (n.kind === 'mode-changed') return;
     this.notices.push(n);
   }
 
