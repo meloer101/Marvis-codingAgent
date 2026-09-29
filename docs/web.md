@@ -1,8 +1,8 @@
 # hc web
 
 `hc web` is the browser frontend: a local server (`packages/server`) that hosts
-agent sessions, and a single-page app (`packages/web`) that talks to it over one
-WebSocket per tab. `packages/protocol` holds everything both sides share: frame
+agent sessions for any number of projects, and a single-page app
+(`packages/web`) that talks to it over one WebSocket per tab. `packages/protocol` holds everything both sides share: frame
 and event types, the RPC method table (with zod schemas), and the event fold.
 Planned work lives in [ROADMAP.md](./ROADMAP.md); the visual system in
 [DESIGN.md](../DESIGN.md).
@@ -18,10 +18,12 @@ hc web --rotate-token  # replace the saved access token
 
 - **Port 4317** by default, bound to `127.0.0.1` only. If it is taken by
   something else, any free port is used. An explicit `--port` must be free.
-- **One server per workspace.** The server on the default port records itself
-  in `~/.agent/web/server.json`; running `hc web` again for the same workspace
-  finds it (live pid, and `GET /__hc/health` answers with the recorded boot id)
-  and opens it instead of starting another.
+- **One server for every project.** The server on the default port records
+  itself in `~/.agent/web/server.json`; running `hc web` again finds it (live
+  pid, and `GET /__hc/health` answers with the recorded boot id), adds the
+  current directory to it as a project (`workspace.add`) and opens a new session
+  there (`#token=…&w=<workspace>`) instead of starting a second server. The
+  projects are remembered in `~/.agent/web/workspaces.json`.
 - **One token per user**, in `~/.agent/web/token`, kept across restarts so
   bookmarks and open tabs keep working. `--mock` servers use a throwaway token
   and never record themselves.
@@ -36,6 +38,34 @@ pnpm --filter @harness-code/web dev
 The page is served by Vite and proxies `/ws` to the hc server (`HC_WEB_PORT`
 overrides the target port); `--dev-origin` lets that Origin through the
 handshake. Open the `dev:` URL the server prints.
+
+## Workspaces
+
+A workspace is a project directory the server hosts sessions for
+(`server/src/hub.ts`). Each has its own cwd, state dir (`.agent/` at its
+project root), settings, MCP servers and environment, and its own
+`SessionRegistry`; a `WorkspaceHub` routes every session id to the right one
+(live hosts, then an index, then the logs on disk).
+
+- **Environment.** Sessions read provider keys and MCP `${VAR}`s from their
+  project's environment: the real one, then the project's `.env`, then
+  `~/.agent/.env` — the place for keys every project shares — each filling only
+  what is still unset (`core/config/dotenv.ts`). Nothing is loaded into the
+  server's `process.env`, so one project's `.env` never reaches another's
+  sessions. `workspace.list` reports a project whose default model can't run
+  as configured (`defaults.keyProblem`, typically a missing key).
+- **Adding one** (`workspace.inspect`, then `workspace.add`): a directory, not a
+  file; not `/` or the home directory itself. A directory inside a project that
+  is already a workspace *is* that workspace. A plain folder under a home that
+  has `~/.agent` would share its state dir with every other such folder, so it
+  gets its own `.agent/` — only when the request confirms it (`createMarker`).
+  With `HC_STATE_DIR` set, every project would share one state dir: only one
+  workspace. The directory's MCP servers (what runs, `${VAR}`s left blank) and
+  notable project settings (YOLO by default, pre-approved calls, providers
+  pointed at another host) come back with the inspection; the UI asks to trust
+  them.
+- **Removing one** stops hosting it (its live sessions close, its files stay):
+  not while one of its sessions runs, and never the last one.
 
 ## Transport
 
@@ -63,10 +93,14 @@ the server with the same schemas the client is typed from.
 
 | Method | What it does |
 |---|---|
-| `server.info` | version, `bootId`, workspace, default model and mode, available modes |
-| `session.list` | every session on disk plus live ones, newest first |
-| `session.start {text, model?, mode?}` | create a session and send its first message (how a draft becomes a session) |
-| `session.create {model?, mode?}` | create an empty live session |
+| `server.info` | version, `bootId`, and the launch workspace's defaults |
+| `workspace.list` | every workspace with its defaults (model, mode, modes, effort levels, `keyProblem`) |
+| `workspace.inspect {path}` | what adding a directory would mean — nothing started |
+| `workspace.add {path, createMarker?}` / `workspace.remove {id}` | host a project / stop hosting it |
+| `fs.suggestDirs {prefix}` | directory completion for the add dialog |
+| `session.list` | every workspace's sessions (on disk plus live), newest first |
+| `session.start {text, workspaceId?, model?, mode?, effort?}` | create a session and send its first message (how a draft becomes a session) |
+| `session.create {workspaceId?, model?, mode?, effort?}` | create an empty live session |
 | `session.preview {id}` | the live snapshot, or the transcript from disk — never resumes |
 | `session.open {id}` | the live snapshot, resuming the session first if needed |
 | `session.subscribe {id, sinceSeq?, epoch?}` | start receiving the session's events; replays the gap or answers `{reset, snapshot}` |
@@ -74,6 +108,9 @@ the server with the same schemas the client is typed from.
 | `session.send {id, text}` | start a run (`busy` while one is going) |
 | `session.abort {id}` | stop the run; pending prompts settle as a deny |
 | `session.setMode {id, mode}` | change the permission mode |
+| `session.setEffort {id, effort}` | change the reasoning effort, from the next message (`bad_request` for a level the model lacks) |
+| `session.update {id, title?, pinned?, archived?}` | rename, pin, archive; answers with the new row |
+| `session.delete {id}` | delete for good: log, metadata, offloaded output, trace (`busy` while it runs) |
 | `session.compact {id}` | compact the history now (`busy` while a run is going) |
 | `session.slashCommands {id}` | the session's MCP prompt commands |
 | `session.close {id}` | close its live host (the log stays on disk) |
@@ -84,7 +121,7 @@ the server with the same schemas the client is typed from.
 `{t:'evt'}` frames carry `WireEvent`s (`packages/protocol/src/events.ts`): the
 agent loop's `AgentEvent`s and `Notice`s forwarded as they are, plus the run
 lifecycle (`run_start` / `run_end` / `run_error`), human-in-the-loop requests
-(`ask`, `plan`, `resolved`) and mode changes (`mode`).
+(`ask`, `plan`, `resolved`) and mode and effort changes (`mode`, `effort`).
 
 Every event gets a per-session, per-host `seq`, and the host keeps the last 5000
 frames, so a client that reconnects resubscribes with its `lastSeq` and gets
@@ -129,16 +166,23 @@ processes. The two are managed separately.
   session last ran with, a given title, pin/archive flags, its creation time and
   cwd. It is written when a session's first run starts and patched on every
   change, atomically. Resuming restores the model (falling back to the default
-  if it no longer resolves), the effort, and the mode — except `yolo` and
-  `auto`, which are never re-entered implicitly.
+  if it no longer resolves), the effort (if that model offers it), and the mode
+  — except `yolo` and `auto`, which are never re-entered implicitly.
+- **Delete** closes a live, idle session first (its writers would recreate the
+  files), then removes its log, metadata, offloaded tool output and trace.
+- **Abort** hands each run its own signal, so a Stop right after sending still
+  lands, and an ask arriving after its run was aborted is refused rather than
+  left waiting.
 
 ## Session list
 
 `session.list` is fetched on every connect. After that the server pushes
 changes: `session_upsert {summary}` whenever a session is created, resumed,
 starts or ends a run, waits on or resolves a prompt, or is closed, and
-`session_removed {id}` when a closed session has no log. Pushes carry current
-state, not deltas, and are not replayed.
+`session_removed {id}` when a closed session has no log, and `workspaces` with
+the whole list after a workspace is added or removed. Rows carry their
+`workspaceId`, `pinned` and `archived`. Pushes carry current state, not deltas,
+and are not replayed.
 
 Each summary carries a `rev` from one server-wide counter; a list stamps all its
 rows before reading anything, so of two rows for a session the higher `rev` is
@@ -173,13 +217,23 @@ The token is as powerful as the user's shell — a client can switch a session t
    onto its approve buttons.
 6. **No implicit escalation.** A resumed session never comes back in `yolo` or
    `auto`; those take a deliberate choice each time.
+7. **Ids are ids.** Session ids end up in file paths, so every RPC accepts only
+   an id's own characters; workspace ids are hex digests.
+8. **Adding a project is trusting it.** Its `.mcp.json` commands run with every
+   session and its settings apply; the add dialog shows both before it asks.
+   Directory completion lists folder names, which the token already reaches.
 
 ## The web app
 
-- **Routes** are the URL hash: `#/` is the draft for a new session, `#/s/<id>`
-  a session (`lib/route.ts`).
+- **Routes** are the URL hash: `#/` is the draft for a new session in the most
+  recently used project, `#/new/<workspace>` one in a given project, `#/s/<id>`
+  a session (`lib/route.ts`). The draft picks the project, mode and effort.
+- **Sidebar** groups sessions by project (`lib/sidebar.ts`): pinned first, then
+  newest, archived on request, a search across projects, rename in place and a
+  ⋯ / right-click menu per row, and waiting / running / unread / time at the
+  row's end.
 - **State** is one zustand store (`lib/store.ts`): connection status, server
-  info, session rows, and the folded view of every opened session.
+  info, workspaces, session rows, and the folded view of every opened session.
 - **Sync** (`lib/sync.ts`) is the glue between the socket and the store: one
   `SessionModel` per opened session (`lib/sessionModel.ts`), published to the
   store at most once per animation frame.

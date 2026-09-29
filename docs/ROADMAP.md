@@ -252,12 +252,8 @@
 浏览器优先，桌面壳最后做；一个 `hc web` 管多个项目。现状见 [`web.md`](./web.md)。硬约束：不改任何模型可见的内容
 （工具 schema、system prompt、默认消息形状），否则 eval cassette 全部失效。
 
-- **M1 多项目与会话管理**：工作区注册表（`~/.agent/web/workspaces.json`，`workspace.list/add/remove`，目录补全）；
-  registry 按工作区划分，各自的 projectRoot / stateDir / settings / MCP，`.env` 按工作区传入而不是写进全局
-  `process.env`；`session.update{title, pinned, archived}`、`session.delete`；在另一个目录跑 `hc web` 时把该目录
-  加入正在运行的实例；侧栏按项目分组、搜索、右键菜单、未读；首页带项目选择。*(L)*
 - **M2 会话控制与输入框**：`model.list`（ref、上下文窗口、effort 档位、价格）、`session.setModel`（在原会话内切换，
-  运行中拒绝）、`session.setEffort` + effort 事件；输入框底栏放模式 chip（Shift+Tab）、模型、effort、上下文环；
+  运行中拒绝）；输入框底栏放模式 chip（Shift+Tab）、模型、上下文环，并把头部的模式和 effort 下拉挪进去；
   server 端消息排队（运行中可继续发，结束后自动发出）；@文件：`fs.search` + `session.send{attachments}`，core 用
   `read` 工具读入并记入先读后写台账；内置 / 命令补 `/model /effort /mode /cost /skills`，skills 进 / 菜单；
   头部可改标题，上下文细分和用量弹层；命令面板。*(L)*

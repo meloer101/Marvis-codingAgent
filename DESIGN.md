@@ -65,7 +65,10 @@ Rules: assistant prose is 15px/1.75 serif capped at 68ch; UI labels stay sans; C
 
 ## Components
 
-- **Sidebar**: serif wordmark `hc·web` (brass dot), card-style New session button with `⌘K` hint, session rows 13px with mono timestamps, footer = theme toggle + connection dot.
+- **Sidebar**: serif wordmark `hc·web` (brass dot), card-style New session button with `⌘K` hint, a search field, then one group per project — mono uppercase project name (11px, muted) with a fold chevron, and "+" / ⋯ that appear on hover. Session rows 13px, indented under their project; pinned ones carry a small pin at the left, archived ones are muted and behind an "Archived (n)" toggle. The row's end shows the most urgent state: brass dot (waiting for you), violet spinner (running), violet dot (unread), else a mono relative time; on hover it gives way to ⋯. Rename happens in place in a violet-ringed field. "Add project" sits below the groups; footer = theme toggle + notification bell + connection dot.
+- **Menus**: popover surface, rounded-lg, 13px items with 14px muted icons, accent highlight; destructive items (Delete…) in the destructive colour, set apart by a separator.
+- **Dialogs** (add project, delete session, remove project): centred popover card over a soft `foreground/25` overlay with a 2px blur, serif title, muted description. Reserved for decisions that deserve a pause — never for permission asks, which stay in the dock. The add-project preview is a `muted/40` panel; MCP servers are listed in mono with a brass plug icon, trust warnings in brass.
+- **Session header**: project chip (folder icon + name) · model (violet dot + mono ref) · mode and effort dropdowns (compact native selects; effort has a gauge icon) · usage meter at the far right. A new session's draft header has a project dropdown in the chip's place.
 - **Tool cards**: rounded-lg card, mono tool name, status icon in token colors (primary spinner / success check / destructive X), hover tint on the header row, body on `muted/40`.
 - **Pending dock** (no modals): brass border + tint for permission asks, violet for plan review; kbd hints (`y`/`a`/`n`).
 - **Composer**: card surface, focus = violet border + ring + shadow lift.
