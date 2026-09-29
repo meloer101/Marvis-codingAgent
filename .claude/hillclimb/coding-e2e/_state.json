@@ -1,4 +1,68 @@
 {
+  "current_round": 3,
+  "reps": 3,
+  "goal": {
+    "target": "denied_calls",
+    "direction": "lower",
+    "hold": [
+      "pass",
+      "overclaim"
+    ],
+    "guardrails": "pass >= 53/57 overall and no case drops from 3/3 to <=1/3; overclaim <= 1; deny rules, auto-approval of rm / inline code, and secret-file protection stay as they are (only .env.example/.env.sample/.env.template are exempted, by the user decision of 2026-09-29)",
+    "secondary": [
+      "turns",
+      "cost_usd",
+      "latency_s"
+    ]
+  },
+  "approve_each_round": true,
+  "scope": {
+    "will_change": [
+      "system prompt (AGENT_CONVENTIONS etc.)",
+      "permission-engine false positives (read-only commands, cd <workspace> && X)",
+      "tool descriptions",
+      ".env template exemption in isSensitivePath"
+    ],
+    "wont_touch": [
+      "deny rules and destructive-command blocks",
+      "auto-approval of rm, inline code, heredoc, $(...)",
+      "protection of .env, .env.local, .env.* other than the three templates, keys, credentials",
+      ".git/config protection",
+      "eval runner, tasks, graders"
+    ]
+  },
+  "base_commit": "d5fd8a7e2539c73a39d99d5d9869f1679ae56ce6",
+  "best": {
+    "round": 3,
+    "test_score": 1,
+    "test_denied_calls": 0.59,
+    "all_denied_calls": 0.81,
+    "why": "ties v2 within noise on the target; a strict false-positive fix with no downside, so the later round is kept"
+  },
+  "split_seed": 20260929,
+  "train_ids": [
+    "extract-duplication",
+    "verify-stated-requirements",
+    "fix-null-deref",
+    "recover-before-probe",
+    "buried-report-requirements",
+    "reconcile-totals-diagnosis",
+    "simple-perf-fix",
+    "callbacks-to-async",
+    "concurrency-limit-bug",
+    "http-endpoint-feature"
+  ],
+  "test_ids": [
+    "verify-clean-input-unchanged",
+    "cover-parse-edge-cases",
+    "add-slug-helper",
+    "edit-env-example-ok",
+    "order-dependent-test",
+    "match-caller-interface",
+    "python-csv-import-bug",
+    "cli-flags-feature",
+    "merge-conflict-resolution"
+  ],
   "metrics": [
     {
       "id": "pass",
@@ -212,5 +276,22 @@
     "evals/dist/graders/tests-untouched.js",
     "evals/dist/graders/types.js"
   ],
-  "harness_sha": "9e3e5af4b8d89eaee17018e98044ff27bc043bbc401a47304c5a1674a839ea95"
+  "harness_sha": "2c15b921f1e6e5b361a3fa8138180f135c77492b2ca4492ff53a798fe6126647",
+  "noise": {
+    "denied_calls_paired_hw_all": 1.08,
+    "source": "v1 as a no-change control on the 10 train cases (v1 cannot affect them): train denied moved +1.23/run by chance; paired half-width over all 19 cases +-1.08/run"
+  },
+  "status": "done",
+  "merged": {
+    "commits": [
+      "a387516",
+      "f6568ec",
+      "37137e5",
+      "9b919d2",
+      "55412b9"
+    ],
+    "on": "main",
+    "date": "2026-09-29",
+    "winner_round": 3
+  }
 }

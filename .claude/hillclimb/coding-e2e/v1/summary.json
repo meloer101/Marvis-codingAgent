@@ -1,0 +1,5 @@
+{
+  "description": "exempt .env.example/.env.sample/.env.template from secret-file protection",
+  "label": "env templates",
+  "target": "code"
+}

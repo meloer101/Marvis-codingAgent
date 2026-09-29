@@ -1,0 +1,5 @@
+{
+  "description": "throwaway files go to the system temp dir; stop asking the agent to delete scratch files",
+  "label": "scratch in tmpdir",
+  "target": "system_prompt"
+}

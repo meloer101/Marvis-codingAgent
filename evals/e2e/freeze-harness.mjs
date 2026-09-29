@@ -19,7 +19,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const args = { flow: '.claude/hillclimb/coding-e2e', variant: undefined, commit: 'HEAD', fromWorktree: false };
+const args = { flow: '.claude/hillclimb/coding-e2e', variant: undefined, commit: 'HEAD', fromWorktree: false, patch: undefined };
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const k = argv[i];
@@ -27,6 +27,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (k === '--variant') args.variant = argv[++i];
   else if (k === '--commit') args.commit = argv[++i];
   else if (k === '--from-worktree') args.fromWorktree = true;
+  else if (k === '--patch') args.patch = resolve(argv[++i]);
   else { console.error(`unknown argument: ${k}`); process.exit(2); }
 }
 if (!/^(baseline|v[1-9]\d*)$/.test(args.variant ?? '')) { console.error('--variant must be baseline or v<N>'); process.exit(2); }
@@ -43,6 +44,7 @@ if (existsSync(join(outDir, 'hc.mjs'))) {
 const commit = git('rev-parse', args.commit);
 const src = mkdtempSync(join(tmpdir(), 'hc-freeze-'));
 let dirty = null;
+let patchInfo = null;
 try {
   if (args.fromWorktree) {
     // Tracked files plus untracked-but-not-ignored ones, as they are on disk now.
@@ -51,6 +53,12 @@ try {
     dirty = { diff_sha256: createHash('sha256').update(diff).digest('hex'), changed: git('diff', 'HEAD', '--stat', '--', 'packages').split('\n').slice(0, -1) };
   } else {
     execFileSync('sh', ['-c', `git -C "${REPO}" archive ${commit} | tar -xf - -C "${src}"`]);
+  }
+  if (args.patch) {
+    // A hill-climb variant: the base commit plus the variant's cumulative patch,
+    // so the loop never has to edit the shared working tree.
+    execFileSync('git', ['apply', '--whitespace=nowarn', args.patch], { cwd: src, stdio: ['ignore', 'pipe', 'inherit'] });
+    patchInfo = { file: args.patch, sha256: createHash('sha256').update(readFileSync(args.patch)).digest('hex') };
   }
   run('pnpm', ['install', '--offline', '--frozen-lockfile', '--store-dir', join(REPO, '.pnpm-store')], src);
   run('npx', ['tsc', '-b'], src);
@@ -61,9 +69,9 @@ try {
   copyFileSync(bundle, join(outDir, 'hc.mjs'));
   const sha256 = createHash('sha256').update(readFileSync(bundle)).digest('hex');
   const info = { commit, commit_subject: git('log', '-1', '--format=%s', commit), from_worktree: args.fromWorktree,
-    ...(dirty ? { worktree_changes: dirty } : {}), hc_version: version, sha256, built_at: new Date().toISOString(), node: process.version };
+    ...(dirty ? { worktree_changes: dirty } : {}), ...(patchInfo ? { patch: patchInfo } : {}), hc_version: version, sha256, built_at: new Date().toISOString(), node: process.version };
   writeFileSync(join(outDir, 'harness.json'), JSON.stringify(info, null, 2) + '\n');
-  console.log(`froze hc ${version} @ ${commit.slice(0, 7)}${args.fromWorktree ? ' + working-tree changes' : ''} -> ${join(outDir, 'hc.mjs')} (sha256 ${sha256.slice(0, 12)})`);
+  console.log(`froze hc ${version} @ ${commit.slice(0, 7)}${args.fromWorktree ? ' + working-tree changes' : ''}${patchInfo ? ' + patch' : ''} -> ${join(outDir, 'hc.mjs')} (sha256 ${sha256.slice(0, 12)})`);
 } finally {
   rmSync(src, { recursive: true, force: true });
 }

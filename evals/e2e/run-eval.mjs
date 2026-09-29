@@ -955,7 +955,8 @@ async function main() {
   async function worker() {
     while (i < tasks.length && !stopAll) {
       await waitIfPaused();
-      if (stopAll) break;
+      // Re-check after the await: another worker may have taken the last task meanwhile.
+      if (stopAll || i >= tasks.length) break;
       const { c, rep } = tasks[i++];
       const safeId = pathSafeId(c.id);
       const t0 = Date.now();
@@ -1106,6 +1107,7 @@ async function main() {
   workersStarted = true;
   await Promise.all(Array.from({ length: Math.max(1, args.concurrency) }, worker));
   clearInterval(tick); progress();
+  try { rmSync(ctx.judgeCwd, { recursive: true, force: true }); } catch {}
   if (stopAll) { eprint(`[${args.variant}] stopped: ${stopAll}`); process.exit(3); }
   eprint(`[${args.variant}] done - ${ok} ok, ${fail} failed -> ${resultsPath}`);
   process.exit(fail ? 1 : 0);

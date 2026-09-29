@@ -13,7 +13,8 @@ review sheet is `cases.md` next to it.
 ```bash
 # 1. freeze the hc build a variant is measured on (once per variant)
 node evals/e2e/freeze-harness.mjs --variant baseline --commit <rev>
-node evals/e2e/freeze-harness.mjs --variant v1 --from-worktree
+node evals/e2e/freeze-harness.mjs --variant v1 --commit <rev> --patch .claude/hillclimb/coding-e2e/v1/cumulative.patch
+node evals/e2e/freeze-harness.mjs --variant v1 --from-worktree   # or: the working tree as it is
 
 # 2. run it (resumable: re-run the same command after a crash or a limit)
 node evals/e2e/run-eval.mjs --variant baseline --reps 3

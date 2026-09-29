@@ -1,0 +1,100 @@
+diff --git a/packages/core/src/permissions/engine.test.ts b/packages/core/src/permissions/engine.test.ts
+index 2dae72c..5c00c36 100644
+--- a/packages/core/src/permissions/engine.test.ts
++++ b/packages/core/src/permissions/engine.test.ts
+@@ -1,4 +1,4 @@
+-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
++import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+ 
+@@ -137,6 +137,25 @@ describe('PermissionEngine', () => {
+     ).toBe('deny');
+   });
+ 
++  it('treats cd to the workspace root as a no-op, and any other cd as a command', async () => {
++    const e = engine({ mode: 'acceptEdits', allow: ['Bash(npm:*)'] });
++    const bash = async (command: string) =>
++      (await e.evaluate({ toolName: 'bash', input: { command }, readOnly: false })).decision;
++    expect(await bash(`cd ${root} && npm test`)).toBe('allow');
++    expect(await bash(`cd "${root}/" && npm test 2>&1 | tail -5`)).toBe('allow');
++    expect(await bash(`cd ${await realpath(root)}; cat src/a.ts`)).toBe('allow');
++    expect(await bash('cd . && npm test')).toBe('allow');
++    expect(await bash(`cd ${root}`)).toBe('allow');
++    // Anywhere else still counts: a subdirectory can walk around the sensitive-path check.
++    expect(await bash('cd src && npm test')).not.toBe('allow');
++    expect(await bash(`cd ${tmpdir()} && npm test`)).not.toBe('allow');
++    expect(await bash('cd ~ && npm test')).not.toBe('allow');
++    expect(await bash('cd - && npm test')).not.toBe('allow');
++    // And it unlocks nothing the rest of the command couldn't do on its own.
++    expect(await bash(`cd ${root} && rm -f src/a.ts`)).not.toBe('allow');
++    expect(await bash(`cd ${root} && cat .env`)).toBe('deny');
++  });
++
+   it('lets a rule that names the sensitive file itself through', async () => {
+     const e = engine({ mode: 'ask', allow: ['Bash(cat .env)'] });
+     expect(
+diff --git a/packages/core/src/permissions/engine.ts b/packages/core/src/permissions/engine.ts
+index bc438a5..bf83c27 100644
+--- a/packages/core/src/permissions/engine.ts
++++ b/packages/core/src/permissions/engine.ts
+@@ -1,3 +1,6 @@
++import { realpath } from 'node:fs/promises';
++import { isAbsolute, resolve } from 'node:path';
++
+ import { inspectBash } from './bash-ast.js';
+ import { isDroppedAutoAllow } from './auto-allow.js';
+ import { KNOWN_TOOLS, PLANS_DIR_PREFIX, READ_ONLY_TOOLS } from './defaults.js';
+@@ -246,8 +249,18 @@ export class PermissionEngine {
+       return { decision: 'allow' };
+     }
+ 
++    // `cd <the workspace root>` changes nothing — every relative path after it
++    // means what it meant before — but agents prefix it out of habit
++    // (`cd /abs/workspace && npm test`), and it alone made an allowed command
++    // ask. It is dropped here, for the allow and read-only checks only (deny
++    // rules, ask rules and the sensitive-file check above still see it). Only
++    // the root: `cd .git && cat config` would slip past the sensitive-path
++    // check, so a `cd` anywhere else still counts.
++    const effective = await this.withoutNoOpCd(segs);
++    if (segs.length > 0 && effective.length === 0) return { decision: 'allow' };
++
+     const allow = this.effectiveAllow();
+-    if (segs.length > 0 && segs.every((seg) => allow.some((r) => ruleMatchesBash(r, seg)))) {
++    if (effective.length > 0 && effective.every((seg) => allow.some((r) => ruleMatchesBash(r, seg)))) {
+       return { decision: 'allow' };
+     }
+ 
+@@ -265,13 +278,31 @@ export class PermissionEngine {
+     // anything the command before it could not.
+     const readOnly = (seg: string[]): boolean =>
+       !inspected.hasWriteRedirect && isReadOnlyBashSegment(seg);
+-    if (segs.length > 0 && segs.every((seg) => readOnly(seg) || allow.some((r) => ruleMatchesBash(r, seg)))) {
++    if (effective.length > 0 && effective.every((seg) => readOnly(seg) || allow.some((r) => ruleMatchesBash(r, seg)))) {
+       return { decision: 'allow' };
+     }
+ 
+     return this.modeDefault('bash', false);
+   }
+ 
++  /** `segments` minus any `cd <path>` whose path is the workspace root itself. */
++  private async withoutNoOpCd(segments: string[][]): Promise<string[][]> {
++    const out: string[][] = [];
++    for (const seg of segments) {
++      if (seg.length === 2 && seg[0] === 'cd' && (await this.isWorkspaceRoot(seg[1] as string))) continue;
++      out.push(seg);
++    }
++    return out;
++  }
++
++  private async isWorkspaceRoot(target: string): Promise<boolean> {
++    // `-`, `~` and variables resolve somewhere the parser can't see.
++    if (target === '' || target.startsWith('-') || target.startsWith('~') || target.includes('$')) return false;
++    const abs = isAbsolute(target) ? target : resolve(this.workspaceRoot, target);
++    const real = (p: string): Promise<string> => realpath(p).catch(() => resolve(p));
++    return (await real(abs)) === (await real(this.workspaceRoot));
++  }
++
+   /**
+    * A command that could not be parsed into segments: inline interpreter
+    * code, `$(...)`, a heredoc. Nothing here can check what it will run, so the

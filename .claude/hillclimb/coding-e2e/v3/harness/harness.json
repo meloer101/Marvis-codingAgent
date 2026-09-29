@@ -1,0 +1,13 @@
+{
+  "commit": "d5fd8a7e2539c73a39d99d5d9869f1679ae56ce6",
+  "commit_subject": "docs(roadmap): record the web plan after its foundations landed",
+  "from_worktree": false,
+  "patch": {
+    "file": "/Users/m/Desktop/MyClaudeCode/.claude/hillclimb/coding-e2e/v3/cumulative.patch",
+    "sha256": "a9f6245c292d5536b6962b0967de982e05b5756dbe6f36c2092c92fab25c2a4d"
+  },
+  "hc_version": "0.1.0",
+  "sha256": "ce8252f7ba713cba907437e05d740712af9ffdd31b33efc913a29dc8df21666a",
+  "built_at": "2026-09-29T12:11:27.301Z",
+  "node": "v22.23.1"
+}

@@ -1,0 +1,327 @@
+diff --git a/README.md b/README.md
+index 316ef41..2e6389f 100644
+--- a/README.md
++++ b/README.md
+@@ -75,7 +75,7 @@ Marvis 把和你协作中学到的东西持久化下来，跨会话、跨项目
+ 
+ **模型兼容** —— `provider/model` 命名、每家可覆盖 base-URL、原生 tool-calling，并对无 `tools` 参数的端点提供 prompt-encoded 回退；对不报告用量的端点也能估算 token 与成本。
+ 
+-**权限与安全** —— 六种模式（`ask`、`plan`、`acceptEdits`、`readOnly`、`yolo`、`auto`）、形如 `Bash(git status:*)` / `Read(./src/**)` 的 `Tool(说明符)` 规则（deny 优先）、解析符号链接的路径笼，以及对 `.env*`、密钥、`.git/config` 的内置保护（`bash` 参数同样检查）。`auto` 用第二个模型代替人审查危险操作：安全的直接放行，危险的拦下并让 agent 换做法。
++**权限与安全** —— 六种模式（`ask`、`plan`、`acceptEdits`、`readOnly`、`yolo`、`auto`）、形如 `Bash(git status:*)` / `Read(./src/**)` 的 `Tool(说明符)` 规则（deny 优先）、解析符号链接的路径笼，以及对 `.env*`（`.env.example`、`.env.sample`、`.env.template` 这类模板除外）、密钥、`.git/config` 的内置保护（`bash` 参数同样检查）。`auto` 用第二个模型代替人审查危险操作：安全的直接放行，危险的拦下并让 agent 换做法。
+ 
+ **MCP、Skills 与子代理** —— 接入任意 MCP 服务器（`.mcp.json`，stdio/HTTP/SSE、OAuth），或把 Marvis 自身工具暴露为 MCP 服务；即插即用的 [Agent Skills](https://agentskills.io/specification) 按需加载；子代理在隔离上下文中调研，只把一段结论带回主对话。
+ 
+@@ -114,7 +114,7 @@ Marvis 面向真实代码库设计，其安全边界如下：
+ 
+ - **默认 `ask` 模式**将每次 `write`、`edit`、`webfetch` 和会改动环境的 `bash` 置于你的批准之下；只读工具和只读 shell 命令（`ls`、`cat`、`grep`、`git diff` 等，带写重定向就不算）免询问，复合命令里只读的那一段也可以和已放行的命令一起通过——`npm test 2>&1 | tail` 只需要 `Bash(npm:*)`。`auto` 模式把审查交给分类器；`yolo` 模式会取消这些提示，也不再拒绝无法逐段审查的写法（`python -c`、`$(...)`、heredoc）——`yolo` 本就不审查，同样的代码写进文件照样能跑；这类命令在 `ask`/`acceptEdits` 下交给你确认，在 `auto` 下交给分类器，在 `plan`/`readOnly` 下拒绝。破坏性命令（`rm -rf` 工作区根目录、`~` 或工作区外的路径，碰 `.ssh`，管道到 shell）在任何模式下都拒绝。
+ - **`auto` 配置只认用户级 `~/.agent/settings.json`**：仓库里的 `.agent/settings.json` 不能把自己设成 auto，也不能改分类器规则。用 `marvis auto-mode config` 查看展开后的规则，`marvis auto-mode defaults` 查看内置清单。
+-- **密钥受保护**：`.env*`、`*.pem`、`id_rsa`、`credentials*`、`secrets.json`、`.git/config` 受保护——文件工具如此，`bash` 也一样（`cat .env` 在任何模式下都会被拒，只有点名该文件的规则能放行），所以"只读"不等于"可以读密钥"。API key 与子进程隔离，且仅在一处读取、出错前脱敏。
++- **密钥受保护**：`.env*`（提交进仓库的模板 `.env.example`、`.env.sample`、`.env.template` 除外，递归搜索仍会跳过它们）、`*.pem`、`id_rsa`、`credentials*`、`secrets.json`、`.git/config` 受保护——文件工具如此，`bash` 也一样（`cat .env` 在任何模式下都会被拒，只有点名该文件的规则能放行），所以"只读"不等于"可以读密钥"。API key 与子进程隔离，且仅在一处读取、出错前脱敏。
+ - **OS 写沙箱在 macOS 生效**（`sandbox-exec`）：shell 命令的写操作被物理限制在工作区和系统临时目录内；文件工具同样可以读写临时目录，放 scratch 文件不必落在工作区里。Linux/Windows 上依靠命令审查名单加 `ask` 审批，因此在这些平台上，对不信任的代码请保持 `ask` 模式。
+ - **`bash` 可联网、可读取你有权读取的文件**，闸门是审批；`webfetch` 额外将请求限制在公网地址，且不自行跟随跨主机跳转。
+ 
+diff --git a/evals/src/harness.ts b/evals/src/harness.ts
+index 4e6a93f..36874b1 100644
+--- a/evals/src/harness.ts
++++ b/evals/src/harness.ts
+@@ -260,7 +260,7 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
+             return runSubagent({
+               model: resolved,
+               tools: subagentToolSpecs(builtinTools(), def),
+-              system: buildSubagentSystemPrompt({ cwd: opts.workDir, role: def.body }),
++              system: buildSubagentSystemPrompt({ cwd: opts.workDir, role: def.body, scratchDir: '/tmp' }),
+               hooks: mergeHooks(
+                 createPermissionHooks(
+                   createPermissionEngine({
+@@ -316,8 +316,10 @@ export async function runAgentTask(opts: HarnessOptions): Promise<HarnessRun> {
+     },
+   };
+ 
++  // Platform and scratch dir are pinned so a cassette recorded on one machine
++  // replays on another: both land in the request the replay is keyed on.
+   const systemFor = (mode: PermissionMode) =>
+-    buildAgentSystemPrompt({ cwd: opts.workDir, mode, platform: 'linux' });
++    buildAgentSystemPrompt({ cwd: opts.workDir, mode, platform: 'linux', scratchDir: '/tmp' });
+   const head = systemFor(opts.mode);
+ 
+   const runTurn = async (
+diff --git a/packages/core/src/agent/prompt.test.ts b/packages/core/src/agent/prompt.test.ts
+index d09f5d8..5c63848 100644
+--- a/packages/core/src/agent/prompt.test.ts
++++ b/packages/core/src/agent/prompt.test.ts
+@@ -1,3 +1,5 @@
++import { tmpdir } from 'node:os';
++
+ import { describe, expect, it } from 'vitest';
+ 
+ import { SYSTEM_SEGMENT_ORDER } from '../context/cache.js';
+@@ -21,6 +23,21 @@ describe('buildAgentSystemPrompt', () => {
+     expect(environment?.text).toContain('darwin');
+   });
+ 
++  it('names the scratch directory in the environment segment, defaulting to the system temp dir', () => {
++    const given = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux', scratchDir: '/scratch' });
++    expect(given.find((s) => s.id === 'environment')?.text).toContain('Scratch directory: /scratch');
++    const fallback = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux' });
++    expect(fallback.find((s) => s.id === 'environment')?.text).toContain(`Scratch directory: ${tmpdir()}`);
++    const sub = buildSubagentSystemPrompt({ cwd: '/w', platform: 'linux', role: 'r', scratchDir: '/scratch' });
++    expect(sub.find((s) => s.id === 'environment')?.text).toContain('Scratch directory: /scratch');
++  });
++
++  it('sends throwaway files to the scratch directory instead of asking for them to be deleted', () => {
++    const [, conventions] = buildAgentSystemPrompt({ cwd: '/w', platform: 'linux' });
++    expect(conventions?.text).toMatch(/Throwaway files .* go in the scratch directory/);
++    expect(conventions?.text).not.toMatch(/remove any scratch file/);
++  });
++
+   it('defaults platform to process.platform when omitted', () => {
+     const segments = buildAgentSystemPrompt({ cwd: '/workspace' });
+     const environment = segments.find((s) => s.id === 'environment');
+diff --git a/packages/core/src/agent/prompt.ts b/packages/core/src/agent/prompt.ts
+index de085d4..63076f2 100644
+--- a/packages/core/src/agent/prompt.ts
++++ b/packages/core/src/agent/prompt.ts
+@@ -10,6 +10,8 @@
+  * last.
+  */
+ 
++import { tmpdir } from 'node:os';
++
+ import type { SystemSegment } from '../provider/types.js';
+ import type { PermissionMode } from '../permissions/types.js';
+ import { orderSystemSegments } from '../context/cache.js';
+@@ -30,7 +32,9 @@ Match the style already in the file you're editing: naming, comment density, idi
+ </code_style>
+ 
+ <working_style>
+-Before implementing anything non-trivial, check whether a standard library call, built-in, or a few lines of straightforward code already does what's needed — try that first and verify it against the task's actual requirement. Only reach for a more elaborate approach — a custom implementation, an extra dependency, a lower-level rewrite — once the simple version has demonstrably fallen short, not because it might in the abstract be slower or less complete. Get a rough version of the actual deliverable in place early — within roughly the first third of the work — then spend the rest of the time refining it. Don't spend most of your turns reading and exploring before making a single edit to the file(s) the task is actually about; a rough first pass you iterate on beats a long investigation that runs out of turns before it produces anything. When experimenting or debugging, reuse one scratch file across attempts instead of creating a new one per attempt (\`bench.py\`, \`bench2.py\`, \`debug_v3.py\`, ...); before finishing, remove any scratch file you created that isn't part of what the task asked for.
++Before implementing anything non-trivial, check whether a standard library call, built-in, or a few lines of straightforward code already does what's needed — try that first and verify it against the task's actual requirement. Only reach for a more elaborate approach — a custom implementation, an extra dependency, a lower-level rewrite — once the simple version has demonstrably fallen short, not because it might in the abstract be slower or less complete. Get a rough version of the actual deliverable in place early — within roughly the first third of the work — then spend the rest of the time refining it. Don't spend most of your turns reading and exploring before making a single edit to the file(s) the task is actually about; a rough first pass you iterate on beats a long investigation that runs out of turns before it produces anything.
++
++Throwaway files — a probe or check script, debug output, a backup copy — go in the scratch directory named in the environment below, never in the workspace; anything the task asks you to produce belongs in the workspace as usual. Create them with \`write\` and run them by full path without changing directory (\`node <scratch dir>/check.mjs\`): relative paths the script opens still resolve against the working directory, but its imports resolve from the script's own location, so import the workspace's modules by absolute path. Run ad-hoc code the same way rather than through \`node -e\`, \`python -c\`, a heredoc or \`$(...)\`: those can't be reviewed automatically and need approval. When experimenting or debugging, reuse one scratch file across attempts instead of creating a new one per attempt (\`bench.py\`, \`bench2.py\`, \`debug_v3.py\`, ...). The scratch directory needs no cleanup, so don't delete files there. Deleting a file needs approval in most modes: if you did leave a file in the workspace that the task didn't ask for, name it in your summary instead of retrying the delete in another form.
+ </working_style>
+ 
+ <finishing>
+@@ -59,6 +63,8 @@ export interface BuildAgentSystemPromptOptions {
+   cwd: string;
+   /** Defaults to `process.platform`; parameterized so this is testable without mocking globals. */
+   platform?: string;
++  /** Where throwaway files go. Defaults to `os.tmpdir()`; parameterized for tests. */
++  scratchDir?: string;
+   /** When `plan`, a plan-mode overlay is appended after the cacheable prefix. */
+   mode?: PermissionMode;
+   /** Concatenated AGENTS.md / CLAUDE.md bodies, from `loadProjectMemory`. Omitted when empty. */
+@@ -100,21 +106,29 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): Sys
+   if (opts.mode === 'auto') {
+     segments.push({ id: 'auto_mode', text: AUTO_MODE });
+   }
+-  segments.push(environmentSegment(opts.cwd, platform));
++  segments.push(environmentSegment(opts.cwd, platform, opts.scratchDir));
+   // Enforce the cache-stable order regardless of push order above.
+   return orderSystemSegments(segments);
+ }
+ 
+-function environmentSegment(cwd: string, platform: string): SystemSegment {
++/**
++ * The system temp dir: the file tools accept paths there (`allowScratch`) and
++ * the bash sandbox lets commands write there, so it is where throwaway files
++ * go — nothing there has to be deleted, and deleting needs approval.
++ */
++function environmentSegment(cwd: string, platform: string, scratchDir = tmpdir()): SystemSegment {
+   return {
+     id: 'environment',
+-    text: `Working directory: ${cwd}\nPlatform: ${platform}\n\nPaths in tool calls are resolved against the working directory above unless given as absolute paths.`,
++    text:
++      `Working directory: ${cwd}\nScratch directory: ${scratchDir} (for throwaway files; file tools and shell commands can write here)\n` +
++      `Platform: ${platform}\n\nPaths in tool calls are resolved against the working directory above unless given as absolute paths.`,
+   };
+ }
+ 
+ export interface BuildSubagentSystemPromptOptions {
+   cwd: string;
+   platform?: string;
++  scratchDir?: string;
+   /** The sub-agent definition's Markdown body — its role instructions. */
+   role: string;
+   /** Concatenated AGENTS.md / CLAUDE.md bodies. Omitted when empty. */
+@@ -150,6 +164,6 @@ export function buildSubagentSystemPrompt(opts: BuildSubagentSystemPromptOptions
+   if (opts.mode === 'auto') {
+     segments.push({ id: 'auto_mode', text: AUTO_MODE });
+   }
+-  segments.push(environmentSegment(opts.cwd, platform));
++  segments.push(environmentSegment(opts.cwd, platform, opts.scratchDir));
+   return orderSystemSegments(segments);
+ }
+diff --git a/packages/core/src/permissions/engine.test.ts b/packages/core/src/permissions/engine.test.ts
+index 4d29d4e..5c00c36 100644
+--- a/packages/core/src/permissions/engine.test.ts
++++ b/packages/core/src/permissions/engine.test.ts
+@@ -1,4 +1,4 @@
+-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
++import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+ import { join } from 'node:path';
+ 
+@@ -119,6 +119,43 @@ describe('PermissionEngine', () => {
+     }
+   });
+ 
++  it('treats a committed .env template like any other file', async () => {
++    const e = engine({ mode: 'acceptEdits' });
++    const bash = (command: string) => e.evaluate({ toolName: 'bash', input: { command }, readOnly: false });
++    expect((await bash('cat .env.example')).decision).toBe('allow');
++    expect((await bash('cat .env.example .env')).decision).toBe('deny');
++    expect(
++      (await e.evaluate({ toolName: 'read', input: { path: '.env.example' }, readOnly: true })).decision,
++    ).toBe('allow');
++    expect(
++      (await e.evaluate({ toolName: 'edit', input: { path: '.env.example', old: 'a', new: 'b' }, readOnly: false }))
++        .decision,
++    ).toBe('allow');
++    expect(
++      (await e.evaluate({ toolName: 'write', input: { path: '.env.local', content: 'X=1' }, readOnly: false }))
++        .decision,
++    ).toBe('deny');
++  });
++
++  it('treats cd to the workspace root as a no-op, and any other cd as a command', async () => {
++    const e = engine({ mode: 'acceptEdits', allow: ['Bash(npm:*)'] });
++    const bash = async (command: string) =>
++      (await e.evaluate({ toolName: 'bash', input: { command }, readOnly: false })).decision;
++    expect(await bash(`cd ${root} && npm test`)).toBe('allow');
++    expect(await bash(`cd "${root}/" && npm test 2>&1 | tail -5`)).toBe('allow');
++    expect(await bash(`cd ${await realpath(root)}; cat src/a.ts`)).toBe('allow');
++    expect(await bash('cd . && npm test')).toBe('allow');
++    expect(await bash(`cd ${root}`)).toBe('allow');
++    // Anywhere else still counts: a subdirectory can walk around the sensitive-path check.
++    expect(await bash('cd src && npm test')).not.toBe('allow');
++    expect(await bash(`cd ${tmpdir()} && npm test`)).not.toBe('allow');
++    expect(await bash('cd ~ && npm test')).not.toBe('allow');
++    expect(await bash('cd - && npm test')).not.toBe('allow');
++    // And it unlocks nothing the rest of the command couldn't do on its own.
++    expect(await bash(`cd ${root} && rm -f src/a.ts`)).not.toBe('allow');
++    expect(await bash(`cd ${root} && cat .env`)).toBe('deny');
++  });
++
+   it('lets a rule that names the sensitive file itself through', async () => {
+     const e = engine({ mode: 'ask', allow: ['Bash(cat .env)'] });
+     expect(
+diff --git a/packages/core/src/permissions/engine.ts b/packages/core/src/permissions/engine.ts
+index 4ee2f52..bf83c27 100644
+--- a/packages/core/src/permissions/engine.ts
++++ b/packages/core/src/permissions/engine.ts
+@@ -1,3 +1,6 @@
++import { realpath } from 'node:fs/promises';
++import { isAbsolute, resolve } from 'node:path';
++
+ import { inspectBash } from './bash-ast.js';
+ import { isDroppedAutoAllow } from './auto-allow.js';
+ import { KNOWN_TOOLS, PLANS_DIR_PREFIX, READ_ONLY_TOOLS } from './defaults.js';
+@@ -246,8 +249,18 @@ export class PermissionEngine {
+       return { decision: 'allow' };
+     }
+ 
++    // `cd <the workspace root>` changes nothing — every relative path after it
++    // means what it meant before — but agents prefix it out of habit
++    // (`cd /abs/workspace && npm test`), and it alone made an allowed command
++    // ask. It is dropped here, for the allow and read-only checks only (deny
++    // rules, ask rules and the sensitive-file check above still see it). Only
++    // the root: `cd .git && cat config` would slip past the sensitive-path
++    // check, so a `cd` anywhere else still counts.
++    const effective = await this.withoutNoOpCd(segs);
++    if (segs.length > 0 && effective.length === 0) return { decision: 'allow' };
++
+     const allow = this.effectiveAllow();
+-    if (segs.length > 0 && segs.every((seg) => allow.some((r) => ruleMatchesBash(r, seg)))) {
++    if (effective.length > 0 && effective.every((seg) => allow.some((r) => ruleMatchesBash(r, seg)))) {
+       return { decision: 'allow' };
+     }
+ 
+@@ -265,13 +278,31 @@ export class PermissionEngine {
+     // anything the command before it could not.
+     const readOnly = (seg: string[]): boolean =>
+       !inspected.hasWriteRedirect && isReadOnlyBashSegment(seg);
+-    if (segs.length > 0 && segs.every((seg) => readOnly(seg) || allow.some((r) => ruleMatchesBash(r, seg)))) {
++    if (effective.length > 0 && effective.every((seg) => readOnly(seg) || allow.some((r) => ruleMatchesBash(r, seg)))) {
+       return { decision: 'allow' };
+     }
+ 
+     return this.modeDefault('bash', false);
+   }
+ 
++  /** `segments` minus any `cd <path>` whose path is the workspace root itself. */
++  private async withoutNoOpCd(segments: string[][]): Promise<string[][]> {
++    const out: string[][] = [];
++    for (const seg of segments) {
++      if (seg.length === 2 && seg[0] === 'cd' && (await this.isWorkspaceRoot(seg[1] as string))) continue;
++      out.push(seg);
++    }
++    return out;
++  }
++
++  private async isWorkspaceRoot(target: string): Promise<boolean> {
++    // `-`, `~` and variables resolve somewhere the parser can't see.
++    if (target === '' || target.startsWith('-') || target.startsWith('~') || target.includes('$')) return false;
++    const abs = isAbsolute(target) ? target : resolve(this.workspaceRoot, target);
++    const real = (p: string): Promise<string> => realpath(p).catch(() => resolve(p));
++    return (await real(abs)) === (await real(this.workspaceRoot));
++  }
++
+   /**
+    * A command that could not be parsed into segments: inline interpreter
+    * code, `$(...)`, a heredoc. Nothing here can check what it will run, so the
+@@ -453,7 +484,7 @@ function unreviewableAskReason(reason: string): string {
+       : 'a shape the reviewer cannot parse (a heredoc or subshell)';
+   return (
+     `This command contains ${what}, which can't be checked automatically, so it needs approval. ` +
+-    `Writing the code to a file and running that avoids the prompt.`
++    `Writing the code to a file in the scratch (system temp) directory and running that avoids the prompt.`
+   );
+ }
+ 
+diff --git a/packages/core/src/permissions/paths.test.ts b/packages/core/src/permissions/paths.test.ts
+index 5aa47c1..6d1d202 100644
+--- a/packages/core/src/permissions/paths.test.ts
++++ b/packages/core/src/permissions/paths.test.ts
+@@ -59,6 +59,17 @@ describe('isSensitivePath', () => {
+     expect(isSensitivePath('credentials.json')).toBe(true);
+     expect(isSensitivePath('src/a.ts')).toBe(false);
+   });
++
++  it('lets the committed .env templates through, and nothing else named .env*', () => {
++    expect(isSensitivePath('.env.example')).toBe(false);
++    expect(isSensitivePath('config/.env.sample')).toBe(false);
++    expect(isSensitivePath('.env.template')).toBe(false);
++    expect(isSensitivePath('.ENV.Example')).toBe(false);
++    expect(isSensitivePath('.env.production')).toBe(true);
++    expect(isSensitivePath('.env.example.local')).toBe(true);
++    expect(isSensitivePath('.env.examples')).toBe(true);
++    expect(isSensitivePath('.envrc')).toBe(true);
++  });
+ });
+ 
+ describe('isProtectedPath', () => {
+diff --git a/packages/core/src/permissions/paths.ts b/packages/core/src/permissions/paths.ts
+index 850c003..91be3f3 100644
+--- a/packages/core/src/permissions/paths.ts
++++ b/packages/core/src/permissions/paths.ts
+@@ -102,12 +102,19 @@ async function realpathExistingOrJoin(abs: string): Promise<string> {
+ 
+ const SENSITIVE_BASENAME = /^(id_rsa(\.pub)?|.+\.pem)$/i;
+ 
++/**
++ * Committed templates that document which variables exist, without values:
++ * reading or editing one is ordinary work. Only these exact names — `.env`,
++ * `.env.local`, `.env.production` and every other `.env*` stay protected.
++ */
++const ENV_TEMPLATE = /^\.env\.(example|sample|template)$/i;
++
+ export function isSensitivePath(relPosix: string): boolean {
+   const n = relPosix.replace(/\\/g, '/').replace(/^\.\//, '');
+   const parts = n.split('/');
+   const base = parts[parts.length - 1] ?? '';
+ 
+-  if (base === '.env' || base.startsWith('.env')) return true;
++  if (base.startsWith('.env') && !ENV_TEMPLATE.test(base)) return true;
+   if (n === '.git/config' || n.endsWith('/.git/config')) return true;
+   if (SENSITIVE_BASENAME.test(base)) return true;
+   if (/credential/i.test(base)) return true;

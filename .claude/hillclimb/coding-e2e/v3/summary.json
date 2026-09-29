@@ -1,0 +1,5 @@
+{
+  "description": "cd <workspace root> is a no-op for the permission engine",
+  "label": "cd root no-op",
+  "target": "code"
+}
