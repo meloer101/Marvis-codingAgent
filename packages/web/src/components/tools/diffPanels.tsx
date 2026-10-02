@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 
 import type { ToolItem } from '@harness-code/protocol';
 
@@ -19,38 +19,43 @@ function ErrorOutput({ tool }: { tool: ToolItem }) {
 
 export function EditDiffPanel({
   tool,
+  path,
   oldString,
   newString,
 }: {
   tool: ToolItem;
+  path: string;
   oldString: string;
   newString: string;
 }) {
-  const diff = editDiff(oldString, newString);
+  const startLine = tool.result?.display?.startLine;
+  const diff = useMemo(() => editDiff(oldString, newString, startLine), [oldString, newString, startLine]);
   return (
     <>
-      <DiffView diff={diff} />
+      <DiffView diff={diff} lang={langForPath(path) ?? undefined} />
       <ErrorOutput tool={tool} />
     </>
   );
 }
 
 export function EditDiffMeta({ oldString, newString }: { oldString: string; newString: string }) {
-  return <DiffStat diff={editDiff(oldString, newString)} />;
+  const diff = useMemo(() => editDiff(oldString, newString), [oldString, newString]);
+  return <DiffStat diff={diff} />;
 }
 
-export function WriteDiffPanel({ tool, content }: { tool: ToolItem; content: string }) {
-  const diff = writeDiff(content);
+export function WriteDiffPanel({ tool, path, content }: { tool: ToolItem; path: string; content: string }) {
+  const diff = useMemo(() => writeDiff(content), [content]);
   return (
     <>
-      <DiffView diff={diff} />
+      <DiffView diff={diff} lang={langForPath(path) ?? undefined} />
       <ErrorOutput tool={tool} />
     </>
   );
 }
 
 export function WriteDiffMeta({ content }: { content: string }) {
-  return <DiffStat diff={writeDiff(content)} />;
+  const diff = useMemo(() => writeDiff(content), [content]);
+  return <DiffStat diff={diff} />;
 }
 
 export function EditPreviewPanel({
@@ -64,7 +69,7 @@ export function EditPreviewPanel({
   newString: string;
   replaceAll?: boolean;
 }) {
-  const diff = editDiff(oldString, newString);
+  const diff = useMemo(() => editDiff(oldString, newString), [oldString, newString]);
   return (
     <div className="overflow-hidden rounded-md border bg-background">
       <div className="flex items-center gap-2 border-b px-3 py-1.5 font-mono text-xs">
@@ -72,7 +77,7 @@ export function EditPreviewPanel({
         {replaceAll === true && <span className="text-[10px] text-muted-foreground">replace all</span>}
         <DiffStat diff={diff} />
       </div>
-      <DiffView diff={diff} className="max-h-64" />
+      <DiffView diff={diff} lang={langForPath(path) ?? undefined} className="max-h-64" />
     </div>
   );
 }

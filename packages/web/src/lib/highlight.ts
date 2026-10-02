@@ -84,27 +84,52 @@ function getHighlighter(): Promise<HighlighterCore> {
   return highlighter;
 }
 
+const THEMES = { light: 'rose-pine-dawn', dark: 'rose-pine-moon' } as const;
+
+/** The highlighter with `lang`'s grammar loaded, or null for an unsupported language. */
+async function highlighterFor(lang: string | undefined): Promise<{ h: HighlighterCore; name: string } | null> {
+  const name = resolveLang(lang);
+  if (!name) return null;
+  const h = await getHighlighter();
+  let ready = loaded.get(name);
+  if (!ready) {
+    ready = LANGS[name]!().then((m) => h.loadLanguage(...m.default));
+    loaded.set(name, ready);
+  }
+  await ready;
+  return { h, name };
+}
+
 /**
  * Highlight `code` as HTML with both themes as CSS variables (`--shiki-light`
  * / `--shiki-dark`, switched in index.css). Null for unsupported languages or
  * if loading fails — callers keep showing the plain text.
  */
 export async function highlight(code: string, lang: string | undefined): Promise<string | null> {
-  const name = resolveLang(lang);
-  if (!name) return null;
   try {
-    const h = await getHighlighter();
-    let ready = loaded.get(name);
-    if (!ready) {
-      ready = LANGS[name]!().then((m) => h.loadLanguage(...m.default));
-      loaded.set(name, ready);
-    }
-    await ready;
-    return h.codeToHtml(code, {
-      lang: name,
-      themes: { light: 'rose-pine-dawn', dark: 'rose-pine-moon' },
-      defaultColor: false,
-    });
+    const hl = await highlighterFor(lang);
+    return hl ? hl.h.codeToHtml(code, { lang: hl.name, themes: THEMES, defaultColor: false }) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A highlighted run of text; `style` sets `--shiki-light` / `--shiki-dark`. */
+export interface Token {
+  content: string;
+  style?: Record<string, string>;
+}
+
+/**
+ * `code` as lines of tokens, for views that lay out lines themselves (diffs).
+ * Null as for `highlight`.
+ */
+export async function highlightTokens(code: string, lang: string | undefined): Promise<Token[][] | null> {
+  try {
+    const hl = await highlighterFor(lang);
+    if (!hl) return null;
+    const { tokens } = hl.h.codeToTokens(code, { lang: hl.name, themes: THEMES, defaultColor: false });
+    return tokens.map((line) => line.map((t) => (t.htmlStyle ? { content: t.content, style: t.htmlStyle } : { content: t.content })));
   } catch {
     return null;
   }

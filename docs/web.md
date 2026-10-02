@@ -319,6 +319,13 @@ The token is as powerful as the user's shell — a client can switch a session t
   (`components/tools/registry.tsx`). A `bash` card opens on its output while the
   command runs, following the tail, and folds again when it succeeds; its header
   gives the exit code of a failure (or the timeout) and the duration. Terminal
-  colours are kept and other escapes dropped (`lib/ansi.ts`). Permission asks
+  colours are kept and other escapes dropped (`lib/ansi.ts`). `edit` and `write`
+  cards show a unified diff (`components/DiffView.tsx`, `lib/diff.ts`) with the
+  file's line numbers — a `write` is the whole file; an `edit` with one
+  replacement reports where it starts as `ToolResult.display.startLine`, which
+  never reaches the model, is recorded with the call and comes back with the
+  transcript as a `tool_display` item — Shiki colours for the file's language,
+  and, within a removed line paired with the added one that replaced it, the
+  words that changed. Past 400 lines a button shows the rest. Permission asks
   and plan reviews dock above the composer instead of opening modals
   (`components/PendingDock.tsx`).

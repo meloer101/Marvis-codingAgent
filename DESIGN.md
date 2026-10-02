@@ -78,7 +78,7 @@ Rules: assistant prose is 15px/1.75 serif capped at 68ch; UI labels stay sans; C
 - **Exploration line**: a run of lookups folds into one quiet 12px muted line — chevron, search icon (violet spinner while one runs), "Read 3 files, searched for 2 patterns", then the running call in mono or "· 1 failed" in destructive — brightening on hover; it opens to the cards indented behind a left rule, as Session details does.
 - **Pending dock** (no modals): brass border + tint for permission asks, violet for plan review; kbd hints (`y`/`a`/`n`).
 - **Composer**: card surface, focus = violet border + ring + shadow lift; the text above, the footer controls below.
-- **Diffs**: `success`/`destructive` at 10% bg with matching text; mono 11px.
+- **Diffs**: mono 11px; added / removed lines on `success` / `destructive` at 10% bg, with the `+` / `−` in that colour and the text in ink — Shiki colours once the grammar loads. The words that changed within a replaced line sit on the same hue at 25%. File line numbers, muted at 70%, in one column per side that has them (a new file has only the "after" one). Past 400 lines, a quiet full-width "Show all N lines" row.
 - **Banners**: brass tint for connection, destructive tint for errors.
 
 ## Layout

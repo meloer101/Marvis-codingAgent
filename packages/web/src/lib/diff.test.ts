@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { editDiff, writeDiff } from './diff';
+import { diffSides, editDiff, lineSegments, lineTokens, writeDiff } from './diff';
 
 describe('editDiff', () => {
   it('marks changed lines and keeps shared ones as context', () => {
@@ -26,22 +26,85 @@ describe('editDiff', () => {
 
   it('handles strings without trailing newlines', () => {
     const d = editDiff('first line', 'first line (edited)');
-    expect(d.lines).toEqual([
-      { kind: 'del', text: 'first line' },
-      { kind: 'add', text: 'first line (edited)' },
+    expect(d.lines.map((l) => [l.kind, l.text])).toEqual([
+      ['del', 'first line'],
+      ['add', 'first line (edited)'],
     ]);
+  });
+
+  it('numbers lines from where the edit starts in the file', () => {
+    const d = editDiff('a\nb\nc\n', 'a\nB\nB2\nc\n', 41);
+    expect(d.lines.map((l) => [l.kind, l.oldNo, l.newNo])).toEqual([
+      ['ctx', 41, 41],
+      ['del', 42, undefined],
+      ['add', undefined, 42],
+      ['add', undefined, 43],
+      ['ctx', 43, 44],
+    ]);
+  });
+
+  it('marks the words that changed in a replaced line, pairing removed and added lines in order', () => {
+    const d = editDiff('const a = foo(1);\nkeep\n', 'const b = foo(2);\nkeep\n');
+    const [del, add] = d.lines;
+    expect(del!.changes).toEqual([
+      [6, 7],
+      [14, 15],
+    ]);
+    expect(add!.changes).toEqual([
+      [6, 7],
+      [14, 15],
+    ]);
+  });
+
+  it('marks text appended to a line', () => {
+    const [del, add] = editDiff('first line', 'first line (edited)').lines;
+    expect(del!.changes).toBeUndefined();
+    expect(add!.changes).toEqual([[10, 19]]);
+  });
+
+  it('leaves a rewritten line whole: little in common is not worth marking', () => {
+    const d = editDiff('return computeTotal(items);\n', 'throw new Error("nope");\n');
+    expect(d.lines.every((l) => l.changes === undefined)).toBe(true);
   });
 });
 
 describe('writeDiff', () => {
-  it('shows every line as added', () => {
+  it('shows every line as added, numbered from the top of the new file', () => {
     expect(writeDiff('x\ny\n')).toEqual({
       lines: [
-        { kind: 'add', text: 'x' },
-        { kind: 'add', text: 'y' },
+        { kind: 'add', text: 'x', newNo: 1 },
+        { kind: 'add', text: 'y', newNo: 2 },
       ],
       added: 2,
       removed: 0,
     });
+  });
+});
+
+describe('syntax colours on a diff', () => {
+  const tok = (content: string, color?: string) => (color ? { content, style: { '--shiki-light': color } } : { content });
+
+  it('takes removed lines from the before side and the rest from the after side', () => {
+    const d = editDiff('a\nold\nz\n', 'a\nnew\nz\n');
+    expect(diffSides(d)).toEqual({ before: 'a\nold\nz', after: 'a\nnew\nz' });
+    const before = [[tok('a')], [tok('old', '#b')], [tok('z')]];
+    const after = [[tok('a', '#1')], [tok('new', '#2')], [tok('zz')]];
+    expect(lineTokens(d, before, after)).toEqual([
+      [tok('a', '#1')],
+      [tok('old', '#b')],
+      [tok('new', '#2')],
+      undefined, // tokens that don't spell the line are dropped
+    ]);
+  });
+
+  it('cuts a line at token and changed-range boundaries', () => {
+    expect(lineSegments('const b = 2', [tok('const', '#k'), tok(' b = '), tok('2', '#n')], [[6, 7], [10, 11]])).toEqual([
+      { text: 'const', style: { '--shiki-light': '#k' } },
+      { text: ' ' },
+      { text: 'b', changed: true },
+      { text: ' = ' },
+      { text: '2', style: { '--shiki-light': '#n' }, changed: true },
+    ]);
+    expect(lineSegments('plain', undefined, undefined)).toEqual([{ text: 'plain' }]);
   });
 });

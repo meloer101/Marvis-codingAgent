@@ -147,7 +147,7 @@ const renderers: Record<string, Renderer> = {
       ),
       body: (
         <Suspense fallback={diffFallback}>
-          <EditDiffPanel tool={tool} oldString={oldString} newString={newString} />
+          <EditDiffPanel tool={tool} path={str(input, 'path') ?? ''} oldString={oldString} newString={newString} />
         </Suspense>
       ),
       defaultOpen:
@@ -166,7 +166,7 @@ const renderers: Record<string, Renderer> = {
       ),
       body: (
         <Suspense fallback={diffFallback}>
-          <WriteDiffPanel tool={tool} content={content} />
+          <WriteDiffPanel tool={tool} path={str(input, 'path') ?? ''} content={content} />
         </Suspense>
       ),
       defaultOpen: tool.result?.isError === true || roughLineCount(content) <= OPEN_DIFF_LINES,

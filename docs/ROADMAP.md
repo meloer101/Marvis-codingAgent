@@ -253,8 +253,8 @@
 （工具 schema、system prompt、默认消息形状），否则 eval cassette 全部失效。
 
 - **M3 转录可读性**：（10-02 已做：连续只读工具调用合并成一行摘要，Ctrl+O 切换 Verbose；bash 流式输出
-  （`tool_call_output`）、退出码和耗时、ANSI。）剩余：子代理在 task 卡里嵌套实时展示；任务清单（由最近一次 `todo` 输入
-  推导）；复制、重试；diff 行号、词级高亮、语法着色、去掉 400 行截断。*(L)*
+  （`tool_call_output`）、退出码和耗时、ANSI；diff 行号、词级高亮、语法着色，400 行之后按需展开。）剩余：子代理在
+  task 卡里嵌套实时展示；任务清单（由最近一次 `todo` 输入推导）；复制、重试。*(L)*
 - **M4 审查闭环**：`server/src/git.ts`（status / diff / 按文件暂存、还原 / commit / push / 用 `gh` 建 PR），
   写或 bash 之后推送 `git_status`；三栏布局，右侧面板 Changes / Files / Tasks；只看本会话改动；diff 上的行评论攒成
   一条消息发给 agent；`fs.read` 文件查看（路径守卫、敏感文件拒绝）；打开到 VS Code / Cursor / Zed。git/fs 相关

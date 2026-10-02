@@ -1,9 +1,11 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { DiffView } from './DiffView';
 import { Markdown } from './Markdown';
 import { EffortPicker, ModeChip, ModelPicker } from './ComposerControls';
 import { toolPreview, toolView } from './tools/registry';
+import { editDiff, writeDiff } from '@/lib/diff';
 import { briefNotice, transcriptRows } from '@/lib/rows';
 
 afterEach(cleanup);
@@ -227,5 +229,38 @@ describe('hidden notices', () => {
       notice(2, 'context-warn', 'context 81% full'),
     ]);
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe('DiffView', () => {
+  const lineNos = (container: HTMLElement) =>
+    [...container.querySelectorAll('tr')].map((tr) => [...tr.querySelectorAll('td.tabular-nums')].map((td) => td.textContent));
+
+  it("numbers an edit's lines from where it starts in the file, and marks the changed words", () => {
+    const { container } = render(<DiffView diff={editDiff('keep\nconst a = 1;\n', 'keep\nconst b = 1;\n', 10)} />);
+    expect(lineNos(container)).toEqual([
+      ['10', '10'],
+      ['11', ''],
+      ['', '11'],
+    ]);
+    expect([...container.querySelectorAll('.bg-destructive\\/25, .bg-success\\/25')].map((e) => e.textContent)).toEqual(['a', 'b']);
+  });
+
+  it('gives a new file one number column, and shows a long one in full on request', () => {
+    const content = Array.from({ length: 450 }, (_, i) => `line ${i + 1}`).join('\n');
+    const { container } = render(<DiffView diff={writeDiff(content)} />);
+    expect(lineNos(container)[0]).toEqual(['1']);
+    expect(container.querySelectorAll('tr')).toHaveLength(400);
+    fireEvent.click(screen.getByRole('button', { name: /Show all 450 lines/ }));
+    expect(container.querySelectorAll('tr')).toHaveLength(450);
+    expect(container.textContent).toContain('line 450');
+  });
+
+  it('colours the code once its grammar loads', async () => {
+    render(<DiffView diff={editDiff('let x = 1;', 'let x = 2;')} lang="ts" />);
+    // Both sides (the removed and the added line) start with a coloured `let`.
+    const kws = await screen.findAllByText('let', { selector: 'span' });
+    expect(kws).toHaveLength(2);
+    for (const kw of kws) expect(kw.style.getPropertyValue('--shiki-light')).toMatch(/^#/);
   });
 });
