@@ -5,9 +5,9 @@
  * for screenshots (`hc web --mock`, docs/web.md "Running it").
  *
  * The script, consumed across two sends, covers every UI surface: streamed
- * thinking + text, read-only lookups, a `bash` tool, `write` + `edit` file
- * tools (each asks for permission in `ask` mode), and — after the client
- * switches to plan mode — an `exit_plan_mode` plan approval.
+ * thinking + text, read-only lookups, a task list, a `bash` tool, `write` +
+ * `edit` file tools (each asks for permission in `ask` mode), and — after the
+ * client switches to plan mode — an `exit_plan_mode` plan approval.
  */
 
 import {
@@ -31,6 +31,15 @@ import type { SessionConfigFactory } from './registry.js';
 
 const MOCK_FILE = 'mock-demo.txt';
 
+/** The reel's task list: looking around is done; the other two go as given. */
+function mockTodos(commands: string, scratch: string): Array<{ id: string; content: string; status: string }> {
+  return [
+    { id: '1', content: 'Look around the workspace', status: 'completed' },
+    { id: '2', content: 'Check that commands run', status: commands },
+    { id: '3', content: 'Set up a scratch file', status: scratch },
+  ];
+}
+
 /** The fixed reel. A fresh copy is handed to every new session. */
 function mockScript(): ScriptedTurn[] {
   return [
@@ -44,8 +53,11 @@ function mockScript(): ScriptedTurn[] {
       ],
     },
     {
-      thinking: 'A README would say what this project is.',
-      toolCalls: [{ name: 'read', input: { path: 'README.md', limit: 20 } }],
+      thinking: 'A README would say what this project is. And a plan, to keep track.',
+      toolCalls: [
+        { name: 'read', input: { path: 'README.md', limit: 20 } },
+        { name: 'todo', input: { todos: mockTodos('in_progress', 'pending') } },
+      ],
     },
     {
       // `tee` keeps this out of the read-only set — read-only commands are
@@ -82,6 +94,7 @@ function mockScript(): ScriptedTurn[] {
             newString: 'first line (edited by the mock)',
           },
         },
+        { name: 'todo', input: { todos: mockTodos('completed', 'completed') } },
       ],
     },
     { text: 'All set — the scratch file is ready.' },

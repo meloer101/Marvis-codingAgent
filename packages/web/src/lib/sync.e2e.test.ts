@@ -42,8 +42,8 @@ afterEach(async () => {
   for (const fn of cleanups.splice(0).reverse()) await fn();
 });
 
-/** The read-only calls the mock reel opens with, before its first prompt. */
-const LOOK_AROUND = ['glob', 'grep', 'read'];
+/** The calls the mock reel opens with, before its first prompt: lookups and a task list. */
+const LOOK_AROUND = ['glob', 'grep', 'read', 'todo'];
 
 async function boot(): Promise<{ server: RunningServer; cwd: string }> {
   const cwd = await mkdtemp(join(tmpdir(), 'hc-web-e2e-'));
@@ -165,7 +165,7 @@ describe('SessionSync ↔ hc web --mock', () => {
     const final = view()!;
     expect(final.entries.find((e) => e.kind === 'user')).toMatchObject({ text: 'set up a scratch file' });
     const tools = final.entries.flatMap((e) => (e.kind === 'assistant' ? e.tools.map((t) => t.name) : []));
-    expect(tools).toEqual([...LOOK_AROUND, 'bash', 'write', 'edit']);
+    expect(tools).toEqual([...LOOK_AROUND, 'bash', 'write', 'edit', 'todo']);
     expect(final.entries.at(-1)).toMatchObject({ kind: 'assistant', text: 'All set — the scratch file is ready.' });
     expect(await readFile(join(cwd, 'mock-demo.txt'), 'utf8')).toContain('edited by the mock');
 
@@ -178,6 +178,7 @@ describe('SessionSync ↔ hc web --mock', () => {
       ['bash', true],
       ['write', true],
       ['edit', true],
+      ['todo', true],
     ]);
 
     // The sidebar list shows the session.
