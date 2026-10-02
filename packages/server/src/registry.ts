@@ -80,7 +80,10 @@ export interface SessionRegistryOptions {
 const DEFAULT_IDLE_MS = 10 * 60_000;
 const DEFAULT_SWEEP_MS = 60_000;
 
-/** Receives every session-list change (`registry.onChange`). */
+/** How long file-change notices are gathered before one goes out. */
+const FILES_CHANGED_MS = 250;
+
+/** Receives every session-list change (`registry.onChange`), and file-change notices. */
 export type RegistryListener = (event: PushEvent) => void;
 
 /** Title of a live session that has neither a log nor a first message yet. */
@@ -106,6 +109,7 @@ export class SessionRegistry {
   /** Resumes in flight, so two opens of one session share one `AgentSession`. */
   readonly #resuming = new Map<string, Promise<SessionHost>>();
   readonly #listeners = new Set<RegistryListener>();
+  #filesTimer: ReturnType<typeof setTimeout> | undefined;
   /** The counter behind `#nextRev` when none is shared. */
   #rev = 0;
   readonly #idleMs: number;
@@ -199,6 +203,20 @@ export class SessionRegistry {
       archived: disk?.meta?.archived === true,
       rev,
     };
+  }
+
+  /**
+   * Tell listeners this workspace's files may have changed — at most once per
+   * `FILES_CHANGED_MS`, however many tool calls ended in between.
+   */
+  #filesChanged(): void {
+    const workspaceId = this.#workspaceId;
+    if (!workspaceId || this.#filesTimer) return;
+    this.#filesTimer = setTimeout(() => {
+      this.#filesTimer = undefined;
+      for (const listener of this.#listeners) listener({ type: 'git_changed', workspaceId });
+    }, FILES_CHANGED_MS);
+    this.#filesTimer.unref?.();
   }
 
   /** Push `id`'s current row (or its removal) to every `onChange` listener. */
@@ -432,6 +450,7 @@ export class SessionRegistry {
       ...(this.#workspaceId ? { workspaceId: this.#workspaceId } : {}),
       hasMeta: opts.hasMeta,
       onSummaryChange: () => this.#announce(host.id),
+      onFilesChanged: () => this.#filesChanged(),
     });
     const session = await AgentSession.create({
       ...config,

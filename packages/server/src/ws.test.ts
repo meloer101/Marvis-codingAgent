@@ -258,6 +258,21 @@ describe('ws transport', () => {
     client.close();
   });
 
+  it("answers a workspace's git status and diff, and refuses a path outside it", async () => {
+    const server = await boot();
+    const client = await Client.open(wsUrl(server), `http://127.0.0.1:${server.port}`);
+    await client.call('auth', { token: server.token });
+    const workspaces = (await client.call('workspace.list')) as { result: Array<{ id: string }> };
+    const workspaceId = workspaces.result[0]!.id;
+
+    expect(await client.call('git.status', { workspaceId })).toMatchObject({ ok: true, result: { repo: expect.any(Boolean) } });
+    expect(await client.call('git.diff', { workspaceId, path: '../outside' })).toMatchObject({
+      ok: false,
+      error: { code: 'bad_request' },
+    });
+    client.close();
+  });
+
   it('serves server.info once authed', async () => {
     const server = await boot();
     const client = await Client.open(wsUrl(server), `http://127.0.0.1:${server.port}`);

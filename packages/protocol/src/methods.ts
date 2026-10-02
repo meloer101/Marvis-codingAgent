@@ -154,6 +154,45 @@ export interface FileMatch {
   path: string;
 }
 
+/** How a file differs, on one side of the index. */
+export type GitChange = 'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'typechange' | 'untracked' | 'conflicted';
+
+/** One changed file in a workspace (`git.status`). */
+export interface GitFile {
+  /** Relative to the workspace root, `/`-separated. */
+  path: string;
+  /** Where a rename or copy came from. */
+  oldPath?: string;
+  /** Staged change (index vs HEAD), if any. */
+  staged?: GitChange;
+  /** Unstaged change (work tree vs index), if any; `untracked` for a new file git doesn't track. */
+  unstaged?: GitChange;
+  /** Lines added / removed against HEAD, staged and unstaged together; absent for a binary file. */
+  added?: number;
+  removed?: number;
+  binary?: boolean;
+}
+
+/** A workspace's git state: its changes against HEAD, under the workspace directory. */
+export type GitStatus =
+  | { repo: false }
+  | {
+      repo: true;
+      /** Null on a detached HEAD. */
+      branch: string | null;
+      upstream?: string;
+      ahead: number;
+      behind: number;
+      files: GitFile[];
+    };
+
+/** One file's changes against HEAD, as `git diff` prints them (`git.diff`). */
+export type GitDiff =
+  | { kind: 'text'; patch: string }
+  | { kind: 'binary' }
+  /** Too big to show, or a secret the server won't send. */
+  | { kind: 'withheld'; reason: string };
+
 /** What `session.send` did: started a run, or queued the message behind the one going. */
 export type SendResult = { runId: string } | { queued: QueuedMessage };
 
@@ -276,6 +315,18 @@ export const methods = {
    */
   'fs.search': method<{ workspaceId: string; query: string; limit?: number }, FileMatch[]>(
     z.object({ workspaceId: workspaceIdSchema, query: z.string().max(512), limit: z.number().int().min(1).max(200).optional() }),
+  ),
+  /**
+   * The workspace's changes against HEAD. `sessionId` is accepted for when a
+   * session can have a work tree of its own; today every session shares the
+   * workspace's.
+   */
+  'git.status': method<{ workspaceId: string; sessionId?: string }, GitStatus>(
+    z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional() }),
+  ),
+  /** One file's changes against HEAD (`path` relative to the workspace root). */
+  'git.diff': method<{ workspaceId: string; sessionId?: string; path: string }, GitDiff>(
+    z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional(), path: pathSchema }),
   ),
   /** Directories completing a path prefix (`~` allowed), for the add dialog. */
   'fs.suggestDirs': method<{ prefix: string }, DirSuggestion[]>(z.object({ prefix: z.string().max(4096) })),

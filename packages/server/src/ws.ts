@@ -31,6 +31,7 @@ import { methods } from '@harness-code/protocol';
 import { WebSocket, WebSocketServer } from 'ws';
 
 import { BusyError, InvalidRequestError, SessionNotFoundError } from './host.js';
+import { GitPathError } from './git.js';
 import { WorkspaceNotFoundError } from './hub.js';
 import { suggestDirs } from './inspect.js';
 import type { WorkspaceHub } from './hub.js';
@@ -231,6 +232,12 @@ class Connection {
         const { workspaceId, query, limit } = params as MethodParams<'fs.search'>;
         return hub.searchFiles(workspaceId, query, limit);
       }
+      case 'git.status':
+        return hub.gitStatus((params as MethodParams<'git.status'>).workspaceId);
+      case 'git.diff': {
+        const { workspaceId, path } = params as MethodParams<'git.diff'>;
+        return hub.gitDiff(workspaceId, path);
+      }
       case 'fs.suggestDirs':
         return suggestDirs((params as MethodParams<'fs.suggestDirs'>).prefix);
       case 'session.list':
@@ -415,6 +422,7 @@ function mapError(err: unknown): { code: ErrorCode; message: string } {
   if (err instanceof SessionNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof SessionPreviewNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof WorkspaceNotFoundError) return { code: 'not_found', message: err.message };
+  if (err instanceof GitPathError) return { code: 'bad_request', message: err.message };
   const message = err instanceof Error ? err.message : String(err);
   return { code: 'internal', message };
 }

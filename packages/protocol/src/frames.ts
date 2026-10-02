@@ -20,7 +20,9 @@ export type PushEvent =
   | { type: 'session_upsert'; summary: SessionSummary }
   | { type: 'session_removed'; id: string; rev: number }
   /** The whole workspace list, whenever a workspace is added or removed. */
-  | { type: 'workspaces'; workspaces: Workspace[] };
+  | { type: 'workspaces'; workspaces: Workspace[] }
+  /** A session may have changed files in this workspace: its `git.status` is worth asking again. */
+  | { type: 'git_changed'; workspaceId: string };
 
 /** server → client */
 export type ServerFrame =

@@ -24,6 +24,8 @@ import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir } from '@harness-
 import type { EffortOptions, PermissionMode } from '@harness-code/core';
 import type {
   FileMatch,
+  GitDiff,
+  GitStatus,
   ModelInfo,
   PushEvent,
   SessionSnapshot,
@@ -34,6 +36,7 @@ import type {
 } from '@harness-code/protocol';
 
 import { FileIndex } from './files.js';
+import { gitDiff, gitStatus } from './git.js';
 import { BusyError, InvalidRequestError } from './host.js';
 import type { SessionHost } from './host.js';
 import { inspectDirectory } from './inspect.js';
@@ -154,6 +157,25 @@ export class WorkspaceHub {
     if (!entry) throw new WorkspaceNotFoundError(id);
     if (entry.missing) return [];
     return this.#files.search(entry.record.root, query, limit);
+  }
+
+  /** Workspace `id`'s changes against HEAD. */
+  async gitStatus(id: string): Promise<GitStatus> {
+    const entry = this.#present(id);
+    return entry ? gitStatus(entry.record.root) : { repo: false };
+  }
+
+  /** One file's changes in workspace `id`. */
+  async gitDiff(id: string, path: string): Promise<GitDiff> {
+    const entry = this.#present(id);
+    return entry ? gitDiff(entry.record.root, path) : { kind: 'withheld', reason: 'The project folder is missing.' };
+  }
+
+  /** Workspace `id`, or undefined when its directory is gone; throws for an unknown id. */
+  #present(id: string): Entry | undefined {
+    const entry = this.#entries.get(id);
+    if (!entry) throw new WorkspaceNotFoundError(id);
+    return entry.missing ? undefined : entry;
   }
 
   /** What adding `path` as a workspace would mean (nothing is changed). */

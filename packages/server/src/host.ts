@@ -62,6 +62,18 @@ const OUTPUT_BURST_CHARS = 16_000;
 type Coalesced =
   | { type: 'text_delta' | 'thinking_delta'; text: string }
   | { type: 'tool_call_output'; id: string; text: string };
+/** Tool calls that never change a file — any other may have (`onFilesChanged`). */
+const LOOKUP_TOOLS: ReadonlySet<string> = new Set([
+  'read',
+  'grep',
+  'glob',
+  'webfetch',
+  'list_skills',
+  'skill',
+  'todo',
+  'exit_plan_mode',
+]);
+
 /** Wire events after which the session's list row (running / pending / title) may differ. */
 const SUMMARY_EVENTS: ReadonlySet<WireEvent['type']> = new Set([
   'run_start',
@@ -133,6 +145,7 @@ export class SessionHost {
   readonly #cwd: string | undefined;
   readonly #workspaceId: string | undefined;
   readonly #onSummaryChange: (() => void) | undefined;
+  readonly #onFilesChanged: (() => void) | undefined;
   #session: AgentSession | undefined;
   /** The first message sent here — the list title until the log has one. */
   #firstInput: string | undefined;
@@ -188,6 +201,8 @@ export class SessionHost {
    * `hasMeta`: resuming a session whose sidecar exists — patch it from the start.
    * `onSummaryChange`: called after any event that may change the session's list
    * row, so the registry can push the new row to every client.
+   * `onFilesChanged`: called after a tool call that may have changed files (any
+   * but a lookup) and when a run ends, so clients can look at git again.
    */
   constructor(opts: {
     agentDir: string;
@@ -195,12 +210,14 @@ export class SessionHost {
     workspaceId?: string;
     hasMeta?: boolean;
     onSummaryChange?: () => void;
+    onFilesChanged?: () => void;
   }) {
     this.#agentDir = opts.agentDir;
     this.#cwd = opts.cwd;
     this.#workspaceId = opts.workspaceId;
     this.#metaExists = opts.hasMeta === true;
     this.#onSummaryChange = opts.onSummaryChange;
+    this.#onFilesChanged = opts.onFilesChanged;
   }
 
   /** Wire the live session in. Called once, right after `AgentSession.create`. */
@@ -787,6 +804,13 @@ export class SessionHost {
     if (this.#ring.length > RING_CAPACITY) this.#ring.shift();
     for (const listener of this.#listeners) listener(frame);
     if (SUMMARY_EVENTS.has(event.type)) this.#onSummaryChange?.();
+    if (
+      (event.type === 'tool_call_end' && !LOOKUP_TOOLS.has(event.name)) ||
+      event.type === 'run_end' ||
+      event.type === 'run_error'
+    ) {
+      this.#onFilesChanged?.();
+    }
   }
 }
 

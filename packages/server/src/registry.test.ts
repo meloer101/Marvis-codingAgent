@@ -206,6 +206,51 @@ describe('SessionRegistry lifecycle', () => {
   });
 });
 
+describe('SessionRegistry file changes', () => {
+  it('says once that files may have changed, however many calls changed them', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'hc-registry-'));
+    tmpDirs.push(cwd);
+    const model = scriptedModel([
+      { toolCalls: [{ name: 'glob', input: { pattern: '*' } }] },
+      { toolCalls: [{ name: 'write', input: { path: 'a.txt', content: 'a' } }] },
+      { toolCalls: [{ name: 'write', input: { path: 'b.txt', content: 'b' } }] },
+      { text: 'done' },
+    ]);
+    const reg = new SessionRegistry({
+      cwd,
+      agentDir: join(cwd, '.agent'),
+      workspaceId: 'abc123',
+      buildConfig: async () => ({
+        cwd,
+        model,
+        settings: {},
+        budgets: {},
+        mode: 'yolo' as PermissionMode,
+        skills: false,
+        subagents: false,
+        mcp: false,
+        memory: false,
+        recorder: false,
+        trace: false,
+        projectMemory: null,
+      }),
+      previewDefaults: async () => ({ modelRef: 'scripted/test-model', mode: 'yolo' }),
+      effortFor,
+      sweepMs: 0,
+    });
+    const changes: PushEvent[] = [];
+    reg.onChange((e) => changes.push(e));
+    const { id } = await reg.create({});
+    const host = reg.get(id)!;
+    const ended = new Promise<void>((resolve) => host.addListener((f) => f.t === 'evt' && f.event.type === 'run_end' && resolve()));
+    await host.send('write two files');
+    await ended;
+    await new Promise((r) => setTimeout(r, 400));
+    expect(changes.filter((e) => e.type === 'git_changed')).toEqual([{ type: 'git_changed', workspaceId: 'abc123' }]);
+    await reg.shutdown();
+  });
+});
+
 describe('SessionRegistry effort', () => {
   it("drops a recorded effort the resumed model doesn't offer", async () => {
     const { reg, buildConfig } = await diskSession({ model: 'scripted/test-model', effort: 'ultra' });
