@@ -80,12 +80,13 @@ export const bashTool: ToolSpec<Input> = {
         resolvePromise(result);
       };
 
-      child.stdout?.on('data', (d: Buffer) => {
-        output += d.toString();
-      });
-      child.stderr?.on('data', (d: Buffer) => {
-        output += d.toString();
-      });
+      // Decoded per stream, so a character split across two chunks stays whole.
+      const onData = (text: string): void => {
+        output += text;
+        ctx.onOutput?.(text);
+      };
+      child.stdout?.setEncoding('utf8').on('data', onData);
+      child.stderr?.setEncoding('utf8').on('data', onData);
 
       child.on('close', (code) => {
         const truncated = truncateHeadTail(output, {

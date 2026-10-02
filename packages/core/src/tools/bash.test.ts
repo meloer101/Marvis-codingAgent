@@ -45,6 +45,18 @@ describe('bashTool', () => {
     expect((await readFile(join(cwd, 'out.txt'), 'utf8')).trim()).toBe('hello');
   });
 
+  it('streams output as it comes, whole characters only, and returns all of it', async () => {
+    const chunks: string[] = [];
+    // A three-byte character split across two writes, then stderr.
+    const result = await bashTool.execute(
+      { command: "printf '\\xe4\\xbd'; sleep 0.05; printf '\\xa0 ok\\n'; echo err >&2" },
+      { ...ctx, onOutput: (t) => chunks.push(t) },
+    );
+    expect(result.content).toBe('你 ok\nerr\n');
+    expect(chunks.join('')).toBe(result.content);
+    expect(chunks.join('')).not.toContain('\ufffd');
+  });
+
   it('reports a non-zero exit code as an error', async () => {
     const result = await bashTool.execute({ command: 'exit 3' }, ctx);
     expect(result.isError).toBe(true);

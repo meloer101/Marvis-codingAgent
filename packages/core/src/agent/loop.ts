@@ -77,7 +77,10 @@ export type AgentEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; text: string }
   | { type: 'tool_call_start'; id: string; name: string; input: unknown }
-  | { type: 'tool_call_end'; id: string; name: string; result: ToolResult }
+  /** Output a running tool produced (`bash`'s stdout/stderr), for display only. */
+  | { type: 'tool_call_output'; id: string; text: string }
+  /** `durationMs`: how long the tool ran, not counting a permission prompt. */
+  | { type: 'tool_call_end'; id: string; name: string; result: ToolResult; durationMs?: number }
   | { type: 'turn_end'; usage: Usage }
   /**
    * The model call failed mid-stream with a retryable error and will be re-sent
@@ -920,7 +923,13 @@ export class AgentLoop {
       outcome: { result: ToolResult; durationMs: number },
     ): Promise<void> => {
       results.set(call.id, outcome.result);
-      this.emit({ type: 'tool_call_end', id: call.id, name: call.name, result: outcome.result });
+      this.emit({
+        type: 'tool_call_end',
+        id: call.id,
+        name: call.name,
+        result: outcome.result,
+        durationMs: outcome.durationMs,
+      });
       await this.opts.recorder?.recordToolCall({
         id: call.id,
         name: call.name,
@@ -1134,6 +1143,7 @@ export class AgentLoop {
         session: this.session,
         ...(this.opts.signal ? { signal: this.opts.signal } : {}),
         ...(this.opts.control ? { control: this.opts.control } : {}),
+        onOutput: (text) => this.emit({ type: 'tool_call_output', id: call.id, text }),
       });
     } catch (err) {
       return { content: `Tool ${call.name} threw: ${errorMessage(err)}`, isError: true };

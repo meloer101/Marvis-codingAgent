@@ -23,6 +23,11 @@ export interface ToolContext {
   session: SessionState;
   /** Channel back to the harness. Present only when the loop was given one. */
   control?: AgentControl;
+  /**
+   * Output as the tool produces it, for a frontend to show while it runs
+   * (`tool_call_output`). Display only: the model sees the result alone.
+   */
+  onOutput?: (text: string) => void;
 }
 
 export interface ToolResult {

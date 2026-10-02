@@ -183,6 +183,45 @@ describe('AgentLoop', () => {
     expect(endOrder).toEqual(['slow', 'fast']);
   });
 
+  it('forwards what a tool streams as tool_call_output, and times the call', async () => {
+    const provider = new ScriptedProvider([{ toolCalls: [{ name: 'chatty', input: {} }] }, { text: 'done' }]);
+    const chatty: ToolSpec<unknown> = {
+      name: 'chatty',
+      description: 'test tool',
+      schema: noInput,
+      readOnly: true,
+      concurrencySafe: false,
+      async execute(_input, ctx) {
+        ctx.onOutput?.('one\n');
+        await delay(20);
+        ctx.onOutput?.('two\n');
+        return { content: 'one\ntwo\n' };
+      },
+    };
+    const events: AgentEvent[] = [];
+    const loop = new AgentLoop({
+      model: resolvedModel(provider),
+      tools: new ToolRegistry([chatty]),
+      cwd: '/tmp',
+      onEvent: (e) => events.push(e),
+    });
+
+    await loop.run([userText('hi')]);
+
+    const call = events.flatMap((e) =>
+      e.type === 'tool_call_start' || e.type === 'tool_call_output' || e.type === 'tool_call_end' ? [e] : [],
+    );
+    const id = call[0]!.id;
+    expect(call.map((e) => [e.type, e.id, e.type === 'tool_call_output' ? e.text : null])).toEqual([
+      ['tool_call_start', id, null],
+      ['tool_call_output', id, 'one\n'],
+      ['tool_call_output', id, 'two\n'],
+      ['tool_call_end', id, null],
+    ]);
+    const end = call[3]!;
+    expect(end.type === 'tool_call_end' && end.durationMs).toBeGreaterThanOrEqual(15);
+  });
+
   it('preserves model order: a write barrier runs before a following read', async () => {
     const provider = new ScriptedProvider([
       {
