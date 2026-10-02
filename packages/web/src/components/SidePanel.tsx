@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
-import { GitCompareArrows, ListChecks, X } from 'lucide-react';
+import { FolderTree, GitCompareArrows, ListChecks, X } from 'lucide-react';
 
 import { ChangesPanel } from '@/components/ChangesPanel';
+import { FilesPanel } from '@/components/FilesPanel';
 import { TodoList } from '@/components/TodoList';
 import { setPanel, usePanel } from '@/lib/panel';
 import type { PanelTab } from '@/lib/panel';
@@ -13,10 +14,11 @@ import { cn } from '@/lib/utils';
 
 const TABS: Array<{ tab: PanelTab; label: string; icon: typeof X }> = [
   { tab: 'changes', label: 'Changes', icon: GitCompareArrows },
+  { tab: 'files', label: 'Files', icon: FolderTree },
   { tab: 'tasks', label: 'Tasks', icon: ListChecks },
 ];
 
-/** The panel to the right of a session: its project's changes, and the agent's task list. */
+/** The panel to the right of a session: its project's changes and files, and the agent's task list. */
 export function SidePanel({ view }: { view: SessionViewState }) {
   const tab = usePanel();
   const root = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId)?.root);
@@ -62,6 +64,7 @@ export function SidePanel({ view }: { view: SessionViewState }) {
         {tab === 'changes' && view.workspaceId && (
           <ChangesPanel workspaceId={view.workspaceId} {...(sessionPaths ? { sessionPaths } : {})} />
         )}
+        {tab === 'files' && view.workspaceId && <FilesPanel workspaceId={view.workspaceId} />}
         {tab === 'tasks' && <TasksTab view={view} />}
       </div>
     </aside>

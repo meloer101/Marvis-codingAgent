@@ -7,6 +7,7 @@
  */
 
 import { Suspense, lazy, type ReactNode } from 'react';
+import { FileSearch } from 'lucide-react';
 
 import { describeToolInput } from '@harness-code/core/browser';
 import type { ToolItem } from '@harness-code/protocol';
@@ -17,6 +18,7 @@ import { TodoList } from '@/components/TodoList';
 import { TerminalOutput } from '@/components/tools/TerminalOutput';
 import { bashOutcome, fmtDuration } from '@/lib/format';
 import { parseTodos } from '@/lib/todos';
+import { openFile } from '@/lib/panel';
 import { cn } from '@/lib/utils';
 
 const EditDiffPanel = lazy(() =>
@@ -79,6 +81,23 @@ function Output({ tool }: { tool: ToolItem }) {
 
 function Mono({ children }: { children: ReactNode }) {
   return <span className="font-mono">{children}</span>;
+}
+
+/** Under a file tool's body: open the file in the side panel's viewer, at a line. */
+function OpenFileBar({ path, line }: { path: string; line?: number | undefined }) {
+  if (!path) return null;
+  return (
+    <div className="flex justify-end border-t px-2 py-1">
+      <button
+        type="button"
+        onClick={() => openFile(path, line)}
+        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <FileSearch className="size-3" />
+        Open file{line ? ` at line ${line}` : ''}
+      </button>
+    </div>
+  );
 }
 
 function Badge({ tone, children }: { tone: 'destructive'; children: ReactNode }) {
@@ -150,9 +169,12 @@ const renderers: Record<string, Renderer> = {
         </Suspense>
       ),
       body: (
-        <Suspense fallback={diffFallback}>
-          <EditDiffPanel tool={tool} path={str(input, 'path') ?? ''} oldString={oldString} newString={newString} />
-        </Suspense>
+        <>
+          <Suspense fallback={diffFallback}>
+            <EditDiffPanel tool={tool} path={str(input, 'path') ?? ''} oldString={oldString} newString={newString} />
+          </Suspense>
+          <OpenFileBar path={str(input, 'path') ?? ''} line={tool.result?.display?.startLine} />
+        </>
       ),
       defaultOpen:
         tool.result?.isError === true || roughLineCount(oldString, newString) <= OPEN_DIFF_LINES,
@@ -169,9 +191,12 @@ const renderers: Record<string, Renderer> = {
         </Suspense>
       ),
       body: (
-        <Suspense fallback={diffFallback}>
-          <WriteDiffPanel tool={tool} path={str(input, 'path') ?? ''} content={content} />
-        </Suspense>
+        <>
+          <Suspense fallback={diffFallback}>
+            <WriteDiffPanel tool={tool} path={str(input, 'path') ?? ''} content={content} />
+          </Suspense>
+          <OpenFileBar path={str(input, 'path') ?? ''} />
+        </>
       ),
       defaultOpen: tool.result?.isError === true || roughLineCount(content) <= OPEN_DIFF_LINES,
     };
@@ -188,7 +213,12 @@ const renderers: Record<string, Renderer> = {
           {range}
         </Mono>
       ),
-      body: tool.result?.content ? <Output tool={tool} /> : null,
+      body: tool.result?.content ? (
+        <>
+          <Output tool={tool} />
+          {!tool.result.isError && <OpenFileBar path={str(input, 'path') ?? ''} line={offset} />}
+        </>
+      ) : null,
       defaultOpen: tool.result?.isError === true,
     };
   },

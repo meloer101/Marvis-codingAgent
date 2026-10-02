@@ -7,6 +7,7 @@ import {
   ChartPie,
   Cpu,
   FolderPlus,
+  FolderTree,
   Gauge,
   GitCompareArrows,
   Keyboard,
@@ -263,6 +264,9 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
     }
     if (panel !== 'changes') {
       items.push({ id: 'panel-changes', group: 'App', label: 'Show changes', hint: panel ? undefined : '⌥⌘B', keywords: 'git diff panel status', icon: GitCompareArrows, run: () => setPanel('changes') });
+    }
+    if (panel !== 'files') {
+      items.push({ id: 'panel-files', group: 'App', label: 'Show files', keywords: 'browse tree open file panel', icon: FolderTree, run: () => setPanel('files') });
     }
     if (panel !== 'tasks') {
       items.push({ id: 'panel-tasks', group: 'App', label: 'Show tasks', keywords: 'todo panel plan', icon: ListChecks, run: () => setPanel('tasks') });

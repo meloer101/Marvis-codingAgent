@@ -93,12 +93,15 @@ the server with the same schemas the client is typed from.
 
 | Method | What it does |
 |---|---|
-| `server.info` | version, `bootId`, and the launch workspace's defaults |
+| `server.info` | version, `bootId`, the launch workspace's defaults, and the editors files can be opened in |
 | `workspace.list` | every workspace with its defaults (model, mode, modes, effort levels, `keyProblem`) |
 | `model.list {workspaceId?}` | the models a session there can be given, each with its windows, effort levels, price and why it can't run, if it can't |
 | `workspace.inspect {path}` | what adding a directory would mean — nothing started |
 | `workspace.add {path, createMarker?}` / `workspace.remove {id}` | host a project / stop hosting it |
 | `fs.suggestDirs {prefix}` | directory completion for the add dialog |
+| `fs.list {workspaceId, sessionId?, dir}` | a workspace folder's entries, folders first — the listing `@` uses, so no ignored files or secrets |
+| `fs.read {workspaceId, sessionId?, path}` | a file's text; binary, over 1 MB, a secret (by name or by what it links to), a link out of the workspace or a missing file: withheld |
+| `editor.open {workspaceId, path, line?, editor}` | open a file in VS Code, Cursor or Zed on this machine (`server.info.editors` lists those found) |
 | `git.status {workspaceId, sessionId?}` | the workspace's changes against HEAD: branch, upstream, ahead/behind, and per file its staged / unstaged change and lines added / removed |
 | `git.diff {workspaceId, sessionId?, path}` | one file's patch against HEAD (an untracked file against nothing); binary, too big (> 1 MB) or a secret: withheld |
 | `git.stage` / `git.unstage {workspaceId, sessionId?, paths}` | stage files as they are on disk (new files and deletions too) / take them out of the index |
@@ -274,9 +277,11 @@ The token is as powerful as the user's shell — a client can switch a session t
 8. **Adding a project is trusting it.** Its `.mcp.json` commands run with every
    session and its settings apply; the add dialog shows both before it asks.
    Directory completion lists folder names, which the token already reaches.
-9. **Diffs keep secrets on disk.** The Changes panel lists every changed file,
-   but `git.diff` withholds the contents of one the permission engine treats as
-   a secret, and refuses a path outside the workspace.
+9. **Diffs and the file viewer keep secrets on disk.** The Changes panel lists
+   every changed file, but `git.diff` and `fs.read` withhold the contents of
+   one the permission engine treats as a secret (`fs.read` also when a link
+   leads to one), refuse a path outside the workspace, and follow no link out
+   of it.
 10. **Attachments go through the permission engine.** `fs.search` lists a
    workspace's files without the ones the engine treats as secrets (`.env`,
    keys, credentials), and an attachment is checked as a `read` of that path
@@ -374,7 +379,15 @@ The token is as powerful as the user's shell — a client can switch a session t
   upstream) and opens a pull request with `gh`, saying what each did or git's
   reason it couldn't. Nothing prompts: a push that needs credentials fails
   rather than waiting on a terminal. Each change pushes `git_changed` to every
-  tab. **Tasks** shows the
+  tab. **Files** (`components/FilesPanel.tsx`) is the project folder by
+  folder (`fs.list`, refreshed with `git_changed`), or what a name search
+  finds; a file opens in a viewer — line numbers and syntax colours, the diff
+  view with nothing changed — with buttons to open it, at the line, in each
+  editor the server found: a command-line tool on the PATH, else a Mac's
+  installed app (VS Code and Cursor by their URL scheme, Zed by its bundled
+  CLI) (`server/src/editors.ts`). Read, edit and write cards end with "Open
+  file" (an edit at the line it starts on), and Changes rows with an open
+  button (`openFile` in `lib/panel.ts`). **Tasks** shows the
   agent's task list whole; while it does, the task dock above the composer
   steps aside.
 - **Task list** (`components/TaskDock.tsx`): what the agent last passed to

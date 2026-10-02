@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronRight, GitBranch, Loader2, RefreshCw, Square, SquareCheck, SquareMinus, Undo2 } from 'lucide-react';
+import { ChevronRight, FileSearch, GitBranch, Loader2, RefreshCw, Square, SquareCheck, SquareMinus, Undo2 } from 'lucide-react';
 
 import type { GitDiff, GitFile } from '@harness-code/protocol';
 
@@ -10,6 +10,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { parsePatch } from '@/lib/diff';
 import { isNewFile, pathsOf } from '@/lib/gitFiles';
 import { langForPath } from '@/lib/highlight';
+import { openFile } from '@/lib/panel';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
@@ -266,6 +267,17 @@ function ChangedFile({
             )}
           </span>
         </button>
+        {!(file.staged === 'deleted' || file.unstaged === 'deleted') && (
+          <button
+            type="button"
+            onClick={() => openFile(file.path)}
+            aria-label={`Open ${file.path}`}
+            title="Open the file"
+            className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100"
+          >
+            <FileSearch className="size-3.5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={onRevert}

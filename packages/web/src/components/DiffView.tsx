@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 
 import { diffSides, lineSegments, lineTokens } from '@/lib/diff';
 import type { DiffLine, LineDiff } from '@/lib/diff';
@@ -36,24 +36,54 @@ function useDiffTokens(diff: LineDiff, lang: string | undefined): Array<Token[] 
 
 /**
  * A unified diff: file line numbers when known, syntax colours for `lang`, and
- * the words that changed within a replaced line marked a shade deeper.
+ * the words that changed within a replaced line marked a shade deeper. Also a
+ * plain file (all unchanged lines, no sign column); `focusLine` (a new-side
+ * number) is scrolled to and marked.
  */
-export function DiffView({ diff, lang, className }: { diff: LineDiff; lang?: string | undefined; className?: string }) {
-  const [all, setAll] = useState(false);
+export function DiffView({
+  diff,
+  lang,
+  className,
+  focusLine,
+}: {
+  diff: LineDiff;
+  lang?: string | undefined;
+  className?: string;
+  focusLine?: number | undefined;
+}) {
+  const [all, setAll] = useState(() => focusLine !== undefined && focusLine > FIRST_LINES);
   const tokens = useDiffTokens(diff, lang);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focusLine === undefined) return;
+    if (focusLine > FIRST_LINES) setAll(true);
+    ref.current?.querySelector(`[data-line="${focusLine}"]`)?.scrollIntoView?.({ block: 'center' });
+  }, [focusLine, diff]);
   const shown = all ? diff.lines : diff.lines.slice(0, FIRST_LINES);
   const hidden = diff.lines.length - shown.length;
   // A number column per side that has numbers: a new file has only the "after" one.
   const cols = useMemo(
-    () => ({ old: diff.lines.some((l) => l.oldNo !== undefined), new: diff.lines.some((l) => l.newNo !== undefined) }),
+    () => ({
+      old: diff.lines.some((l) => l.oldNo !== undefined),
+      new: diff.lines.some((l) => l.newNo !== undefined),
+      sign: diff.lines.some((l) => l.kind === 'add' || l.kind === 'del'),
+    }),
     [diff],
   );
   return (
-    <div className={cn('max-h-96 overflow-auto font-mono text-[11px] leading-relaxed', className)}>
+    <div ref={ref} className={cn('max-h-96 overflow-auto font-mono text-[11px] leading-relaxed', className)}>
       <table className="w-full border-collapse">
         <tbody>
           {shown.map((line, i) => (
-            <Row key={i} line={line} oldCol={cols.old} newCol={cols.new} tokens={tokens?.[i]} />
+            <Row
+              key={i}
+              line={line}
+              oldCol={cols.old}
+              newCol={cols.new}
+              signCol={cols.sign}
+              focused={focusLine !== undefined && line.newNo === focusLine}
+              tokens={tokens?.[i]}
+            />
           ))}
         </tbody>
       </table>
@@ -74,36 +104,49 @@ const Row = memo(function Row({
   line,
   oldCol,
   newCol,
+  signCol,
+  focused,
   tokens,
 }: {
   line: DiffLine;
   oldCol: boolean;
   newCol: boolean;
+  signCol: boolean;
+  focused: boolean;
   tokens: Token[] | undefined;
 }) {
   const segments = useMemo(() => lineSegments(line.text, tokens, line.changes), [line, tokens]);
   if (line.kind === 'hunk') {
     return (
       <tr className="bg-primary/5 text-muted-foreground">
-        <td colSpan={(oldCol ? 1 : 0) + (newCol ? 1 : 0) + 2} className="px-2 py-0.5 whitespace-pre-wrap select-none">
+        <td colSpan={(oldCol ? 1 : 0) + (newCol ? 1 : 0) + (signCol ? 2 : 1)} className="px-2 py-0.5 whitespace-pre-wrap select-none">
           {line.text}
         </td>
       </tr>
     );
   }
   return (
-    <tr className={cn(line.kind === 'add' && 'bg-success/10', line.kind === 'del' && 'bg-destructive/10')}>
+    <tr
+      data-line={line.newNo}
+      className={cn(
+        line.kind === 'add' && 'bg-success/10',
+        line.kind === 'del' && 'bg-destructive/10',
+        focused && 'bg-primary/10',
+      )}
+    >
       {oldCol && <LineNo n={line.oldNo} />}
       {newCol && <LineNo n={line.newNo} />}
-      <td
-        className={cn(
-          'w-5 px-1 text-center align-top select-none',
-          line.kind === 'add' ? 'text-success' : line.kind === 'del' ? 'text-destructive' : 'text-muted-foreground',
-        )}
-      >
-        {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ' '}
-      </td>
-      <td className="shiki-wrap pr-3 whitespace-pre-wrap break-all">
+      {signCol && (
+        <td
+          className={cn(
+            'w-5 px-1 text-center align-top select-none',
+            line.kind === 'add' ? 'text-success' : line.kind === 'del' ? 'text-destructive' : 'text-muted-foreground',
+          )}
+        >
+          {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ' '}
+        </td>
+      )}
+      <td className={cn('shiki-wrap pr-3 whitespace-pre-wrap break-all', !signCol && 'pl-2')}>
         {segments.length === 0 || line.text === ''
           ? ' '
           : segments.map((s, i) =>

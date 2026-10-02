@@ -24,7 +24,10 @@
 import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
 import type {
   AskDecision,
+  DirEntry,
   DirSuggestion,
+  EditorId,
+  FileContent,
   FileMatch,
   GitCommitResult,
   GitDiff,
@@ -460,6 +463,24 @@ export class SessionSync {
   /** One file's changes; rejects when it can't be asked (the caller shows why). */
   gitDiff(workspaceId: string, path: string): Promise<GitDiff> {
     return this.rpc.call('git.diff', { workspaceId, path });
+  }
+
+  /** A workspace folder's entries; empty when it can't be asked. */
+  async listDir(workspaceId: string, dir: string): Promise<DirEntry[]> {
+    try {
+      return await this.rpc.call('fs.list', { workspaceId, dir });
+    } catch {
+      return [];
+    }
+  }
+
+  /** A workspace file's contents; rejects when it can't be asked (the caller shows why). */
+  readFile(workspaceId: string, path: string): Promise<FileContent> {
+    return this.rpc.call('fs.read', { workspaceId, path });
+  }
+
+  openInEditor(workspaceId: string, path: string, editor: EditorId, line?: number): Promise<void> {
+    return this.#run(this.rpc.call('editor.open', { workspaceId, path, editor, ...(line !== undefined ? { line } : {}) }));
   }
 
   // The status reloads on the git_changed push each change sends. Staging and

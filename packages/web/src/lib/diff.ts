@@ -105,6 +105,12 @@ export function parsePatch(patch: string): LineDiff {
   return { lines, added, removed };
 }
 
+/** A file's text as unchanged lines numbered from 1, for viewing it with the diff view. */
+export function fileLines(content: string): LineDiff {
+  const lines = splitLines(content).map((text, i) => ({ kind: 'ctx' as const, text, newNo: i + 1 }));
+  return { lines, added: 0, removed: 0 };
+}
+
 /** Lines longer than this are left whole — a minified line isn't worth word-diffing. */
 const MAX_WORD_DIFF_CHARS = 500;
 /**
