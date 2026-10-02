@@ -11,6 +11,7 @@
  */
 
 import type {
+  AgentEvent,
   ContextSnapshot,
   Notice,
   PermissionMode,
@@ -32,6 +33,36 @@ export interface ToolItem {
   output?: string;
   /** How long it ran; known only for calls that finished while being watched. */
   durationMs?: number;
+  /**
+   * The calls of the sub-agent a `task` runs (`subagent_event`), in order.
+   * Live only: a transcript read back from disk doesn't have them.
+   */
+  children?: ToolItem[];
+}
+
+/**
+ * `children` with a sub-agent call started or ended — a new array, with a new
+ * object for the call that changed, so memoised views notice.
+ */
+export function applySubagentEvent(
+  children: readonly ToolItem[] | undefined,
+  event: Extract<AgentEvent, { type: 'subagent_event' }>['event'],
+): ToolItem[] {
+  const list = children ?? [];
+  if (event.type === 'tool_call_start') {
+    return [...list, { id: event.id, name: event.name, input: event.input, running: true }];
+  }
+  return list.map((c) =>
+    c.id === event.id
+      ? { ...c, running: false, result: event.result, ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}) }
+      : c,
+  );
+}
+
+/** A finished `task`'s calls: any the sub-agent left running were stopped with it. */
+export function settleChildren(children: readonly ToolItem[] | undefined): ToolItem[] | undefined {
+  if (!children?.some((c) => c.running)) return children ? [...children] : undefined;
+  return children.map((c) => (c.running ? { ...c, running: false } : c));
 }
 
 /** How much of a running tool's output a frontend keeps: the tail is what matters. */

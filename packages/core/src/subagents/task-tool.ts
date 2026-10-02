@@ -13,6 +13,7 @@
 
 import { z } from 'zod';
 
+import type { ToolCallEndEvent, ToolCallStartEvent } from '../agent/loop.js';
 import type { ToolSpec } from '../tools/types.js';
 import type { AgentDefinition, SubagentResult } from './types.js';
 
@@ -32,7 +33,11 @@ export interface TaskToolDeps {
   run(
     agent: AgentDefinition,
     prompt: string,
-    ctx: { signal?: AbortSignal },
+    ctx: {
+      signal?: AbortSignal;
+      /** The sub-agent's tool calls as they start and end, for display. */
+      onEvent?: (event: ToolCallStartEvent | ToolCallEndEvent) => void;
+    },
   ): Promise<SubagentResult>;
 }
 
@@ -62,6 +67,7 @@ export function createTaskTool(deps: TaskToolDeps): ToolSpec<z.infer<typeof sche
       try {
         result = await deps.run(agent, input.prompt, {
           ...(ctx.signal ? { signal: ctx.signal } : {}),
+          ...(ctx.onSubagentEvent ? { onEvent: ctx.onSubagentEvent } : {}),
         });
       } catch (err) {
         return {

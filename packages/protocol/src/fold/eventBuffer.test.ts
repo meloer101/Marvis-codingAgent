@@ -43,6 +43,26 @@ describe('EventBuffer', () => {
     expect(tool!.result?.content).toBe('ok');
   });
 
+  it("nests a task's sub-agent calls in it, and settles any left running when it ends", () => {
+    const b = new EventBuffer();
+    b.onEvent(start('t', 'task'));
+    const sub = (event: unknown): AgentEvent => ({ type: 'subagent_event', id: 't', event }) as AgentEvent;
+    b.onEvent(sub({ type: 'tool_call_start', id: 'c1', name: 'read', input: { path: 'a' } }));
+    b.onEvent(sub({ type: 'tool_call_start', id: 'c2', name: 'grep', input: { pattern: 'x' } }));
+    const before = b.snapshot().tools[0]!.children!;
+    b.onEvent(sub({ type: 'tool_call_end', id: 'c1', name: 'read', result: { content: 'A' }, durationMs: 4 }));
+    const after = b.snapshot().tools[0]!.children!;
+    expect(after.map((c) => [c.id, c.running, c.result?.content])).toEqual([
+      ['c1', false, 'A'],
+      ['c2', true, undefined],
+    ]);
+    // New objects for what changed, the same for what didn't.
+    expect(after[0]).not.toBe(before[0]);
+    expect(after[1]).toBe(before[1]);
+    b.onEvent(end('t', 'task'));
+    expect(b.snapshot().tools[0]!.children!.map((c) => c.running)).toEqual([false, false]);
+  });
+
   it('keeps only the tail of long output, cut at a line start', () => {
     const line = 'x'.repeat(99) + '\n';
     const out = appendOutput(line.repeat(LIVE_OUTPUT_CHARS / 100), 'last\n');

@@ -83,7 +83,7 @@ import type { McpServerStatus } from '../mcp/index.js';
 import { AGENT_CONVENTIONS, buildAgentSystemPrompt, buildSubagentSystemPrompt } from './prompt.js';
 import { systemUpdateSegments } from './system-update.js';
 import { AgentLoop, usableContextWindow } from './loop.js';
-import type { AgentEvent, AgentLoopOptions, AgentRunResult } from './loop.js';
+import type { AgentEvent, AgentLoopOptions, AgentRunResult, ToolCallEndEvent, ToolCallStartEvent } from './loop.js';
 import { mergeHooks } from './hooks.js';
 import type { AgentHooks } from './hooks.js';
 import { createToolGuardrailHooks } from './guardrails.js';
@@ -1313,7 +1313,7 @@ export class AgentSession {
   async #runSubagent(
     def: AgentDefinition,
     subPrompt: string,
-    runCtx: { signal?: AbortSignal },
+    runCtx: { signal?: AbortSignal; onEvent?: (event: ToolCallStartEvent | ToolCallEndEvent) => void },
   ): Promise<import('../subagents/types.js').SubagentResult> {
     const childModel = def.model ? this.#registry.resolve(def.model) : this.#model;
     const permissions = this.#config.settings.permissions ?? {};
@@ -1372,6 +1372,7 @@ export class AgentSession {
         if (ev.type === 'tool_call_start') {
           notice(`  ⤷ ${def.name}: ${ev.name} ${JSON.stringify(ev.input)}`);
         }
+        if (ev.type === 'tool_call_start' || ev.type === 'tool_call_end') runCtx.onEvent?.(ev);
       },
     });
     notice(

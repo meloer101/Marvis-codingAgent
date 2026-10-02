@@ -317,6 +317,42 @@ describe('AgentSession auto mode', () => {
     expect(ends[1]?.result.content).not.toMatch(/Denied by auto mode classifier/);
   });
 
+  it("streams a sub-agent's tool calls as subagent_event, tagged with the task call", async () => {
+    const cwd = await tempDir();
+    await mkdir(join(cwd, '.agent', 'agents'), { recursive: true });
+    await writeFile(
+      join(cwd, '.agent', 'agents', 'explore.md'),
+      '---\nname: explore\ndescription: search\n---\nsearch the repo\n',
+      'utf8',
+    );
+    await writeFile(join(cwd, 'a.txt'), 'X marks the spot\n', 'utf8');
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'task', input: { subagent_type: 'explore', prompt: 'find X' } }] },
+      { toolCalls: [{ name: 'read', input: { path: 'a.txt' } }] },
+      { text: 'X is in a.txt' },
+      { text: 'got the report' },
+    ]);
+    const { session, events } = await createSession({
+      cwd,
+      model: sessionModel(provider),
+      mode: 'yolo',
+      subagents: true,
+      skills: false,
+      mcp: false,
+      memory: false,
+    });
+
+    await session.runTurn('explore then report');
+    const taskId = events.find((e) => e.type === 'tool_call_start' && e.name === 'task')!;
+    const nested = events.flatMap((e) => (e.type === 'subagent_event' ? [e] : []));
+    expect(nested.map((e) => [e.id, e.event.type, e.event.name])).toEqual([
+      [(taskId as { id: string }).id, 'tool_call_start', 'read'],
+      [(taskId as { id: string }).id, 'tool_call_end', 'read'],
+    ]);
+    const end = nested[1]!.event;
+    expect(end.type === 'tool_call_end' && end.result.content).toContain('X marks the spot');
+  });
+
   it('prepends a security warning when the return review blocks a sub-agent report', async () => {
     const cwd = await tempDir();
     await mkdir(join(cwd, '.agent', 'agents'), { recursive: true });

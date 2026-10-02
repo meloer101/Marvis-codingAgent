@@ -36,6 +36,20 @@ describe('task tool', () => {
     expect(run).toHaveBeenCalledWith(explore, 'where is X', expect.anything());
   });
 
+  it("hands the sub-agent's tool calls to the call's onSubagentEvent", async () => {
+    const tool = createTaskTool({
+      agents: [explore],
+      run: async (_agent, _prompt, runCtx) => {
+        runCtx.onEvent?.({ type: 'tool_call_start', id: 'c1', name: 'read', input: { path: 'a.ts' } });
+        runCtx.onEvent?.({ type: 'tool_call_end', id: 'c1', name: 'read', result: { content: 'x' }, durationMs: 3 });
+        return result();
+      },
+    });
+    const seen: string[] = [];
+    await tool.execute({ subagent_type: 'explore', prompt: 'p' }, { ...ctx, onSubagentEvent: (e) => seen.push(`${e.type}:${e.id}`) });
+    expect(seen).toEqual(['tool_call_start:c1', 'tool_call_end:c1']);
+  });
+
   it('errors with the roster on an unknown agent', async () => {
     const tool = createTaskTool({ agents: [explore], run: async () => result() });
     const res = await tool.execute({ subagent_type: 'nope', prompt: 'x' }, ctx);

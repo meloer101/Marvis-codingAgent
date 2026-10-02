@@ -14,6 +14,7 @@ import { z } from 'zod';
 
 import type { JSONSchema, ToolDefinition } from '../provider/types.js';
 import type { AgentControl } from '../agent/control.js';
+import type { ToolCallEndEvent, ToolCallStartEvent } from '../agent/loop.js';
 import type { SessionState } from '../agent/session.js';
 
 export interface ToolContext {
@@ -28,6 +29,11 @@ export interface ToolContext {
    * (`tool_call_output`). Display only: the model sees the result alone.
    */
   onOutput?: (text: string) => void;
+  /**
+   * The tool calls of a sub-agent this call runs (`task`), as they start and
+   * end, for a frontend to show inside the call (`subagent_event`). Display only.
+   */
+  onSubagentEvent?: (event: ToolCallStartEvent | ToolCallEndEvent) => void;
 }
 
 /** What a frontend can show about a call beyond its content. Never sent to the model. */

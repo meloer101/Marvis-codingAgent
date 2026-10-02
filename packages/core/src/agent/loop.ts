@@ -73,14 +73,31 @@ const TRUNCATED_TOOL_HINT =
   'Previous model output hit the output-token limit mid tool-call arguments and could not be parsed. ' +
   'Split this write into smaller pieces and retry.';
 
+export interface ToolCallStartEvent {
+  type: 'tool_call_start';
+  id: string;
+  name: string;
+  input: unknown;
+}
+
+/** `durationMs`: how long the tool ran, not counting a permission prompt. */
+export interface ToolCallEndEvent {
+  type: 'tool_call_end';
+  id: string;
+  name: string;
+  result: ToolResult;
+  durationMs?: number;
+}
+
 export type AgentEvent =
   | { type: 'text_delta'; text: string }
   | { type: 'thinking_delta'; text: string }
-  | { type: 'tool_call_start'; id: string; name: string; input: unknown }
+  | ToolCallStartEvent
   /** Output a running tool produced (`bash`'s stdout/stderr), for display only. */
   | { type: 'tool_call_output'; id: string; text: string }
-  /** `durationMs`: how long the tool ran, not counting a permission prompt. */
-  | { type: 'tool_call_end'; id: string; name: string; result: ToolResult; durationMs?: number }
+  | ToolCallEndEvent
+  /** A tool call starting or ending inside the sub-agent that call `id` (a `task`) runs, for display only. */
+  | { type: 'subagent_event'; id: string; event: ToolCallStartEvent | ToolCallEndEvent }
   | { type: 'turn_end'; usage: Usage }
   /**
    * The model call failed mid-stream with a retryable error and will be re-sent
@@ -1144,6 +1161,7 @@ export class AgentLoop {
         ...(this.opts.signal ? { signal: this.opts.signal } : {}),
         ...(this.opts.control ? { control: this.opts.control } : {}),
         onOutput: (text) => this.emit({ type: 'tool_call_output', id: call.id, text }),
+        onSubagentEvent: (event) => this.emit({ type: 'subagent_event', id: call.id, event }),
       });
     } catch (err) {
       return { content: `Tool ${call.name} threw: ${errorMessage(err)}`, isError: true };
