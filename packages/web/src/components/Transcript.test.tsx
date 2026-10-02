@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Entry, ToolItem } from '@harness-code/protocol';
 
+import { TaskDock } from '@/components/TaskDock';
 import { Transcript } from '@/components/Transcript';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { setVerbose } from '@/lib/verbose';
@@ -191,5 +192,37 @@ describe('task cards', () => {
     expect(header.textContent).toContain('1 call');
     expect(header.textContent).toContain('4.2s');
     expect(screen.queryByText('where is X')).toBeNull();
+  });
+});
+
+describe('TaskDock', () => {
+  const withTodos = (todos: Array<{ content: string; status: string }>): Entry[] => [
+    { kind: 'assistant', id: 0, thinking: '', text: '', tools: [{ id: 't', name: 'todo', input: { todos }, running: false, result: { content: '' } }] },
+  ];
+
+  it('shows progress and the task in hand, opening to the whole list', () => {
+    render(
+      <TaskDock
+        view={view({
+          entries: withTodos([
+            { content: 'Read the code', status: 'completed' },
+            { content: 'Fix the bug', status: 'in_progress' },
+            { content: 'Add a test', status: 'pending' },
+          ]),
+        })}
+      />,
+    );
+    const line = screen.getByRole('button', { name: /Tasks/ });
+    expect(line.textContent).toContain('1/3');
+    expect(line.textContent).toContain('Fix the bug');
+    expect(screen.queryByText('Add a test')).toBeNull();
+    fireEvent.click(line);
+    expect(screen.getByText('Add a test')).toBeTruthy();
+    expect(screen.getByText('Read the code').className).toContain('line-through');
+  });
+
+  it('goes away once everything is done', () => {
+    const { container } = render(<TaskDock view={view({ entries: withTodos([{ content: 'All of it', status: 'completed' }]) })} />);
+    expect(container.textContent).toBe('');
   });
 });

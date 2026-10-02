@@ -334,3 +334,8 @@ The token is as powerful as the user's shell — a client can switch a session t
   notices, which the TUI prints, get no row. Permission asks
   and plan reviews dock above the composer instead of opening modals
   (`components/PendingDock.tsx`).
+- **Task list** (`components/TaskDock.tsx`): what the agent last passed to
+  `todo` (`lib/todos.ts`, read off the transcript, so it survives a reload),
+  docked above the composer while any of it is left — one line with progress
+  and the task in hand that opens to the list. `todo` cards in the transcript
+  stay folded.

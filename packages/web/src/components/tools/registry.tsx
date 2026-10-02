@@ -7,15 +7,16 @@
  */
 
 import { Suspense, lazy, type ReactNode } from 'react';
-import { CheckCircle2, Circle, CircleDot } from 'lucide-react';
 
 import { describeToolInput } from '@harness-code/core/browser';
 import type { ToolItem } from '@harness-code/protocol';
 
 import { CodeBlock } from '@/components/CodeBlock';
 import { Markdown } from '@/components/Markdown';
+import { TodoList } from '@/components/TodoList';
 import { TerminalOutput } from '@/components/tools/TerminalOutput';
 import { bashOutcome, fmtDuration } from '@/lib/format';
+import { parseTodos } from '@/lib/todos';
 import { cn } from '@/lib/utils';
 
 const EditDiffPanel = lazy(() =>
@@ -212,31 +213,19 @@ const renderers: Record<string, Renderer> = {
     defaultOpen: tool.result?.isError === true,
   }),
 
-  todo: (tool, input) => {
-    const todos = Array.isArray(input['todos'])
-      ? (input['todos'] as Array<{ id?: string; content?: string; status?: string }>)
-      : [];
+  // Folded: the task dock above the composer shows the list as it stands.
+  todo: (tool) => {
+    const todos = parseTodos(tool.input) ?? [];
     const done = todos.filter((t) => t.status === 'completed').length;
     return {
       summary: `${done}/${todos.length} done`,
       body: (
-        <ul className="space-y-1 px-3 py-2">
-          {todos.map((t, i) => (
-            <li key={t.id ?? i} className="flex items-start gap-2">
-              {t.status === 'completed' ? (
-                <CheckCircle2 className="mt-px size-3.5 shrink-0 text-success" />
-              ) : t.status === 'in_progress' ? (
-                <CircleDot className="mt-px size-3.5 shrink-0 text-primary" />
-              ) : (
-                <Circle className="mt-px size-3.5 shrink-0 text-muted-foreground" />
-              )}
-              <span className={cn(t.status === 'completed' && 'text-muted-foreground line-through')}>{t.content}</span>
-            </li>
-          ))}
+        <>
+          <TodoList todos={todos} className="px-3 py-2" />
           <ErrorOutput tool={tool} />
-        </ul>
+        </>
       ),
-      defaultOpen: true,
+      defaultOpen: tool.result?.isError === true,
     };
   },
 

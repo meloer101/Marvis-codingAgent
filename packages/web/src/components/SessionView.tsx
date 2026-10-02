@@ -9,6 +9,7 @@ import { Composer } from '@/components/Composer';
 import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerControls';
 import { PendingDock } from '@/components/PendingDock';
 import { QueuedMessages } from '@/components/QueuedMessages';
+import { TaskDock } from '@/components/TaskDock';
 import { SessionHeader } from '@/components/SessionHeader';
 import { SkillsDialog } from '@/components/SkillsDialog';
 import { Transcript } from '@/components/Transcript';
@@ -109,6 +110,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
       <SessionHeader view={view} />
       <Transcript view={view} />
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
+        <TaskDock view={view} />
         <PendingDock view={view} />
         <QueuedMessages
           queue={view.queue}
