@@ -171,6 +171,20 @@ export class WorkspaceHub {
     return entry ? gitDiff(entry.record.root, path) : { kind: 'withheld', reason: 'The project folder is missing.' };
   }
 
+  /**
+   * Change workspace `id`'s git state — stage, commit, push… — then tell every
+   * tab its status changed.
+   */
+  async gitChange<T>(id: string, change: (root: string) => Promise<T>): Promise<T> {
+    const entry = this.#present(id);
+    if (!entry) throw new WorkspaceNotFoundError(id);
+    try {
+      return await change(entry.record.root);
+    } finally {
+      this.#forward(id, { type: 'git_changed', workspaceId: id });
+    }
+  }
+
   /** Workspace `id`, or undefined when its directory is gone; throws for an unknown id. */
   #present(id: string): Entry | undefined {
     const entry = this.#entries.get(id);

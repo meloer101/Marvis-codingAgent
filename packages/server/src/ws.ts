@@ -31,7 +31,16 @@ import { methods } from '@harness-code/protocol';
 import { WebSocket, WebSocketServer } from 'ws';
 
 import { BusyError, InvalidRequestError, SessionNotFoundError } from './host.js';
-import { GitPathError } from './git.js';
+import {
+  GitCommandError,
+  GitPathError,
+  createPullRequest,
+  gitCommit,
+  gitPush,
+  gitRevert,
+  gitStage,
+  gitUnstage,
+} from './git.js';
 import { WorkspaceNotFoundError } from './hub.js';
 import { suggestDirs } from './inspect.js';
 import type { WorkspaceHub } from './hub.js';
@@ -238,6 +247,30 @@ class Connection {
         const { workspaceId, path } = params as MethodParams<'git.diff'>;
         return hub.gitDiff(workspaceId, path);
       }
+      case 'git.stage': {
+        const { workspaceId, paths } = params as MethodParams<'git.stage'>;
+        return hub.gitChange(workspaceId, (root) => gitStage(root, paths));
+      }
+      case 'git.unstage': {
+        const { workspaceId, paths } = params as MethodParams<'git.unstage'>;
+        return hub.gitChange(workspaceId, (root) => gitUnstage(root, paths));
+      }
+      case 'git.revert': {
+        const { workspaceId, paths } = params as MethodParams<'git.revert'>;
+        return hub.gitChange(workspaceId, (root) => gitRevert(root, paths));
+      }
+      case 'git.commit': {
+        const { workspaceId, message, paths } = params as MethodParams<'git.commit'>;
+        return hub.gitChange(workspaceId, (root) => gitCommit(root, message, paths ? { paths } : {}));
+      }
+      case 'git.push':
+        return hub.gitChange((params as MethodParams<'git.push'>).workspaceId, (root) => gitPush(root));
+      case 'git.createPr': {
+        const { workspaceId, title, body, draft } = params as MethodParams<'git.createPr'>;
+        return hub.gitChange(workspaceId, (root) =>
+          createPullRequest(root, { title, ...(body !== undefined ? { body } : {}), ...(draft !== undefined ? { draft } : {}) }),
+        );
+      }
       case 'fs.suggestDirs':
         return suggestDirs((params as MethodParams<'fs.suggestDirs'>).prefix);
       case 'session.list':
@@ -423,6 +456,7 @@ function mapError(err: unknown): { code: ErrorCode; message: string } {
   if (err instanceof SessionPreviewNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof WorkspaceNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof GitPathError) return { code: 'bad_request', message: err.message };
+  if (err instanceof GitCommandError) return { code: 'bad_request', message: err.message };
   const message = err instanceof Error ? err.message : String(err);
   return { code: 'internal', message };
 }

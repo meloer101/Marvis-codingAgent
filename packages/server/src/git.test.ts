@@ -1,11 +1,24 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { GitPathError, gitDiff, gitStatus, parseNumstat, parseStatus } from './git.js';
+import {
+  GitCommandError,
+  GitPathError,
+  createPullRequest,
+  gitCommit,
+  gitDiff,
+  gitPush,
+  gitRevert,
+  gitStage,
+  gitStatus,
+  gitUnstage,
+  parseNumstat,
+  parseStatus,
+} from './git.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -21,6 +34,10 @@ async function repo(): Promise<{ root: string; run: (...args: string[]) => strin
       encoding: 'utf8',
     });
   run('init', '-q', '-b', 'main');
+  // The module's own commits use the repository's identity.
+  run('config', 'user.name', 't');
+  run('config', 'user.email', 't@t');
+  run('config', 'commit.gpgsign', 'false');
   return { root, run };
 }
 
@@ -140,5 +157,104 @@ describe('parsers', () => {
       ['new.ts', { added: 0, removed: 0 }],
       ['img.png', { binary: true }],
     ]);
+  });
+});
+
+const exists = (path: string): Promise<boolean> => stat(path).then(() => true, () => false);
+
+describe('changing git state', () => {
+  async function committed() {
+    const r = await repo();
+    await writeFile(join(r.root, 'a.txt'), 'one\n');
+    await writeFile(join(r.root, 'b.txt'), 'two\n');
+    r.run('add', '.');
+    r.run('commit', '-q', '-m', 'init');
+    return r;
+  }
+  const files = async (root: string) => {
+    const s = await gitStatus(root);
+    return s.repo ? s.files.map((f) => [f.path, f.staged ?? null, f.unstaged ?? null]) : [];
+  };
+
+  it('stages and unstages files, new ones and deletions included', async () => {
+    const { root } = await committed();
+    await writeFile(join(root, 'a.txt'), 'ONE\n');
+    await writeFile(join(root, 'new.txt'), 'x\n');
+    await rm(join(root, 'b.txt'));
+    await gitStage(root, ['a.txt', 'new.txt', 'b.txt']);
+    expect(await files(root)).toEqual([
+      ['a.txt', 'modified', null],
+      ['b.txt', 'deleted', null],
+      ['new.txt', 'added', null],
+    ]);
+    await gitUnstage(root, ['a.txt', 'new.txt']);
+    expect(await files(root)).toEqual([
+      ['a.txt', null, 'modified'],
+      ['b.txt', 'deleted', null],
+      ['new.txt', null, 'untracked'],
+    ]);
+  });
+
+  it('reverts to HEAD, deleting what HEAD lacks, but never a secret', async () => {
+    const { root, run } = await committed();
+    await writeFile(join(root, 'a.txt'), 'changed\n');
+    run('add', 'a.txt');
+    await writeFile(join(root, 'scratch.txt'), 'tmp\n');
+    await writeFile(join(root, 'staged-new.txt'), 'tmp\n');
+    run('add', 'staged-new.txt');
+    run('mv', 'b.txt', 'renamed.txt');
+    await gitRevert(root, ['a.txt', 'scratch.txt', 'staged-new.txt', 'renamed.txt']);
+    expect(await files(root)).toEqual([]);
+    expect(await readFile(join(root, 'a.txt'), 'utf8')).toBe('one\n');
+    expect(await readFile(join(root, 'b.txt'), 'utf8')).toBe('two\n');
+    expect(await exists(join(root, 'scratch.txt'))).toBe(false);
+
+    await writeFile(join(root, '.env'), 'KEY=1\n');
+    await expect(gitRevert(root, ['.env'])).rejects.toThrow(/secret/);
+    expect(await exists(join(root, '.env'))).toBe(true);
+  });
+
+  it('commits what is staged, or the files it is given; a message is required', async () => {
+    const { root, run } = await committed();
+    await writeFile(join(root, 'a.txt'), 'ONE\n');
+    await writeFile(join(root, 'b.txt'), 'TWO\n');
+    await gitStage(root, ['a.txt']);
+    const first = await gitCommit(root, 'Change a\n\nbody');
+    expect(first.summary).toBe('Change a');
+    expect(run('rev-parse', '--short', 'HEAD').trim()).toBe(first.sha);
+    expect(await files(root)).toEqual([['b.txt', null, 'modified']]);
+    await expect(gitCommit(root, '   ')).rejects.toBeInstanceOf(GitCommandError);
+    await gitCommit(root, 'The rest', { paths: ['b.txt'] });
+    expect(await files(root)).toEqual([]);
+    await expect(gitCommit(root, 'Nothing')).rejects.toBeInstanceOf(GitCommandError);
+  });
+
+  it('pushes, setting the upstream the first time', async () => {
+    const { root, run } = await committed();
+    const remote = await realpath(await mkdtemp(join(tmpdir(), 'hc-remote-')));
+    dirs.push(remote);
+    execFileSync('git', ['init', '-q', '--bare', '-b', 'main'], { cwd: remote });
+    await expect(gitPush(root)).rejects.toThrow(/no remote/);
+    run('remote', 'add', 'origin', remote);
+    await gitPush(root);
+    const status = await gitStatus(root);
+    expect(status.repo && [status.upstream, status.ahead]).toEqual(['origin/main', 0]);
+    await writeFile(join(root, 'a.txt'), 'again\n');
+    await gitCommit(root, 'Again', { paths: ['a.txt'] });
+    const ahead = await gitStatus(root);
+    expect(ahead.repo && ahead.ahead).toBe(1);
+    await gitPush(root);
+    expect(execFileSync('git', ['log', '-1', '--format=%s', 'main'], { cwd: remote, encoding: 'utf8' }).trim()).toBe('Again');
+  });
+
+  it('says plainly when the GitHub CLI is missing', async () => {
+    const { root } = await committed();
+    const path = process.env['PATH'];
+    process.env['PATH'] = '';
+    try {
+      await expect(createPullRequest(root, { title: 'x' })).rejects.toThrow(/GitHub CLI \(gh\) is not installed/);
+    } finally {
+      process.env['PATH'] = path;
+    }
   });
 });

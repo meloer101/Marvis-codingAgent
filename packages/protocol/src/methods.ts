@@ -193,6 +193,14 @@ export type GitDiff =
   /** Too big to show, or a secret the server won't send. */
   | { kind: 'withheld'; reason: string };
 
+/** A commit just made (`git.commit`). */
+export interface GitCommitResult {
+  /** Abbreviated hash. */
+  sha: string;
+  /** The message's first line. */
+  summary: string;
+}
+
 /** What `session.send` did: started a run, or queued the message behind the one going. */
 export type SendResult = { runId: string } | { queued: QueuedMessage };
 
@@ -274,6 +282,12 @@ const sessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, 'not a sessio
 /** Workspace ids are hex digests. */
 const workspaceIdSchema = z.string().regex(/^[0-9a-f]{1,64}$/, 'not a workspace id');
 const pathSchema = z.string().min(1).max(4096);
+/** The files a git change applies to: workspace-relative paths. */
+const gitPathsSchema = z.object({
+  workspaceId: workspaceIdSchema,
+  sessionId: sessionIdSchema.optional(),
+  paths: z.array(pathSchema).min(1).max(1000),
+});
 /** Files attached to a message (`@path`): workspace-relative paths. */
 const attachmentsSchema = z.array(pathSchema).max(20);
 
@@ -327,6 +341,41 @@ export const methods = {
   /** One file's changes against HEAD (`path` relative to the workspace root). */
   'git.diff': method<{ workspaceId: string; sessionId?: string; path: string }, GitDiff>(
     z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional(), path: pathSchema }),
+  ),
+  /** Stage files as they are on disk (changes, new files, deletions). */
+  'git.stage': method<{ workspaceId: string; sessionId?: string; paths: string[] }, void>(gitPathsSchema),
+  /** Take files out of the index, keeping the work tree. */
+  'git.unstage': method<{ workspaceId: string; sessionId?: string; paths: string[] }, void>(gitPathsSchema),
+  /**
+   * Throw away every change to files: back to HEAD, or deleted when HEAD
+   * doesn't have them (never a secret).
+   */
+  'git.revert': method<{ workspaceId: string; sessionId?: string; paths: string[] }, void>(gitPathsSchema),
+  /** Commit what is staged, staging `paths` first when given (the files shown, when nothing was staged). */
+  'git.commit': method<{ workspaceId: string; sessionId?: string; message: string; paths?: string[] }, GitCommitResult>(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      sessionId: sessionIdSchema.optional(),
+      message: z.string().min(1).max(20_000),
+      paths: z.array(pathSchema).min(1).max(1000).optional(),
+    }),
+  ),
+  /** Push the branch, setting its upstream the first time. */
+  'git.push': method<{ workspaceId: string; sessionId?: string }, void>(
+    z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional() }),
+  ),
+  /** Open a pull request for the branch with `gh`; answers its URL. */
+  'git.createPr': method<
+    { workspaceId: string; sessionId?: string; title: string; body?: string; draft?: boolean },
+    { url: string }
+  >(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      sessionId: sessionIdSchema.optional(),
+      title: z.string().min(1).max(500),
+      body: z.string().max(60_000).optional(),
+      draft: z.boolean().optional(),
+    }),
   ),
   /** Directories completing a path prefix (`~` allowed), for the add dialog. */
   'fs.suggestDirs': method<{ prefix: string }, DirSuggestion[]>(z.object({ prefix: z.string().max(4096) })),

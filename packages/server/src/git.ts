@@ -10,11 +10,11 @@
  */
 
 import { execFile } from 'node:child_process';
-import { open } from 'node:fs/promises';
+import { open, rm } from 'node:fs/promises';
 import { isAbsolute, join, normalize } from 'node:path';
 
 import { isSensitivePath } from '@harness-code/core';
-import type { GitChange, GitDiff, GitFile, GitStatus } from '@harness-code/protocol';
+import type { GitChange, GitCommitResult, GitDiff, GitFile, GitStatus } from '@harness-code/protocol';
 
 /** git's empty tree: the base for a repository without commits yet. */
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -23,6 +23,8 @@ const MAX_PATCH_BYTES = 1024 * 1024;
 /** Untracked files up to this size get their lines counted. */
 const MAX_COUNTED_BYTES = 512 * 1024;
 const TIMEOUT_MS = 10_000;
+/** Commits (hooks), pushes and pull requests (the network). */
+const SLOW_TIMEOUT_MS = 120_000;
 
 /** Not a path inside the workspace (absolute, or climbing out of it). */
 export class GitPathError extends Error {
@@ -32,30 +34,66 @@ export class GitPathError extends Error {
   }
 }
 
+/** A git (or gh) command that failed; the message is what it printed about why. */
+export class GitCommandError extends Error {
+  /** The exit code, or a Node error code (`ENOENT`, `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`). */
+  readonly code: number | string | undefined;
+  constructor(message: string, code?: number | string) {
+    super(message);
+    this.name = 'GitCommandError';
+    this.code = code;
+  }
+}
+
 interface Run {
   stdout: string;
+  stderr: string;
   /** The exit code; git uses 1 for "there are differences" in some modes. */
   code: number;
 }
 
-function git(cwd: string, args: string[], opts: { maxBuffer?: number; okCodes?: number[] } = {}): Promise<Run> {
+interface RunOptions {
+  maxBuffer?: number;
+  okCodes?: number[];
+  /** Commits run hooks and pushes talk to a remote: give them longer. */
+  timeout?: number;
+}
+
+/** Never prompts: no terminal, no credentials asked for — a command that needs them fails. */
+function run(command: string, cwd: string, args: string[], opts: RunOptions = {}): Promise<Run> {
   return new Promise((resolve, reject) => {
     execFile(
-      'git',
-      ['-c', 'core.quotepath=off', '-c', 'color.ui=false', ...args],
+      command,
+      args,
       {
         cwd,
-        timeout: TIMEOUT_MS,
+        timeout: opts.timeout ?? TIMEOUT_MS,
         maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024,
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C' },
+        env: {
+          ...process.env,
+          GIT_OPTIONAL_LOCKS: '0',
+          GIT_TERMINAL_PROMPT: '0',
+          GH_PROMPT_DISABLED: '1',
+          NO_COLOR: '1',
+          LC_ALL: 'C',
+        },
       },
-      (err, stdout) => {
-        const code = err && typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 0;
-        if (err && !opts.okCodes?.includes(code)) reject(err);
-        else resolve({ stdout, code });
+      (err, stdout, stderr) => {
+        const raw = (err as { code?: unknown } | null)?.code;
+        const code = typeof raw === 'number' ? raw : 0;
+        if (err && !opts.okCodes?.includes(code)) {
+          const why = stderr.trim() || stdout.trim() || err.message;
+          reject(new GitCommandError(why, typeof raw === 'string' || typeof raw === 'number' ? raw : undefined));
+        } else {
+          resolve({ stdout, stderr, code });
+        }
       },
     );
   });
+}
+
+function git(cwd: string, args: string[], opts: RunOptions = {}): Promise<Run> {
+  return run('git', cwd, ['-c', 'core.quotepath=off', '-c', 'color.ui=false', ...args], opts);
 }
 
 /** The workspace's path inside its repository (`''` at the root, else `sub/dir/`); null outside one. */
@@ -234,4 +272,98 @@ export async function gitDiff(root: string, path: string): Promise<GitDiff> {
   }
   if (/^Binary files .* differ$/m.test(patch)) return { kind: 'binary' };
   return { kind: 'text', patch };
+}
+
+// -- changing things ----------------------------------------------------------
+
+/** Stage `paths` as they are on disk: changes, new files and deletions alike. */
+export async function gitStage(root: string, paths: readonly string[]): Promise<void> {
+  await git(root, ['add', '-A', '--', ...paths.map(workspacePath)]);
+}
+
+/** Take `paths` out of the index again, keeping the work tree as it is. */
+export async function gitUnstage(root: string, paths: readonly string[]): Promise<void> {
+  const rel = paths.map(workspacePath);
+  if ((await base(root)) === 'HEAD') await git(root, ['restore', '--staged', '--', ...rel]);
+  else await git(root, ['rm', '--cached', '-r', '-q', '--', ...rel]);
+}
+
+/**
+ * Throw away every change to `paths`, staged or not: a file HEAD has goes back
+ * to it (a renamed one to its old name), and one it doesn't — untracked or
+ * newly added — is deleted. A secret is never deleted: it can't be got back.
+ */
+export async function gitRevert(root: string, paths: readonly string[]): Promise<void> {
+  const wanted = new Set(paths.map(workspacePath));
+  const status = await gitStatus(root);
+  if (!status.repo) throw new GitCommandError('Not a git repository.');
+  const restore: string[] = [];
+  const remove: string[] = [];
+  for (const f of status.files) {
+    if (!wanted.has(f.path)) continue;
+    const isNew = f.unstaged === 'untracked' || f.staged === 'added' || f.staged === 'copied';
+    if (f.oldPath !== undefined && f.staged === 'renamed') {
+      restore.push(f.oldPath);
+      remove.push(f.path);
+    } else if (isNew) {
+      remove.push(f.path);
+    } else {
+      restore.push(f.path);
+    }
+  }
+  const secret = remove.find((p) => isSensitivePath(p));
+  if (secret) throw new GitCommandError(`${secret} looks like a secret, so it won't be deleted from here — remove it yourself.`);
+  if (restore.length > 0) await git(root, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...restore]);
+  for (const p of remove) {
+    // Out of the index if it's there, then off the disk.
+    await git(root, ['rm', '--cached', '-q', '--ignore-unmatch', '--', p]);
+    await rm(join(root, p), { force: true });
+  }
+}
+
+/**
+ * Commit what is staged, staging `paths` first when given. Hooks run;
+ * nothing prompts. Like `git commit`, it takes everything staged in the
+ * repository, under the workspace or not.
+ */
+export async function gitCommit(root: string, message: string, opts: { paths?: readonly string[] } = {}): Promise<GitCommitResult> {
+  if (message.trim() === '') throw new GitCommandError('A commit needs a message.');
+  if (opts.paths?.length) await gitStage(root, opts.paths);
+  await git(root, ['commit', '-q', '-m', message], { timeout: SLOW_TIMEOUT_MS });
+  const sha = (await git(root, ['rev-parse', '--short', 'HEAD'])).stdout.trim();
+  return { sha, summary: message.trim().split('\n')[0]! };
+}
+
+/** Push the branch — setting its upstream on `origin` the first time. */
+export async function gitPush(root: string): Promise<void> {
+  const status = await gitStatus(root);
+  if (!status.repo) throw new GitCommandError('Not a git repository.');
+  if (status.branch === null) throw new GitCommandError('HEAD is detached: check out a branch to push.');
+  if (status.upstream) {
+    await git(root, ['push'], { timeout: SLOW_TIMEOUT_MS });
+    return;
+  }
+  const remotes = (await git(root, ['remote'])).stdout.split('\n').filter(Boolean);
+  const remote = remotes.includes('origin') ? 'origin' : remotes[0];
+  if (!remote) throw new GitCommandError('This repository has no remote to push to.');
+  await git(root, ['push', '-u', remote, status.branch], { timeout: SLOW_TIMEOUT_MS });
+}
+
+/** Open a pull request for the branch with the GitHub CLI; resolves with its URL. */
+export async function createPullRequest(
+  root: string,
+  pr: { title: string; body?: string; draft?: boolean },
+): Promise<{ url: string }> {
+  const args = ['pr', 'create', '--title', pr.title, '--body', pr.body ?? ''];
+  if (pr.draft) args.push('--draft');
+  try {
+    const { stdout } = await run('gh', root, args, { timeout: SLOW_TIMEOUT_MS });
+    const url = stdout.trim().split('\n').filter(Boolean).at(-1) ?? '';
+    return { url };
+  } catch (err) {
+    if (err instanceof GitCommandError && err.code === 'ENOENT') {
+      throw new GitCommandError('The GitHub CLI (gh) is not installed — see https://cli.github.com.');
+    }
+    throw err;
+  }
 }
