@@ -106,7 +106,10 @@ function ErrorOutput({ tool }: { tool: ToolItem }) {
   ) : null;
 }
 
-type Renderer = (tool: ToolItem, input: Rec) => ToolView;
+/** Renders calls nested in a call (a sub-agent's, in its `task` card) — supplied by the transcript. */
+export type RenderCalls = (tools: ToolItem[]) => ReactNode;
+
+type Renderer = (tool: ToolItem, input: Rec, renderCalls?: RenderCalls) => ToolView;
 
 const renderers: Record<string, Renderer> = {
   bash: (tool, input) => {
@@ -237,22 +240,38 @@ const renderers: Record<string, Renderer> = {
     };
   },
 
-  task: (tool, input) => ({
-    summary: str(input, 'description') ?? str(input, 'subagent_type') ?? 'sub-agent',
-    meta: str(input, 'subagent_type') ? (
-      <span className="shrink-0 rounded bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
-        {str(input, 'subagent_type')}
-      </span>
-    ) : undefined,
-    body: (
-      <div className="space-y-2 px-3 py-2">
-        <p className="text-[11px] whitespace-pre-wrap text-muted-foreground">{str(input, 'prompt')}</p>
-        {tool.result?.content &&
-          (tool.result.isError ? <Output tool={tool} /> : <Markdown text={tool.result.content} className="text-xs" />)}
-      </div>
-    ),
-    defaultOpen: false,
-  }),
+  // The prompt, the sub-agent's calls as it makes them (open while it works),
+  // then its report.
+  task: (tool, input, renderCalls) => {
+    const calls = tool.children ?? [];
+    return {
+      summary: str(input, 'description') ?? str(input, 'subagent_type') ?? 'sub-agent',
+      meta: (
+        <>
+          {str(input, 'subagent_type') && (
+            <span className="shrink-0 rounded bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
+              {str(input, 'subagent_type')}
+            </span>
+          )}
+          {calls.length > 0 && (
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums">
+              {calls.length} {calls.length === 1 ? 'call' : 'calls'}
+            </span>
+          )}
+          {tool.durationMs !== undefined && <Duration ms={tool.durationMs} />}
+        </>
+      ),
+      body: (
+        <div className="space-y-2 px-3 py-2">
+          <p className="text-[11px] whitespace-pre-wrap text-muted-foreground">{str(input, 'prompt')}</p>
+          {calls.length > 0 && renderCalls && <div className="border-l pl-3">{renderCalls(calls)}</div>}
+          {tool.result?.content &&
+            (tool.result.isError ? <Output tool={tool} /> : <Markdown text={tool.result.content} className="text-xs" />)}
+        </div>
+      ),
+      defaultOpen: tool.running && calls.length > 0,
+    };
+  },
 
   exit_plan_mode: (tool, input) => ({
     summary: str(input, 'title') ?? 'Plan',
@@ -287,9 +306,9 @@ function genericView(tool: ToolItem): ToolView {
   };
 }
 
-export function toolView(tool: ToolItem): ToolView {
+export function toolView(tool: ToolItem, renderCalls?: RenderCalls): ToolView {
   const render = renderers[tool.name];
-  return render ? render(tool, rec(tool.input)) : genericView(tool);
+  return render ? render(tool, rec(tool.input), renderCalls) : genericView(tool);
 }
 
 /** What the permission dock shows for a call that hasn't run yet. */

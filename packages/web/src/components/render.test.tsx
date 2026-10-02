@@ -220,13 +220,14 @@ describe('ModelPicker', () => {
 });
 
 describe('hidden notices', () => {
-  it('mode and effort changes get no transcript row', () => {
+  it('mode and effort changes, and sub-agent progress lines, get no transcript row', () => {
     const notice = (id: number, kind: string, text: string) =>
       ({ kind: 'notice', id, notice: { kind, level: 'info', text } }) as never;
     const rows = transcriptRows([
       notice(0, 'mode-changed', 'mode: ask → plan'),
       notice(1, 'effort-changed', 'effort: high → max'),
       notice(2, 'context-warn', 'context 81% full'),
+      notice(3, 'subagent', '  ⤷ explore: read {"path":"a.ts"}'),
     ]);
     expect(rows).toHaveLength(1);
   });

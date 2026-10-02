@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, ArrowDown, Brain, Check, ChevronRight, Circle, FileText, Info, Loader2, Search, X } from 'lucide-react';
 
 import type { Notice } from '@harness-code/core';
@@ -173,9 +173,24 @@ function Thinking({ text, active }: { text: string; active: boolean }) {
   );
 }
 
+/** A sub-agent's calls inside its `task` card, lookups folded as in a turn. */
+function CallList({ tools }: { tools: ToolItem[] }) {
+  const verbose = useVerbose();
+  const parts = useMemo(() => turnParts([{ id: 0, thinking: '', text: '', tools }], verbose), [tools, verbose]);
+  return (
+    <div className="flex flex-col gap-1.5">
+      {parts.map((part) => (
+        <PartView key={part.key} part={part} />
+      ))}
+    </div>
+  );
+}
+
+const renderCalls = (tools: ToolItem[]): ReactNode => <CallList tools={tools} />;
+
 const ToolCard = memo(function ToolCard({ tool }: { tool: ToolItem }) {
   const isError = tool.result?.isError === true;
-  const view = toolView(tool);
+  const view = toolView(tool, renderCalls);
   // Follow the renderer's default (errors open, small diffs open…) until the
   // user toggles — including defaults that change after mount, like an error
   // result arriving.

@@ -140,3 +140,56 @@ describe('bash cards', () => {
     expect(screen.queryByText('ok')).toBeNull();
   });
 });
+
+describe('task cards', () => {
+  const call = (id: string, name: string, input: unknown, over: Partial<ToolItem> = {}): ToolItem => ({
+    id,
+    name,
+    input,
+    running: false,
+    result: { content: `${name} ok` },
+    ...over,
+  });
+  const task = (over: Partial<ToolItem>): Entry[] => [
+    {
+      kind: 'assistant',
+      id: 0,
+      thinking: '',
+      text: '',
+      tools: [{ id: 't', name: 'task', input: { subagent_type: 'explore', description: 'Find X', prompt: 'where is X' }, running: false, ...over }],
+    },
+  ];
+
+  it("open on the sub-agent's calls while it works, lookups folded", () => {
+    render(
+      <Transcript
+        view={view({
+          entries: task({
+            running: true,
+            children: [
+              call('a', 'read', { path: 'a.ts' }),
+              call('b', 'grep', { pattern: 'X' }),
+              call('c', 'bash', { command: 'ls src' }, { running: true, result: undefined } as never),
+            ],
+          }),
+        })}
+      />,
+    );
+    const header = screen.getByRole('button', { name: /Find X/ });
+    expect(header.textContent).toContain('3 calls');
+    expect(screen.getByRole('button', { name: /Read 1 file, searched for 1 pattern/ })).toBeTruthy();
+    expect(screen.getByText('ls src')).toBeTruthy();
+  });
+
+  it('fold to the report once done', () => {
+    render(
+      <Transcript
+        view={view({ entries: task({ children: [call('a', 'read', { path: 'a.ts' })], result: { content: 'X is in a.ts' }, durationMs: 4200 }) })}
+      />,
+    );
+    const header = screen.getByRole('button', { name: /Find X/ });
+    expect(header.textContent).toContain('1 call');
+    expect(header.textContent).toContain('4.2s');
+    expect(screen.queryByText('where is X')).toBeNull();
+  });
+});

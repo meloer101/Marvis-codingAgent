@@ -170,6 +170,35 @@ describe('SessionModel', () => {
     expect(card()).toEqual({ id: 'b1', name: 'bash', input: { command: 'make' }, running: false, result: { content: 'done' }, durationMs: 2100 });
   });
 
+  it("opened mid-task: nests the sub-agent's calls in the snapshot card", () => {
+    const m = new SessionModel(
+      snapshot({
+        running: true,
+        lastSeq: 10,
+        transcript: [
+          {
+            type: 'message',
+            ts: 2,
+            message: { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'task', input: { prompt: 'p' } }] },
+          },
+        ],
+      }),
+    );
+    const card = () => m.state.entries.flatMap((e) => (e.kind === 'assistant' ? e.tools : []))[0]!;
+    feed(m, [
+      { type: 'tool_call_start', id: 't1', name: 'task', input: { prompt: 'p' } },
+      { type: 'subagent_event', id: 't1', event: { type: 'tool_call_start', id: 'c1', name: 'read', input: { path: 'a' } } },
+      { type: 'subagent_event', id: 't1', event: { type: 'tool_call_start', id: 'c2', name: 'read', input: { path: 'b' } } },
+      { type: 'subagent_event', id: 't1', event: { type: 'tool_call_end', id: 'c1', name: 'read', result: { content: 'A' } } },
+    ]);
+    expect(card().children!.map((c) => [c.id, c.running])).toEqual([
+      ['c1', false],
+      ['c2', true],
+    ]);
+    feed(m, [{ type: 'tool_call_end', id: 't1', name: 'task', result: { content: 'report' } }]);
+    expect(card().children!.map((c) => c.running)).toEqual([false, false]);
+  });
+
   it('reset() replaces state from a snapshot, pending ask included', () => {
     const m = new SessionModel(snapshot());
     feed(m, [{ type: 'run_start', runId: 'r', input: 'x' }]);

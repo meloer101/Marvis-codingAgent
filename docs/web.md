@@ -326,6 +326,11 @@ The token is as powerful as the user's shell — a client can switch a session t
   never reaches the model, is recorded with the call and comes back with the
   transcript as a `tool_display` item — Shiki colours for the file's language,
   and, within a removed line paired with the added one that replaced it, the
-  words that changed. Past 400 lines a button shows the rest. Permission asks
+  words that changed. Past 400 lines a button shows the rest. A `task` card
+  shows the sub-agent's calls as it makes them (`subagent_event`, the task
+  tool's `onSubagentEvent`: starts and ends only), lookups folded as in a turn,
+  open while it works; they aren't recorded, so a transcript read back from
+  disk has the prompt and the report only. The sub-agent's `⤷` progress
+  notices, which the TUI prints, get no row. Permission asks
   and plan reviews dock above the composer instead of opening modals
   (`components/PendingDock.tsx`).

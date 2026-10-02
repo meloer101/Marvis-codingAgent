@@ -22,9 +22,10 @@ const STARTUP_KINDS: ReadonlySet<Notice['kind']> = new Set([
 
 /**
  * State changes the header already shows (the mode and effort pickers) — no
- * transcript row, as in the TUI.
+ * transcript row, as in the TUI — and a sub-agent's progress lines, which the
+ * `task` card shows as its calls.
  */
-const HIDDEN_KINDS: ReadonlySet<Notice['kind']> = new Set(['mode-changed', 'effort-changed']);
+const HIDDEN_KINDS: ReadonlySet<Notice['kind']> = new Set(['mode-changed', 'effort-changed', 'subagent']);
 
 /** One model call's output: a committed assistant entry, or the one streaming now. */
 export interface Step {

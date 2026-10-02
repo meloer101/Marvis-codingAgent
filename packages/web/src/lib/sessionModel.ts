@@ -11,7 +11,15 @@
  */
 
 import type { AgentStopReason, ContextSnapshot, ReasoningEffort } from '@harness-code/core';
-import { EventBuffer, appendOutput, entriesFromTranscript, foldReducer, initialFoldState } from '@harness-code/protocol';
+import {
+  EventBuffer,
+  appendOutput,
+  applySubagentEvent,
+  entriesFromTranscript,
+  foldReducer,
+  initialFoldState,
+  settleChildren,
+} from '@harness-code/protocol';
 import type { FoldAction, FoldState, QueuedMessage, SessionSnapshot, ToolItem, WireEvent } from '@harness-code/protocol';
 
 // `entriesFromTranscript` now lives in `@harness-code/protocol` (shared with the
@@ -113,12 +121,23 @@ export class SessionModel {
         this.#buffer.onEvent(event);
         this.#liveDirty = true;
         return true;
+      case 'subagent_event':
+        if (!this.#buffer.snapshot().tools.some((t) => t.id === event.id)) {
+          this.#patchCommittedTool(event.id, (t) =>
+            t.running ? { children: applySubagentEvent(t.children, event.event) } : {},
+          );
+          return true;
+        }
+        this.#buffer.onEvent(event);
+        this.#liveDirty = true;
+        return true;
       case 'tool_call_end':
         if (!this.#buffer.snapshot().tools.some((t) => t.id === event.id)) {
-          this.#patchCommittedTool(event.id, () => ({
+          this.#patchCommittedTool(event.id, (t) => ({
             running: false,
             result: event.result,
             output: undefined,
+            children: settleChildren(t.children),
             ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
           }));
           return true;
