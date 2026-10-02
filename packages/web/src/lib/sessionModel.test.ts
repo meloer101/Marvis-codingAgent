@@ -143,6 +143,33 @@ describe('SessionModel', () => {
     expect(m.state.entries.at(-1)).toMatchObject({ kind: 'assistant', text: 'done', tools: [] });
   });
 
+  it('opened mid-command: streams output into the snapshot card, then the result replaces it', () => {
+    const m = new SessionModel(
+      snapshot({
+        running: true,
+        lastSeq: 10,
+        transcript: [
+          { type: 'message', ts: 1, message: { role: 'user', content: [{ type: 'text', text: 'go' }] } },
+          {
+            type: 'message',
+            ts: 2,
+            message: { role: 'assistant', content: [{ type: 'tool_use', id: 'b1', name: 'bash', input: { command: 'make' } }] },
+          },
+        ],
+      }),
+    );
+    const card = () => m.state.entries.flatMap((e) => (e.kind === 'assistant' ? e.tools : []))[0]!;
+    feed(m, [{ type: 'tool_call_output', id: 'b1', text: 'too early\n' }]); // not running yet: dropped
+    feed(m, [
+      { type: 'tool_call_start', id: 'b1', name: 'bash', input: { command: 'make' } },
+      { type: 'tool_call_output', id: 'b1', text: 'cc a.c\n' },
+      { type: 'tool_call_output', id: 'b1', text: 'cc b.c\n' },
+    ]);
+    expect(card()).toMatchObject({ running: true, output: 'cc a.c\ncc b.c\n' });
+    feed(m, [{ type: 'tool_call_end', id: 'b1', name: 'bash', result: { content: 'done' }, durationMs: 2100 }]);
+    expect(card()).toEqual({ id: 'b1', name: 'bash', input: { command: 'make' }, running: false, result: { content: 'done' }, durationMs: 2100 });
+  });
+
   it('reset() replaces state from a snapshot, pending ask included', () => {
     const m = new SessionModel(snapshot());
     feed(m, [{ type: 'run_start', runId: 'r', input: 'x' }]);

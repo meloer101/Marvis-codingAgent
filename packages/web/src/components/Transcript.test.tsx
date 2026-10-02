@@ -107,3 +107,36 @@ describe('exploration calls', () => {
     expect(line.querySelector('.animate-spin')).toBeTruthy();
   });
 });
+
+describe('bash cards', () => {
+  const bash = (over: Partial<ToolItem>): Entry[] => [
+    { kind: 'assistant', id: 0, thinking: '', text: '', tools: [{ id: 'b', name: 'bash', input: { command: 'make test' }, running: false, ...over }] },
+  ];
+
+  it('show the output while the command runs, colours kept', () => {
+    const { container } = render(
+      <Transcript view={view({ entries: bash({ running: true, output: 'building\n\x1b[31mFAIL\x1b[0m a.test\n' }) })} />,
+    );
+    expect(container.textContent).toContain('building');
+    const fail = screen.getByText('FAIL');
+    expect(fail.style.color).toBe('var(--ansi-1)');
+    expect(container.textContent).not.toContain('\x1b');
+  });
+
+  it('put a failing exit code and the duration in the header, and open on failure', () => {
+    render(
+      <Transcript view={view({ entries: bash({ result: { content: '1 failed\n[exit code 1]', isError: true }, durationMs: 2400 }) })} />,
+    );
+    const header = screen.getByRole('button', { name: /make test/ });
+    expect(header.textContent).toContain('exit 1');
+    expect(header.textContent).toContain('2.4s');
+    expect(screen.getByText('1 failed')).toBeTruthy();
+    expect(screen.queryByText(/\[exit code/)).toBeNull();
+  });
+
+  it('stay folded when the command succeeds', () => {
+    render(<Transcript view={view({ entries: bash({ result: { content: 'ok\n' }, durationMs: 300 }) })} />);
+    expect(screen.getByRole('button', { name: /make test/ }).textContent).toContain('300ms');
+    expect(screen.queryByText('ok')).toBeNull();
+  });
+});

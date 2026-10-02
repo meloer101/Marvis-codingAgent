@@ -10,9 +10,9 @@
  * never recreated, so memoised rows keep their object identity.
  */
 
-import type { AgentStopReason, ContextSnapshot, ReasoningEffort, ToolResult } from '@harness-code/core';
-import { EventBuffer, entriesFromTranscript, foldReducer, initialFoldState } from '@harness-code/protocol';
-import type { FoldAction, FoldState, QueuedMessage, SessionSnapshot, WireEvent } from '@harness-code/protocol';
+import type { AgentStopReason, ContextSnapshot, ReasoningEffort } from '@harness-code/core';
+import { EventBuffer, appendOutput, entriesFromTranscript, foldReducer, initialFoldState } from '@harness-code/protocol';
+import type { FoldAction, FoldState, QueuedMessage, SessionSnapshot, ToolItem, WireEvent } from '@harness-code/protocol';
 
 // `entriesFromTranscript` now lives in `@harness-code/protocol` (shared with the
 // TUI); re-exported here so existing importers of this module keep working.
@@ -33,6 +33,9 @@ export interface SessionViewState extends FoldState {
   /** Messages waiting for the run to end, oldest first. */
   queue: readonly QueuedMessage[];
 }
+
+/** Fields to set on a card; `undefined` removes one. */
+type ToolPatch = { [K in keyof ToolItem]?: ToolItem[K] | undefined };
 
 const STOP_NOTICES: Partial<Record<AgentStopReason, string>> = {
   aborted: 'Interrupted.',
@@ -98,13 +101,26 @@ export class SessionModel {
         // recorded before its permission ask, but `tool_call_start` only fires
         // once the ask is answered — so the card may already be in the
         // snapshot. Update it there rather than adding a second card.
-        if (this.#patchCommittedTool(event.id, { running: true })) return true;
+        if (this.#patchCommittedTool(event.id, () => ({ running: true }))) return true;
+        this.#buffer.onEvent(event);
+        this.#liveDirty = true;
+        return true;
+      case 'tool_call_output':
+        if (!this.#buffer.snapshot().tools.some((t) => t.id === event.id)) {
+          this.#patchCommittedTool(event.id, (t) => (t.running ? { output: appendOutput(t.output, event.text) } : {}));
+          return true;
+        }
         this.#buffer.onEvent(event);
         this.#liveDirty = true;
         return true;
       case 'tool_call_end':
         if (!this.#buffer.snapshot().tools.some((t) => t.id === event.id)) {
-          this.#patchCommittedTool(event.id, { running: false, result: event.result });
+          this.#patchCommittedTool(event.id, () => ({
+            running: false,
+            result: event.result,
+            output: undefined,
+            ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+          }));
           return true;
         }
         this.#buffer.onEvent(event);
@@ -211,12 +227,19 @@ export class SessionModel {
   }
 
   /** Update a tool card that is already committed; false if no entry has it. */
-  #patchCommittedTool(id: string, patch: { running: boolean; result?: ToolResult }): boolean {
+  /** Update a card already committed (it came with the snapshot); false when there is none. */
+  #patchCommittedTool(id: string, patch: (tool: ToolItem) => ToolPatch): boolean {
     const entries = this.#state.entries;
     for (let i = entries.length - 1; i >= 0; i--) {
       const e = entries[i]!;
       if (e.kind !== 'assistant' || !e.tools.some((t) => t.id === id)) continue;
-      const tools = e.tools.map((t) => (t.id === id ? { ...t, ...patch } : t));
+      const tools = e.tools.map((t) => {
+        if (t.id !== id) return t;
+        const next = { ...t, ...patch(t) } as ToolItem;
+        // `undefined` in a patch removes the field (exactOptionalPropertyTypes).
+        for (const k of Object.keys(next) as Array<keyof ToolItem>) if (next[k] === undefined) delete next[k];
+        return next;
+      });
       const next = [...entries];
       next[i] = { ...e, tools };
       this.#state = { ...this.#state, entries: next };

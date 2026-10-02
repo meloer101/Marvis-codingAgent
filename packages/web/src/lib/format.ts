@@ -29,3 +29,23 @@ export function fmtWindow(tokens: number): string {
 export function fmtRate(perMTok: number): string {
   return `$${perMTok < 0.1 ? +perMTok.toFixed(3) : perMTok.toFixed(2)}`;
 }
+
+/** How long a tool ran: `340ms`, `2.4s`, `1m 05s`. */
+export function fmtDuration(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+}
+
+/**
+ * A `bash` result split into what the command printed and how it ended — the
+ * tool appends `[exit code N]` or `[command timed out after Nms]` for the
+ * model, which the card shows in its header instead.
+ */
+export function bashOutcome(content: string): { output: string; exitCode?: number; timedOut?: boolean } {
+  const m = /\n?\[(?:exit code (-?\d+)|command timed out after \d+ms)\]$/.exec(content);
+  if (!m) return { output: content };
+  const output = content.slice(0, m.index);
+  return m[1] !== undefined ? { output, exitCode: Number(m[1]) } : { output, timedOut: true };
+}

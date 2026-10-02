@@ -14,6 +14,8 @@ import type { ToolItem } from '@harness-code/protocol';
 
 import { CodeBlock } from '@/components/CodeBlock';
 import { Markdown } from '@/components/Markdown';
+import { TerminalOutput } from '@/components/tools/TerminalOutput';
+import { bashOutcome, fmtDuration } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const EditDiffPanel = lazy(() =>
@@ -78,6 +80,23 @@ function Mono({ children }: { children: ReactNode }) {
   return <span className="font-mono">{children}</span>;
 }
 
+function Badge({ tone, children }: { tone: 'destructive'; children: ReactNode }) {
+  return (
+    <span
+      className={cn(
+        'shrink-0 rounded px-1.5 font-mono text-[10px]',
+        tone === 'destructive' && 'bg-destructive/10 text-destructive',
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Duration({ ms }: { ms: number }) {
+  return <span className="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums">{fmtDuration(ms)}</span>;
+}
+
 /** Output only when it's an error — for tools whose body is something else. */
 function ErrorOutput({ tool }: { tool: ToolItem }) {
   return tool.result?.isError ? (
@@ -90,11 +109,31 @@ function ErrorOutput({ tool }: { tool: ToolItem }) {
 type Renderer = (tool: ToolItem, input: Rec) => ToolView;
 
 const renderers: Record<string, Renderer> = {
-  bash: (tool, input) => ({
-    summary: <Mono>{str(input, 'command') ?? ''}</Mono>,
-    body: tool.result?.content ? <Output tool={tool} /> : null,
-    defaultOpen: tool.result?.isError === true,
-  }),
+  bash: (tool, input) => {
+    const summary = <Mono>{str(input, 'command') ?? ''}</Mono>;
+    // Running: what it has printed so far, open and following the tail.
+    if (!tool.result) {
+      return {
+        summary,
+        body: tool.output ? <TerminalOutput text={tool.output} live /> : null,
+        defaultOpen: tool.running,
+      };
+    }
+    const { output, exitCode, timedOut } = bashOutcome(tool.result.content);
+    const failed = tool.result.isError === true;
+    return {
+      summary,
+      meta: (
+        <>
+          {exitCode !== undefined && <Badge tone="destructive">exit {exitCode}</Badge>}
+          {timedOut && <Badge tone="destructive">timed out</Badge>}
+          {tool.durationMs !== undefined && <Duration ms={tool.durationMs} />}
+        </>
+      ),
+      body: output && output !== '(no output)' ? <TerminalOutput text={output} error={failed && exitCode === undefined && !timedOut} /> : null,
+      defaultOpen: failed,
+    };
+  },
 
   edit: (tool, input) => {
     const oldString = str(input, 'oldString') ?? '';

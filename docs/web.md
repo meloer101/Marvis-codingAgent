@@ -145,6 +145,14 @@ host buffers consecutive deltas of one type and flushes them as one event every
 socket sees ~30 frames/s instead of one per token. `EventBuffer` applies the same
 rule on the client side.
 
+`tool_call_output` — what a running `bash` prints, as it prints it (the tool's
+`onOutput`; display only, the model still sees just the result) — coalesces the
+same way, per call. A flush carrying more than 16 KB keeps its tail, cut at a
+line start and marked `…`; clients keep the last 32 KB of a call's output
+(`appendOutput`) and drop it when the result arrives. `tool_call_end` carries
+`durationMs`, the time the tool ran, permission prompt excluded; it isn't
+recorded, so a transcript read back from disk has no durations.
+
 ## Session lifecycle
 
 A session is a log on disk (`.agent/sessions/<id>.jsonl`) and, while someone
@@ -308,5 +316,9 @@ The token is as powerful as the user's shell — a client can switch a session t
   palette shows every call on its own instead; the choice is kept. Parts keep
   their keys when the streaming step commits, so what was opened mid-run stays
   open. Tool calls render through the per-tool registry
-  (`components/tools/registry.tsx`); permission asks and plan reviews dock above
-  the composer instead of opening modals (`components/PendingDock.tsx`).
+  (`components/tools/registry.tsx`). A `bash` card opens on its output while the
+  command runs, following the tail, and folds again when it succeeds; its header
+  gives the exit code of a failure (or the timeout) and the duration. Terminal
+  colours are kept and other escapes dropped (`lib/ansi.ts`). Permission asks
+  and plan reviews dock above the composer instead of opening modals
+  (`components/PendingDock.tsx`).
