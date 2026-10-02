@@ -108,7 +108,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <SessionHeader view={view} />
-      <Transcript view={view} />
+      <Transcript view={view} onRetry={(text, attachments) => void sync.send(id, text, attachments)} />
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
         <TaskDock view={view} />
         <PendingDock view={view} />

@@ -179,3 +179,31 @@ export function briefNotice(notice: Notice): string | null {
   const head = notice.text.split(/[(,—·]/)[0] ?? '';
   return head.replace(':', '').replace(/\s+(discovered|available|servers?|found)\b/g, '').replace(/\s+/g, ' ').trim() || null;
 }
+
+/**
+ * The message to send again, when the last run failed or was stopped (it
+ * ends in an error notice) or never got a reply — the last user message, with
+ * its attachments. Null while a run is going, or once one answered.
+ */
+export function retryTarget(
+  entries: readonly Entry[],
+  running: boolean,
+): { text: string; attachments: string[] } | null {
+  if (running) return null;
+  let u = entries.length - 1;
+  while (u >= 0 && entries[u]!.kind !== 'user') u--;
+  const user = entries[u];
+  if (!user || user.kind !== 'user') return null;
+  const after = entries.slice(u + 1);
+  const failed = after.some((e) => e.kind === 'notice' && e.notice.kind === 'error');
+  const answered = after.some((e) => e.kind === 'assistant');
+  return failed || !answered ? { text: user.text, attachments: user.attachments ?? [] } : null;
+}
+
+/** A turn's reply as markdown, for copying: its text, step by step. */
+export function turnText(steps: readonly Step[]): string {
+  return steps
+    .map((s) => s.text.trim())
+    .filter(Boolean)
+    .join('\n\n');
+}

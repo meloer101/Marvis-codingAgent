@@ -1,21 +1,29 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowDown, Brain, Check, ChevronRight, Circle, FileText, Info, Loader2, Search, X } from 'lucide-react';
+import { AlertTriangle, ArrowDown, Brain, Check, ChevronRight, Circle, FileText, Info, Loader2, RotateCcw, Search, X } from 'lucide-react';
 
 import type { Notice } from '@harness-code/core';
 import { describeToolInput } from '@harness-code/core/browser';
 import type { Entry, ToolItem } from '@harness-code/protocol';
 
+import { CopyButton } from '@/components/CopyButton';
 import { Markdown } from '@/components/Markdown';
 import { toolView } from '@/components/tools/registry';
 import { Button } from '@/components/ui/button';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
-import { briefNotice, exploreSummary, transcriptRows, turnParts, withLive } from '@/lib/rows';
+import { briefNotice, exploreSummary, retryTarget, transcriptRows, turnParts, turnText, withLive } from '@/lib/rows';
 import type { Part, Step } from '@/lib/rows';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { cn } from '@/lib/utils';
 import { useVerbose } from '@/lib/verbose';
 
-export function Transcript({ view }: { view: SessionViewState }) {
+/** `onRetry` sends a message again — offered after a run that failed or was stopped. */
+export function Transcript({
+  view,
+  onRetry,
+}: {
+  view: SessionViewState;
+  onRetry?: (text: string, attachments: string[]) => void;
+}) {
   const { entries, live, running } = view;
   const { ref, onScroll, atBottom, scrollToBottom } = useStickToBottom<HTMLDivElement>(
     `${entries.length}:${live.text.length}:${live.thinking.length}:${live.tools.length}:${running}`,
@@ -25,6 +33,7 @@ export function Transcript({ view }: { view: SessionViewState }) {
   const committed = useMemo(() => transcriptRows(entries), [entries]);
   const rows = useMemo(() => withLive(committed, live, entries.length), [committed, live, entries.length]);
   const conversationEmpty = committed.every((r) => r.kind === 'details');
+  const retry = useMemo(() => (onRetry ? retryTarget(entries, running) : null), [entries, running, onRetry]);
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -43,6 +52,15 @@ export function Transcript({ view }: { view: SessionViewState }) {
             <p className="py-16 text-center font-serif text-[15px] text-muted-foreground italic">
               Send a message to start.
             </p>
+          )}
+          {retry && onRetry && (
+            <div className="flex animate-rise items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={() => onRetry(retry.text, retry.attachments)}>
+                <RotateCcw />
+                Retry
+              </Button>
+              <span className="text-xs text-muted-foreground">Sends your last message again.</span>
+            </div>
           )}
           {running && liveEmpty && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -91,13 +109,20 @@ const EntryRow = memo(function EntryRow({ entry }: { entry: Entry }) {
 const TurnRow = memo(
   function TurnRow({ steps, verbose }: { steps: readonly Step[]; verbose: boolean }) {
     const parts = useMemo(() => turnParts(steps, verbose), [steps, verbose]);
+    const streaming = steps.some((s) => s.streaming);
+    const reply = useMemo(() => (streaming ? '' : turnText(steps)), [steps, streaming]);
     return (
-      <div className="flex flex-col gap-2 text-sm" style={ROW_STYLE}>
+      <div className="group/turn flex flex-col gap-2 text-sm" style={ROW_STYLE}>
         {parts.map((part) => (
           <div key={part.key} className="animate-rise">
             <PartView part={part} />
           </div>
         ))}
+        {reply && (
+          <div className="-mt-1 flex h-5 items-center opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100">
+            <CopyButton text={reply} label="Copy reply" />
+          </div>
+        )}
       </div>
     );
   },
@@ -123,8 +148,15 @@ function PartView({ part }: { part: Part }) {
 
 export function UserMessage({ text, attachments }: { text: string; attachments?: readonly string[] }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border bg-card px-4 py-3 text-sm shadow-xs">
-      {text && <div className="whitespace-pre-wrap">{text}</div>}
+    <div className="group/user relative flex flex-col gap-2 rounded-lg border bg-card px-4 py-3 text-sm shadow-xs">
+      {text && <div className="pr-6 whitespace-pre-wrap">{text}</div>}
+      {text && (
+        <CopyButton
+          text={text}
+          label="Copy message"
+          className="absolute top-1.5 right-1.5 opacity-0 group-hover/user:opacity-100 focus-visible:opacity-100"
+        />
+      )}
       {attachments && attachments.length > 0 && <AttachmentChips paths={attachments} />}
     </div>
   );

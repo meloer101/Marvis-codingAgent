@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Entry, ToolItem } from '@harness-code/protocol';
 
-import { exploreSummary, transcriptRows, turnParts, withLive } from './rows';
+import { exploreSummary, retryTarget, transcriptRows, turnParts, turnText, withLive } from './rows';
 import type { Step } from './rows';
 
 let n = 0;
@@ -102,5 +102,32 @@ describe('exploreSummary', () => {
       ]),
     ).toBe('Searched for 3 patterns, read 2 files');
     expect(exploreSummary([tool('read', { path: 'a' }), tool('webfetch', { url: 'u' })])).toBe('Read 1 file, fetched 1 page');
+  });
+});
+
+describe('retryTarget', () => {
+  const user: Entry = { kind: 'user', id: 0, text: 'fix it', attachments: ['a.ts'] };
+  const reply: Entry = { kind: 'assistant', id: 1, thinking: '', text: 'done', tools: [] };
+  const failed: Entry = { kind: 'notice', id: 2, notice: { kind: 'error', level: 'error', text: 'provider down' } };
+
+  it('offers the last message after a run that failed or was stopped, or got no reply', () => {
+    expect(retryTarget([user, reply, failed], false)).toEqual({ text: 'fix it', attachments: ['a.ts'] });
+    expect(retryTarget([user], false)).toEqual({ text: 'fix it', attachments: ['a.ts'] });
+  });
+
+  it('offers nothing once a run answered, while one is going, or before any message', () => {
+    expect(retryTarget([user, reply], false)).toBeNull();
+    expect(retryTarget([user, failed], true)).toBeNull();
+    expect(retryTarget([], false)).toBeNull();
+    // An earlier failure doesn't count once a later message got its answer.
+    expect(retryTarget([user, failed, { ...user, id: 3, text: 'again' }, { ...reply, id: 4 }], false)).toBeNull();
+  });
+});
+
+describe('turnText', () => {
+  it("joins a turn's text, step by step, leaving out steps with none", () => {
+    expect(turnText([step(1, { text: 'Looking.\n' }), step(2, { tools: [tool('read')] }), step(3, { text: 'Found it.' })])).toBe(
+      'Looking.\n\nFound it.',
+    );
   });
 });

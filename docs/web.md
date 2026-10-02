@@ -150,8 +150,9 @@ rule on the client side.
 same way, per call. A flush carrying more than 16 KB keeps its tail, cut at a
 line start and marked `…`; clients keep the last 32 KB of a call's output
 (`appendOutput`) and drop it when the result arrives. `tool_call_end` carries
-`durationMs`, the time the tool ran, permission prompt excluded; it isn't
-recorded, so a transcript read back from disk has no durations.
+`durationMs`, the time the tool ran, permission prompt excluded (none for a
+denied call, which never ran); it isn't recorded, so a transcript read back from
+disk has no durations.
 
 ## Session lifecycle
 
@@ -334,6 +335,12 @@ The token is as powerful as the user's shell — a client can switch a session t
   notices, which the TUI prints, get no row. Permission asks
   and plan reviews dock above the composer instead of opening modals
   (`components/PendingDock.tsx`).
+- **Copy and retry.** A finished turn's reply (its text, as markdown) and each
+  message can be copied from a button that shows on hover. After a run that
+  failed or was stopped — its error notice ends the transcript — or a message
+  that never got a reply, Retry sends that message again with its attachments
+  (`retryTarget`). It is a new message, not a rewind: the failed attempt stays
+  in the history.
 - **Task list** (`components/TaskDock.tsx`): what the agent last passed to
   `todo` (`lib/todos.ts`, read off the transcript, so it survives a reload),
   docked above the composer while any of it is left — one line with progress

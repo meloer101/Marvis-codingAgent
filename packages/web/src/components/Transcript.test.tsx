@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Entry, ToolItem } from '@harness-code/protocol';
 
@@ -224,5 +224,39 @@ describe('TaskDock', () => {
   it('goes away once everything is done', () => {
     const { container } = render(<TaskDock view={view({ entries: withTodos([{ content: 'All of it', status: 'completed' }]) })} />);
     expect(container.textContent).toBe('');
+  });
+});
+
+describe('copy and retry', () => {
+  it('copies a finished reply as markdown', async () => {
+    const writeText = vi.fn(async () => {});
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(
+      <Transcript
+        view={view({
+          entries: [
+            { kind: 'user', id: 0, text: 'hi' },
+            { kind: 'assistant', id: 1, thinking: '', text: 'Hello **there**.', tools: [] },
+          ],
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Copy reply' }));
+    expect(writeText).toHaveBeenCalledWith('Hello **there**.');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy message' }));
+    expect(writeText).toHaveBeenLastCalledWith('hi');
+  });
+
+  it('offers to send the last message again after a failed run', () => {
+    const onRetry = vi.fn();
+    const entries: Entry[] = [
+      { kind: 'user', id: 0, text: 'fix it', attachments: ['a.ts'] },
+      { kind: 'notice', id: 1, notice: { kind: 'error', level: 'error', text: 'provider down' } },
+    ];
+    const { rerender } = render(<Transcript view={view({ entries })} onRetry={onRetry} />);
+    fireEvent.click(screen.getByRole('button', { name: /Retry/ }));
+    expect(onRetry).toHaveBeenCalledWith('fix it', ['a.ts']);
+    rerender(<Transcript view={view({ entries, running: true })} onRetry={onRetry} />);
+    expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
   });
 });
