@@ -8,6 +8,7 @@ import {
   Cpu,
   FolderPlus,
   Gauge,
+  GitCompareArrows,
   Keyboard,
   ListCollapse,
   ListTree,
@@ -15,6 +16,7 @@ import {
   Minimize2,
   Monitor,
   Moon,
+  PanelRightClose,
   Pencil,
   Pin,
   PinOff,
@@ -37,6 +39,7 @@ import { useSync } from '@/lib/syncContext';
 import { setTheme, useTheme } from '@/lib/theme';
 import type { Theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import { setPanel, usePanel } from '@/lib/panel';
 import { setVerbose, useVerbose } from '@/lib/verbose';
 
 const FALLBACK_MODES: readonly PermissionMode[] = ['ask', 'acceptEdits', 'plan', 'readOnly'];
@@ -168,6 +171,7 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
   const models = useAppStore((s) => (view?.workspaceId ? s.models[view.workspaceId] : undefined));
   const theme = useTheme();
   const verbose = useVerbose();
+  const panel = usePanel();
   const workspaceId = view?.workspaceId;
 
   // The models to switch to: fresh each time the palette opens.
@@ -257,6 +261,11 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       items.push({ id: `theme-${t}`, group: 'App', label: `Theme: ${THEMES[t].label}`, keywords: 'appearance', icon: THEMES[t].icon, run: () => setTheme(t) });
     }
     items.push(
+      panel
+        ? { id: 'panel-close', group: 'App', label: 'Hide the side panel', hint: '⌥⌘B', keywords: 'changes git diff', icon: PanelRightClose, run: () => setPanel(null) }
+        : { id: 'panel-changes', group: 'App', label: 'Show changes', hint: '⌥⌘B', keywords: 'git diff panel status', icon: GitCompareArrows, run: () => setPanel('changes') },
+    );
+    items.push(
       verbose
         ? { id: 'fold', group: 'App', label: 'Fold exploration calls', hint: '⌃O', keywords: 'transcript compact verbose', icon: ListCollapse, run: () => setVerbose(false) }
         : { id: 'verbose', group: 'App', label: 'Show every tool call', hint: '⌃O', keywords: 'transcript verbose expand', icon: ListTree, run: () => setVerbose(true) },
@@ -272,5 +281,5 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
     });
     // Group order, whatever order they were pushed in.
     return GROUPS.flatMap((g) => items.filter((i) => i.group === g));
-  }, [view, activeId, row, sessions, workspaces, models, theme, verbose, onNewSession, sync]);
+  }, [view, activeId, row, sessions, workspaces, models, theme, verbose, panel, onNewSession, sync]);
 }

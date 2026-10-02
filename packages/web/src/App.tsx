@@ -14,6 +14,7 @@ import type { Route } from '@/lib/route';
 import { allCommands } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
+import { togglePanel } from '@/lib/panel';
 import { toggleVerbose } from '@/lib/verbose';
 import { platform } from '@/platform';
 
@@ -66,9 +67,9 @@ export function App() {
     window.location.hash = routeToHash(workspaceId ? { kind: 'new', workspaceId } : { kind: 'home' });
   };
 
-  // Global keys: the command palette, a new session and the verbose
-  // transcript (Ctrl+O, as in the TUI — Ctrl on a Mac too) anywhere, Esc stops
-  // the active run. The composer's menus and the pending dock swallow their
+  // Global keys: the command palette, a new session, the side panel and the
+  // verbose transcript (Ctrl+O, as in the TUI — Ctrl on a Mac too) anywhere,
+  // Esc stops the active run. The composer's menus and the pending dock swallow their
   // own Escape, and an Escape that closes a dialog or the palette never aborts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -82,6 +83,12 @@ export function App() {
         e.preventDefault();
         sync.setPaletteOpen(false);
         newSession();
+        return;
+      }
+      // By the key's place: Option+B types "∫" on a Mac.
+      if (mod && e.altKey && !e.shiftKey && e.code === 'KeyB') {
+        e.preventDefault();
+        togglePanel();
         return;
       }
       if (e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {

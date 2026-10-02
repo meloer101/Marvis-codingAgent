@@ -82,6 +82,15 @@ const Row = memo(function Row({
   tokens: Token[] | undefined;
 }) {
   const segments = useMemo(() => lineSegments(line.text, tokens, line.changes), [line, tokens]);
+  if (line.kind === 'hunk') {
+    return (
+      <tr className="bg-primary/5 text-muted-foreground">
+        <td colSpan={(oldCol ? 1 : 0) + (newCol ? 1 : 0) + 2} className="px-2 py-0.5 whitespace-pre-wrap select-none">
+          {line.text}
+        </td>
+      </tr>
+    );
+  }
   return (
     <tr className={cn(line.kind === 'add' && 'bg-success/10', line.kind === 'del' && 'bg-destructive/10')}>
       {oldCol && <LineNo n={line.oldNo} />}

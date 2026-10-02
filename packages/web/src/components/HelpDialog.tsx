@@ -11,6 +11,7 @@ const SHORTCUTS: Array<[string, string]> = [
   ['Shift+Tab', 'Switch permission mode'],
   ['⌘K / Ctrl+K', 'Command palette'],
   ['⇧⌘O / Ctrl+Shift+O', 'New session'],
+  ['⌥⌘B / Ctrl+Alt+B', 'Show or hide the changes panel'],
   ['Ctrl+O', 'Show every tool call, or fold exploration again'],
   ['Esc', 'Stop the current run'],
   ['y / a / s / n', 'Permission prompt: allow once / always / auto mode / deny'],

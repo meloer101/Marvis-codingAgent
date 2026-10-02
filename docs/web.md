@@ -99,6 +99,8 @@ the server with the same schemas the client is typed from.
 | `workspace.inspect {path}` | what adding a directory would mean — nothing started |
 | `workspace.add {path, createMarker?}` / `workspace.remove {id}` | host a project / stop hosting it |
 | `fs.suggestDirs {prefix}` | directory completion for the add dialog |
+| `git.status {workspaceId, sessionId?}` | the workspace's changes against HEAD: branch, upstream, ahead/behind, and per file its staged / unstaged change and lines added / removed |
+| `git.diff {workspaceId, sessionId?, path}` | one file's patch against HEAD (an untracked file against nothing); binary, too big (> 1 MB) or a secret: withheld |
 | `fs.search {workspaceId, query, limit?}` | a workspace's files matching an `@` query, best first; no ignored files, no secrets |
 | `session.list` | every workspace's sessions (on disk plus live), newest first |
 | `session.start {text, attachments?, workspaceId?, model?, mode?, effort?}` | create a session and send its first message (how a draft becomes a session); a bad attachment creates nothing |
@@ -222,7 +224,10 @@ processes. The two are managed separately.
 changes: `session_upsert {summary}` whenever a session is created, resumed,
 starts or ends a run, waits on or resolves a prompt, or is closed, and
 `session_removed {id}` when a closed session has no log, and `workspaces` with
-the whole list after a workspace is added or removed. Rows carry their
+the whole list after a workspace is added or removed. `git_changed
+{workspaceId}` says a session may have changed files there — after any tool
+call but a lookup, and when a run ends, at most once per 250 ms — so a tab
+showing that workspace's changes asks `git.status` again. Rows carry their
 `workspaceId`, `pinned` and `archived`. Pushes carry current state, not deltas,
 and are not replayed.
 
@@ -264,7 +269,10 @@ The token is as powerful as the user's shell — a client can switch a session t
 8. **Adding a project is trusting it.** Its `.mcp.json` commands run with every
    session and its settings apply; the add dialog shows both before it asks.
    Directory completion lists folder names, which the token already reaches.
-9. **Attachments go through the permission engine.** `fs.search` lists a
+9. **Diffs keep secrets on disk.** The Changes panel lists every changed file,
+   but `git.diff` withholds the contents of one the permission engine treats as
+   a secret, and refuses a path outside the workspace.
+10. **Attachments go through the permission engine.** `fs.search` lists a
    workspace's files without the ones the engine treats as secrets (`.env`,
    keys, credentials), and an attachment is checked as a `read` of that path
    would be: a deny rule or the sensitive-file stance refuses it.
@@ -341,6 +349,16 @@ The token is as powerful as the user's shell — a client can switch a session t
   that never got a reply, Retry sends that message again with its attachments
   (`retryTarget`). It is a new message, not a rewind: the failed attempt stays
   in the history.
+- **Side panel** (`components/SidePanel.tsx`): to the right of a session,
+  opened from the header or with ⌥⌘B (Ctrl+Alt+B); which tab shows is kept
+  (`lib/panel.ts`). **Changes** (`components/ChangesPanel.tsx`) lists the
+  project's changes against HEAD — branch and ahead/behind, then each file with
+  a letter for its change and its line counts — and opens a file to its patch
+  (`parsePatch`, hunks numbered from the file, the same diff view as the
+  cards). While it shows, `SessionSync.watchGit` keeps the status fresh: on
+  every `git_changed` and reconnect, one load at a time; an open diff fetches
+  again on each `git_changed`. git runs with optional locks off, so it never
+  takes the index lock from a command the agent is running.
 - **Task list** (`components/TaskDock.tsx`): what the agent last passed to
   `todo` (`lib/todos.ts`, read off the transcript, so it survives a reload),
   docked above the composer while any of it is left — one line with progress

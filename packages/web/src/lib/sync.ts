@@ -26,6 +26,7 @@ import type {
   AskDecision,
   DirSuggestion,
   FileMatch,
+  GitDiff,
   PushEvent,
   QueuedMessage,
   SessionSnapshot,
@@ -79,6 +80,11 @@ export class SessionSync {
   #frameQueued = false;
   /** The server boot the held session rows came from (`ServerInfo.bootId`). */
   #bootId: string | null = null;
+  /** Workspaces whose git state something shows, and how many things. */
+  #gitWatch = new Map<string, number>();
+  /** `git.status` calls in flight, and workspaces that changed again meanwhile. */
+  #gitLoading = new Map<string, Promise<void>>();
+  #gitAgain = new Set<string>();
 
   constructor(opts: SyncOptions) {
     this.#store = opts.store ?? useAppStore;
@@ -408,6 +414,53 @@ export class SessionSync {
     }
   }
 
+  // -- git --------------------------------------------------------------------
+
+  /**
+   * Keep workspace `workspaceId`'s git status fresh (in the store's `git`)
+   * while something shows it: loaded now, again on every `git_changed` and
+   * reconnect. Returns the release.
+   */
+  watchGit(workspaceId: string): () => void {
+    this.#gitWatch.set(workspaceId, (this.#gitWatch.get(workspaceId) ?? 0) + 1);
+    void this.loadGitStatus(workspaceId);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const n = (this.#gitWatch.get(workspaceId) ?? 1) - 1;
+      if (n <= 0) this.#gitWatch.delete(workspaceId);
+      else this.#gitWatch.set(workspaceId, n);
+    };
+  }
+
+  /** One load at a time per workspace; a change meanwhile loads once more after it. */
+  loadGitStatus(workspaceId: string): Promise<void> {
+    const inFlight = this.#gitLoading.get(workspaceId);
+    if (inFlight) {
+      this.#gitAgain.add(workspaceId);
+      return inFlight;
+    }
+    const load = (async () => {
+      try {
+        const status = await this.rpc.call('git.status', { workspaceId });
+        this.#store.setState((s) => ({ git: { ...s.git, [workspaceId]: status } }));
+      } catch {
+        // Kept as it was; the next change or reconnect asks again.
+      } finally {
+        this.#gitLoading.delete(workspaceId);
+        if (this.#gitAgain.delete(workspaceId)) void this.loadGitStatus(workspaceId);
+      }
+    })();
+    this.#gitLoading.set(workspaceId, load);
+    return load;
+  }
+
+  /** One file's changes; rejects when it can't be asked (the caller shows why). */
+  gitDiff(workspaceId: string, path: string): Promise<GitDiff> {
+    return this.rpc.call('git.diff', { workspaceId, path });
+  }
+
   // -- session management -------------------------------------------------------
 
   /** Rename, pin or archive; the new row also arrives as a push. */
@@ -521,6 +574,12 @@ export class SessionSync {
       this.#store.setState({ workspaces: event.workspaces });
       return;
     }
+    if (event.type === 'git_changed') {
+      const { workspaceId } = event;
+      this.#store.setState((s) => ({ gitRev: { ...s.gitRev, [workspaceId]: (s.gitRev[workspaceId] ?? 0) + 1 } }));
+      if (this.#gitWatch.has(workspaceId)) void this.loadGitStatus(workspaceId);
+      return;
+    }
     this.#store.setState((s) => ({ sessions: applySessionPush(s.sessions, event) }));
     if (event.type !== 'session_upsert') return;
     const { id, live } = event.summary;
@@ -573,6 +632,8 @@ export class SessionSync {
       }
     }
     for (const id of retry) void this.open(id);
+    // Files may have changed while the socket was down.
+    for (const workspaceId of this.#gitWatch.keys()) void this.loadGitStatus(workspaceId);
   }
 
   /** Mark a session dirty and publish all dirty sessions on the next frame. */

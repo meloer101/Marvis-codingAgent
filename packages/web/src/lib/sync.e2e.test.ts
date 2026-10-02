@@ -6,6 +6,7 @@
  * answers it (pending ask survives a reload; first answer wins for everyone).
  */
 
+import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,6 +30,8 @@ const emptyState = (): AppState => ({
   slash: {},
   skills: {},
   models: {},
+  git: {},
+  gitRev: {},
   restored: {},
   error: null,
   helpOpen: false,
@@ -183,6 +186,37 @@ describe('SessionSync ↔ hc web --mock', () => {
 
     // The sidebar list shows the session.
     await until(() => a.store.getState().sessions.some((s) => s.id === id && !s.running), 'session in list');
+  });
+
+  it("follows a project's git status while it is watched, as a run changes files", async () => {
+    const { server, cwd } = await boot();
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd });
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'server info');
+    const workspaceId = a.store.getState().workspaces[0]!.id;
+    const release = a.sync.watchGit(workspaceId);
+    const git = () => a.store.getState().git[workspaceId];
+    await until(() => git()?.repo === true, 'the first status');
+    expect(git()).toMatchObject({ repo: true, branch: 'main', files: [] });
+
+    const id = await a.sync.create();
+    const view = () => a.store.getState().views[id!];
+    expect(await a.sync.send(id!, 'set up a scratch file')).toBe(true);
+    const bash = await until(() => view()?.askId, 'the bash ask');
+    await a.sync.answerAsk(id!, bash, 'once');
+    const write = await until(() => (view()?.askId !== bash ? view()?.askId : null), 'the write ask');
+    await a.sync.answerAsk(id!, write, 'once');
+
+    // The write pushes git_changed; the watched status reloads with the new file.
+    await until(() => {
+      const g = git();
+      return g?.repo === true && g.files.some((f) => f.path === 'mock-demo.txt');
+    }, 'the new file listed');
+    expect(a.store.getState().gitRev[workspaceId]).toBeGreaterThan(0);
+    const diff = await a.sync.gitDiff(workspaceId, 'mock-demo.txt');
+    expect(diff.kind === 'text' && diff.patch).toContain('+first line');
+    release();
+    await a.sync.abort(id!);
   });
 
   it('turns a draft into a session with its first message', async () => {

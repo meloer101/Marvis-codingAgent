@@ -11,6 +11,7 @@ import { PendingDock } from '@/components/PendingDock';
 import { QueuedMessages } from '@/components/QueuedMessages';
 import { TaskDock } from '@/components/TaskDock';
 import { SessionHeader } from '@/components/SessionHeader';
+import { SidePanel } from '@/components/SidePanel';
 import { SkillsDialog } from '@/components/SkillsDialog';
 import { Transcript } from '@/components/Transcript';
 import { ContextButton } from '@/components/UsagePanel';
@@ -106,28 +107,31 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <SessionHeader view={view} />
-      <Transcript view={view} onRetry={(text, attachments) => void sync.send(id, text, attachments)} />
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
-        <TaskDock view={view} />
-        <PendingDock view={view} />
-        <QueuedMessages
-          queue={view.queue}
-          onEdit={(queuedId) => void sync.unqueue(id, queuedId, { edit: true })}
-          onRemove={(queuedId) => void sync.unqueue(id, queuedId)}
-        />
-        <SessionComposer
-          view={view}
-          modes={modes}
-          onSend={send}
-          inputRef={composerRef}
-          commands={commands}
-          connected={connected}
-          surface={surface}
-          onSurface={setSurface}
-        />
+    <div className="flex min-h-0 min-w-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <SessionHeader view={view} />
+        <Transcript view={view} onRetry={(text, attachments) => void sync.send(id, text, attachments)} />
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
+          <TaskDock view={view} />
+          <PendingDock view={view} />
+          <QueuedMessages
+            queue={view.queue}
+            onEdit={(queuedId) => void sync.unqueue(id, queuedId, { edit: true })}
+            onRemove={(queuedId) => void sync.unqueue(id, queuedId)}
+          />
+          <SessionComposer
+            view={view}
+            modes={modes}
+            onSend={send}
+            inputRef={composerRef}
+            commands={commands}
+            connected={connected}
+            surface={surface}
+            onSurface={setSurface}
+          />
+        </div>
       </div>
+      <SidePanel view={view} />
       {surface === 'skills' && (
         <SkillsDialog
           skills={skills}

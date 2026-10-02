@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { diffSides, editDiff, lineSegments, lineTokens, writeDiff } from './diff';
+import { diffSides, editDiff, lineSegments, lineTokens, parsePatch, writeDiff } from './diff';
 
 describe('editDiff', () => {
   it('marks changed lines and keeps shared ones as context', () => {
@@ -106,5 +106,44 @@ describe('syntax colours on a diff', () => {
       { text: '2', style: { '--shiki-light': '#n' }, changed: true },
     ]);
     expect(lineSegments('plain', undefined, undefined)).toEqual([{ text: 'plain' }]);
+  });
+});
+
+describe('parsePatch', () => {
+  it('reads hunks with both sides numbered, dropping file headers', () => {
+    const patch = [
+      'diff --git a/a.ts b/a.ts',
+      'index 1..2 100644',
+      '--- a/a.ts',
+      '+++ b/a.ts',
+      '@@ -10,3 +10,4 @@ function f() {',
+      ' keep',
+      '-const a = 1;',
+      '+const a = 2;',
+      '+added',
+      ' tail',
+      '\\ No newline at end of file',
+      '@@ -40 +41 @@',
+      '-x',
+      '+y',
+      '',
+    ].join('\n');
+    const d = parsePatch(patch);
+    expect([d.added, d.removed]).toEqual([3, 2]);
+    expect(d.lines.map((l) => [l.kind, l.oldNo, l.newNo, l.text])).toEqual([
+      ['hunk', undefined, undefined, '@@ -10,3 +10,4 @@ function f() {'],
+      ['ctx', 10, 10, 'keep'],
+      ['del', 11, undefined, 'const a = 1;'],
+      ['add', undefined, 11, 'const a = 2;'],
+      ['add', undefined, 12, 'added'],
+      ['ctx', 12, 13, 'tail'],
+      ['hunk', undefined, undefined, '@@ -40 +41 @@'],
+      ['del', 40, undefined, 'x'],
+      ['add', undefined, 41, 'y'],
+    ]);
+    // Words are marked within a replaced line, as in an edit.
+    expect(d.lines[3]!.changes).toEqual([[10, 11]]);
+    // Highlighting skips the hunk lines.
+    expect(diffSides(d)).toEqual({ before: 'keep\nconst a = 1;\ntail\nx', after: 'keep\nconst a = 2;\nadded\ntail\ny' });
   });
 });

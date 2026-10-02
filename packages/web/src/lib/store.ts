@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import type { SlashCommandInfo } from '@harness-code/core';
-import type { ModelInfo, ServerInfo, SessionSummary, SkillInfo, Workspace } from '@harness-code/protocol';
+import type { GitStatus, ModelInfo, ServerInfo, SessionSummary, SkillInfo, Workspace } from '@harness-code/protocol';
 
 import type { ConnectionStatus } from './rpc';
 import type { CommandSurface } from './slash';
@@ -22,6 +22,10 @@ export interface AppState {
   skills: Record<string, SkillInfo[]>;
   /** The models on offer per workspace, loaded when a model picker opens. */
   models: Record<string, ModelInfo[]>;
+  /** Git state per workspace something is showing (`SessionSync.watchGit`). */
+  git: Record<string, GitStatus>;
+  /** Counts the `git_changed` pushes per workspace, so an open diff knows to fetch again. */
+  gitRev: Record<string, number>;
   /**
    * What to put back in a session's composer: queued messages a Stop handed
    * back, or one taken out of the queue to edit. The composer takes it once.
@@ -51,6 +55,8 @@ export const useAppStore = create<AppState>(() => ({
   slash: {},
   skills: {},
   models: {},
+  git: {},
+  gitRev: {},
   restored: {},
   error: null,
   helpOpen: false,

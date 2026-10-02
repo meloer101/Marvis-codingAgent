@@ -3,7 +3,8 @@ import { diffLines, diffWordsWithSpace } from 'diff';
 import type { Token } from './highlight';
 
 export interface DiffLine {
-  kind: 'add' | 'del' | 'ctx';
+  /** `hunk`: the `@@ -a,b +c,d @@` line that starts a hunk of a patch (`text` is the header). */
+  kind: 'add' | 'del' | 'ctx' | 'hunk';
   text: string;
   /** 1-based line numbers in the file before / after, when known. */
   oldNo?: number;
@@ -62,6 +63,46 @@ export function editDiff(oldString: string, newString: string, startLine?: numbe
 export function writeDiff(content: string): LineDiff {
   const lines = splitLines(content).map((text, i) => ({ kind: 'add' as const, text, newNo: i + 1 }));
   return { lines, added: lines.length, removed: 0 };
+}
+
+const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+
+/**
+ * A one-file unified diff (`git diff` output) as lines with both sides'
+ * numbers, one `hunk` line opening each hunk. File headers are dropped.
+ */
+export function parsePatch(patch: string): LineDiff {
+  const lines: DiffLine[] = [];
+  let added = 0;
+  let removed = 0;
+  let oldNo = 0;
+  let newNo = 0;
+  let inHunk = false;
+  for (const raw of splitLines(patch)) {
+    const m = HUNK.exec(raw);
+    if (m) {
+      oldNo = Number(m[1]);
+      newNo = Number(m[2]);
+      inHunk = true;
+      lines.push({ kind: 'hunk', text: raw });
+      continue;
+    }
+    if (!inHunk) continue; // diff --git, index, ---/+++ and mode lines
+    const sign = raw[0];
+    const text = raw.slice(1);
+    if (sign === '+') {
+      lines.push({ kind: 'add', text, newNo: newNo++ });
+      added++;
+    } else if (sign === '-') {
+      lines.push({ kind: 'del', text, oldNo: oldNo++ });
+      removed++;
+    } else if (sign === ' ' || raw === '') {
+      lines.push({ kind: 'ctx', text, oldNo: oldNo++, newNo: newNo++ });
+    }
+    // "\ No newline at end of file" and anything else: not a line of the file.
+  }
+  markWordChanges(lines);
+  return { lines, added, removed };
 }
 
 /** Lines longer than this are left whole — a minified line isn't worth word-diffing. */
@@ -123,7 +164,7 @@ function wordChanges(del: DiffLine, add: DiffLine): void {
 export function diffSides(diff: LineDiff): { before: string; after: string } {
   const side = (skip: DiffLine['kind']): string =>
     diff.lines
-      .filter((l) => l.kind !== skip)
+      .filter((l) => l.kind !== skip && l.kind !== 'hunk')
       .map((l) => l.text)
       .join('\n');
   return { before: side('add'), after: side('del') };
@@ -142,6 +183,7 @@ export function lineTokens(
   let o = 0;
   let n = 0;
   return diff.lines.map((line) => {
+    if (line.kind === 'hunk') return undefined;
     const tokens = line.kind === 'del' ? before?.[o] : after?.[n];
     if (line.kind !== 'add') o++;
     if (line.kind !== 'del') n++;
