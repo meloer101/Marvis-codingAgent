@@ -62,7 +62,7 @@ export function SidePanel({ view }: { view: SessionViewState }) {
       {/* Each tab scrolls itself: Changes keeps its commit box in view. */}
       <div className="flex min-h-0 flex-1 flex-col">
         {tab === 'changes' && view.workspaceId && (
-          <ChangesPanel workspaceId={view.workspaceId} {...(sessionPaths ? { sessionPaths } : {})} />
+          <ChangesPanel workspaceId={view.workspaceId} sessionId={view.id} {...(sessionPaths ? { sessionPaths } : {})} />
         )}
         {tab === 'files' && view.workspaceId && <FilesPanel workspaceId={view.workspaceId} />}
         {tab === 'tasks' && <TasksTab view={view} />}

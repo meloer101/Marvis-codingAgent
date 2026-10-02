@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GitStatus } from '@harness-code/protocol';
 
 import { ChangesPanel, changeLetter } from './ChangesPanel';
+import { clearReview } from '@/lib/review';
 import { useAppStore } from '@/lib/store';
 import type { SessionSync } from '@/lib/sync';
 import { SyncProvider } from '@/lib/syncContext';
@@ -29,6 +30,7 @@ const status: GitStatus = {
 function renderPanel(
   gitDiff = vi.fn(async () => ({ kind: 'text' as const, patch: '@@ -1 +1 @@\n-let a = 1;\n+let a = 2;\n' })),
   sessionPaths?: ReadonlySet<string>,
+  sessionId?: string,
 ) {
   const release = vi.fn();
   const sync = {
@@ -41,10 +43,11 @@ function renderPanel(
     gitCommit: vi.fn(async () => ({ sha: 'abc1234', summary: 'Fix math' })),
     gitPush: vi.fn(async () => {}),
     gitCreatePr: vi.fn(async () => ({ url: 'https://github.com/o/r/pull/7' })),
+    send: vi.fn(async () => true),
   };
   render(
     <SyncProvider sync={sync as unknown as SessionSync}>
-      <ChangesPanel workspaceId="w1" {...(sessionPaths ? { sessionPaths } : {})} />
+      <ChangesPanel workspaceId="w1" {...(sessionId ? { sessionId } : {})} {...(sessionPaths ? { sessionPaths } : {})} />
     </SyncProvider>,
   );
   return { sync, release, gitDiff };
@@ -166,6 +169,39 @@ describe('changing git state from the panel', () => {
     act(() => useAppStore.setState({ git: { w1: unpublished } }));
     expect(screen.getByRole('button', { name: /Publish/ })).toBeTruthy();
     expect((screen.getByRole('button', { name: /Pull request/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('review comments', () => {
+  afterEach(() => {
+    clearReview('s1');
+    localStorage.clear();
+  });
+
+  it("are left on a diff line's number and sent to the session's agent as one message", async () => {
+    const { sync } = renderPanel(undefined, undefined, 's1');
+    act(() => useAppStore.setState({ git: { w1: status } }));
+    fireEvent.click(screen.getByRole('button', { name: /math\.ts/, expanded: false }));
+    // Line 1 was removed (old side) and added (new side): comment on the new one.
+    const lineOnes = await screen.findAllByRole('button', { name: 'Comment on line 1' });
+    fireEvent.click(lineOnes.at(-1)!);
+    const box = screen.getByRole('textbox', { name: 'Review comment' });
+    fireEvent.change(box, { target: { value: 'Why 2?' } });
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true });
+    expect(screen.getByText('Why 2?')).toBeTruthy();
+    expect(screen.getByText('1 review comment')).toBeTruthy();
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Send to agent' })));
+    expect(sync.send).toHaveBeenCalledWith('s1', expect.stringContaining('`src/math.ts` line 1:\n> let a = 2;\nWhy 2?'));
+    expect(screen.queryByText('1 review comment')).toBeNull();
+  });
+
+  it('are offered only for a session', async () => {
+    renderPanel();
+    act(() => useAppStore.setState({ git: { w1: status } }));
+    fireEvent.click(screen.getByRole('button', { name: /math\.ts/, expanded: false }));
+    await screen.findByText('@@ -1 +1 @@');
+    expect(screen.queryByRole('button', { name: /Comment on line/ })).toBeNull();
   });
 });
 

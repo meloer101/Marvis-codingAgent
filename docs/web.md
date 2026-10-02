@@ -387,7 +387,13 @@ The token is as powerful as the user's shell — a client can switch a session t
   installed app (VS Code and Cursor by their URL scheme, Zed by its bundled
   CLI) (`server/src/editors.ts`). Read, edit and write cards end with "Open
   file" (an edit at the line it starts on), and Changes rows with an open
-  button (`openFile` in `lib/panel.ts`). **Tasks** shows the
+  button (`openFile` in `lib/panel.ts`). **Review comments**
+  (`components/ReviewComments.tsx`, `lib/review.ts`): in a Changes diff a
+  line's number opens a comment under it — an added or unchanged line by its
+  number now, a removed one by its old number; comments are kept per session
+  across reloads, and a bar sends them to the session's agent as one message,
+  file by file and line by line, each line quoted (queued if a run is going).
+  **Tasks** shows the
   agent's task list whole; while it does, the task dock above the composer
   steps aside.
 - **Task list** (`components/TaskDock.tsx`): what the agent last passed to

@@ -1,4 +1,5 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 
 import { diffSides, lineSegments, lineTokens } from '@/lib/diff';
 import type { DiffLine, LineDiff } from '@/lib/diff';
@@ -38,18 +39,23 @@ function useDiffTokens(diff: LineDiff, lang: string | undefined): Array<Token[] 
  * A unified diff: file line numbers when known, syntax colours for `lang`, and
  * the words that changed within a replaced line marked a shade deeper. Also a
  * plain file (all unchanged lines, no sign column); `focusLine` (a new-side
- * number) is scrolled to and marked.
+ * number) is scrolled to and marked. With `onLineClick`, a line's number is a
+ * button (to comment on it), and `renderAfter` puts content under a line.
  */
 export function DiffView({
   diff,
   lang,
   className,
   focusLine,
+  onLineClick,
+  renderAfter,
 }: {
   diff: LineDiff;
   lang?: string | undefined;
   className?: string;
   focusLine?: number | undefined;
+  onLineClick?: ((line: DiffLine) => void) | undefined;
+  renderAfter?: ((line: DiffLine) => ReactNode) | undefined;
 }) {
   const [all, setAll] = useState(() => focusLine !== undefined && focusLine > FIRST_LINES);
   const tokens = useDiffTokens(diff, lang);
@@ -74,17 +80,29 @@ export function DiffView({
     <div ref={ref} className={cn('max-h-96 overflow-auto font-mono text-[11px] leading-relaxed', className)}>
       <table className="w-full border-collapse">
         <tbody>
-          {shown.map((line, i) => (
-            <Row
-              key={i}
-              line={line}
-              oldCol={cols.old}
-              newCol={cols.new}
-              signCol={cols.sign}
-              focused={focusLine !== undefined && line.newNo === focusLine}
-              tokens={tokens?.[i]}
-            />
-          ))}
+          {shown.map((line, i) => {
+            const after = renderAfter?.(line);
+            return (
+              <Fragment key={i}>
+                <Row
+                  line={line}
+                  oldCol={cols.old}
+                  newCol={cols.new}
+                  signCol={cols.sign}
+                  focused={focusLine !== undefined && line.newNo === focusLine}
+                  tokens={tokens?.[i]}
+                  onNumberClick={onLineClick}
+                />
+                {after && (
+                  <tr>
+                    <td colSpan={(cols.old ? 1 : 0) + (cols.new ? 1 : 0) + (cols.sign ? 2 : 1)} className="px-2 py-1.5">
+                      {after}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
       {hidden > 0 && (
@@ -107,6 +125,7 @@ const Row = memo(function Row({
   signCol,
   focused,
   tokens,
+  onNumberClick,
 }: {
   line: DiffLine;
   oldCol: boolean;
@@ -114,6 +133,7 @@ const Row = memo(function Row({
   signCol: boolean;
   focused: boolean;
   tokens: Token[] | undefined;
+  onNumberClick?: ((line: DiffLine) => void) | undefined;
 }) {
   const segments = useMemo(() => lineSegments(line.text, tokens, line.changes), [line, tokens]);
   if (line.kind === 'hunk') {
@@ -134,8 +154,8 @@ const Row = memo(function Row({
         focused && 'bg-primary/10',
       )}
     >
-      {oldCol && <LineNo n={line.oldNo} />}
-      {newCol && <LineNo n={line.newNo} />}
+      {oldCol && <LineNo n={line.oldNo} {...(onNumberClick ? { onClick: () => onNumberClick(line) } : {})} />}
+      {newCol && <LineNo n={line.newNo} {...(onNumberClick ? { onClick: () => onNumberClick(line) } : {})} />}
       {signCol && (
         <td
           className={cn(
@@ -169,8 +189,24 @@ const Row = memo(function Row({
   );
 });
 
-function LineNo({ n }: { n: number | undefined }) {
-  return <td className="w-px px-1.5 text-right align-top text-muted-foreground/70 tabular-nums select-none">{n}</td>;
+function LineNo({ n, onClick }: { n: number | undefined; onClick?: () => void }) {
+  return (
+    <td className="w-px px-1.5 text-right align-top text-muted-foreground/70 tabular-nums select-none">
+      {onClick && n !== undefined ? (
+        <button
+          type="button"
+          onClick={onClick}
+          aria-label={`Comment on line ${n}`}
+          title="Comment on this line"
+          className="w-full rounded-sm text-right tabular-nums transition-colors hover:bg-primary/15 hover:text-primary"
+        >
+          {n}
+        </button>
+      ) : (
+        n
+      )}
+    </td>
+  );
 }
 
 export function DiffStat({ diff }: { diff: LineDiff }) {

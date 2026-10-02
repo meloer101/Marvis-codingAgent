@@ -252,13 +252,9 @@
 浏览器优先，桌面壳最后做；一个 `hc web` 管多个项目。现状见 [`web.md`](./web.md)。硬约束：不改任何模型可见的内容
 （工具 schema、system prompt、默认消息形状），否则 eval cassette 全部失效。
 
-- **M4 审查闭环**：`server/src/git.ts`（status / diff / 按文件暂存、还原 / commit / push / 用 `gh` 建 PR），
-  写或 bash 之后推送 `git_status`；三栏布局，右侧面板 Changes / Files / Tasks（任务清单从输入框上方的停靠栏挪过去）；只看本会话改动；diff 上的行评论攒成
-  一条消息发给 agent；`fs.read` 文件查看（路径守卫、敏感文件拒绝）；打开到 VS Code / Cursor / Zed。git/fs 相关
-  RPC 从一开始就带 `{workspaceId, sessionId?}`，给 worktree 留口。*(L)*
 - **M5 终端**：node-pty（optional 依赖，≥1.2 自带预编译，打包时 external）+ xterm.js，Ctrl+` 开关、多标签、
   重连后恢复 scrollback；功能由 `server.info.capabilities.terminal` 控制。*(M)*
-- **MVP 之后**：P1 每会话 git worktree（选 base 分支、`.worktreeinclude`、归档即清理）、运行中插话（B 节的
+- **MVP 之后**：P1 每会话 git worktree（选 base 分支、`.worktreeinclude`、归档即清理；git/fs RPC 已带 `sessionId`）、运行中插话（B 节的
   steering）、分屏、块级暂存/还原；P2 图片附件（provider 加 image 内容块）、rewind / 编辑历史消息 / fork、后台进程、
   统计与 trace 视图、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）、覆盖已有文件的 `write` 显示真实
   diff（要 write 记下旧内容）、子代理的调用和工具耗时落盘（现在只在实时视图里有）；P3 桌面壳。

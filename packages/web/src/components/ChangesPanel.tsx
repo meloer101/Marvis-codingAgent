@@ -4,6 +4,7 @@ import { ChevronRight, FileSearch, GitBranch, Loader2, RefreshCw, Square, Square
 import type { GitDiff, GitFile } from '@harness-code/protocol';
 
 import { CommitBox } from '@/components/CommitBox';
+import { ReviewBar, ReviewableDiff } from '@/components/ReviewComments';
 import { DiffView } from '@/components/DiffView';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -19,10 +20,20 @@ import { cn } from '@/lib/utils';
  * The project's changes against HEAD: the branch, then one row per changed
  * file that opens to its diff — all of them, or only those this session's
  * edits and writes touched (`sessionPaths`) — each to stage or throw away,
- * and a footer to commit, push and open a pull request. Fresh whenever a
- * session may have changed files (`git_changed`), and on reconnect.
+ * and a footer to commit, push and open a pull request. With `sessionId`, a
+ * diff line's number opens a comment; the comments go to that session's
+ * agent as one message. Fresh whenever a session may have changed files
+ * (`git_changed`), and on reconnect.
  */
-export function ChangesPanel({ workspaceId, sessionPaths }: { workspaceId: string; sessionPaths?: ReadonlySet<string> }) {
+export function ChangesPanel({
+  workspaceId,
+  sessionId,
+  sessionPaths,
+}: {
+  workspaceId: string;
+  sessionId?: string;
+  sessionPaths?: ReadonlySet<string>;
+}) {
   const sync = useSync();
   const status = useAppStore((s) => s.git[workspaceId]);
   const [scope, setScope] = useState<'all' | 'session'>('all');
@@ -98,6 +109,7 @@ export function ChangesPanel({ workspaceId, sessionPaths }: { workspaceId: strin
               <ChangedFile
                 key={f.path}
                 workspaceId={workspaceId}
+                sessionId={sessionId}
                 file={f}
                 onStage={(stage) =>
                   void (stage ? sync.gitStage(workspaceId, pathsOf(f)) : sync.gitUnstage(workspaceId, pathsOf(f)))
@@ -108,6 +120,7 @@ export function ChangesPanel({ workspaceId, sessionPaths }: { workspaceId: strin
           </ul>
         )}
       </div>
+      {sessionId && <ReviewBar sessionId={sessionId} />}
       <CommitBox workspaceId={workspaceId} status={status} files={files} />
       <RevertDialog
         file={reverting}
@@ -203,11 +216,13 @@ export function changeLetter(file: GitFile): { letter: string; tone: string; lab
 
 function ChangedFile({
   workspaceId,
+  sessionId,
   file,
   onStage,
   onRevert,
 }: {
   workspaceId: string;
+  sessionId: string | undefined;
   file: GitFile;
   onStage: (stage: boolean) => void;
   onRevert: () => void;
@@ -288,13 +303,16 @@ function ChangedFile({
           <Undo2 className="size-3.5" />
         </button>
       </div>
-      {open && <FileDiff workspaceId={workspaceId} path={file.path} />}
+      {open && <FileDiff workspaceId={workspaceId} sessionId={sessionId} path={file.path} />}
     </li>
   );
 }
 
-/** A file's diff, fetched when opened and again after each `git_changed`; the last one stays meanwhile. */
-function FileDiff({ workspaceId, path }: { workspaceId: string; path: string }) {
+/**
+ * A file's diff, fetched when opened and again after each `git_changed`; the
+ * last one stays meanwhile. With a session, its lines take review comments.
+ */
+function FileDiff({ workspaceId, sessionId, path }: { workspaceId: string; sessionId: string | undefined; path: string }) {
   const sync = useSync();
   const rev = useAppStore((s) => s.gitRev[workspaceId] ?? 0);
   const [state, setState] = useState<{ diff: GitDiff } | { error: string } | null>(null);
@@ -321,5 +339,9 @@ function FileDiff({ workspaceId, path }: { workspaceId: string; path: string }) 
   if (!lines || lines.lines.length === 0) {
     return <p className="px-9 py-2 text-xs text-muted-foreground">No content changes (mode or rename only).</p>;
   }
-  return <DiffView diff={lines} lang={langForPath(path) ?? undefined} className="max-h-none border-t bg-muted/20" />;
+  return sessionId ? (
+    <ReviewableDiff sessionId={sessionId} path={path} diff={lines} />
+  ) : (
+    <DiffView diff={lines} lang={langForPath(path) ?? undefined} className="max-h-none border-t bg-muted/20" />
+  );
 }
