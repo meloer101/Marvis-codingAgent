@@ -2,17 +2,22 @@ import { useMemo, useState } from 'react';
 import { ChevronRight, ListChecks } from 'lucide-react';
 
 import { TodoList } from '@/components/TodoList';
+import { usePanel } from '@/lib/panel';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { latestTodos } from '@/lib/todos';
 import { cn } from '@/lib/utils';
 
 /**
- * The agent's task list, docked above the composer while any of it is left:
- * one line — progress and the task in hand — that opens to the whole list.
+ * The agent's task list, docked above the composer while any of it is left
+ * (and the side panel isn't showing it): one line — progress and the task in
+ * hand — that opens to the whole list.
  */
 export function TaskDock({ view }: { view: SessionViewState }) {
   const [open, setOpen] = useState(false);
+  const panel = usePanel();
   const todos = useMemo(() => latestTodos(view.entries, view.live), [view.entries, view.live]);
+  // The side panel's Tasks tab shows the list already.
+  if (panel === 'tasks') return null;
   if (!todos || todos.length === 0 || todos.every((t) => t.status === 'completed')) return null;
   const done = todos.filter((t) => t.status === 'completed').length;
   const current = todos.find((t) => t.status === 'in_progress') ?? todos.find((t) => t.status === 'pending');

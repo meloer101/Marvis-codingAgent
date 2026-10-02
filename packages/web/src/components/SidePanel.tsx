@@ -1,18 +1,29 @@
-import { GitCompareArrows, X } from 'lucide-react';
+import { useMemo } from 'react';
+import { GitCompareArrows, ListChecks, X } from 'lucide-react';
 
 import { ChangesPanel } from '@/components/ChangesPanel';
+import { TodoList } from '@/components/TodoList';
 import { setPanel, usePanel } from '@/lib/panel';
 import type { PanelTab } from '@/lib/panel';
+import { sessionFiles } from '@/lib/sessionFiles';
 import type { SessionViewState } from '@/lib/sessionModel';
+import { useAppStore } from '@/lib/store';
+import { latestTodos } from '@/lib/todos';
 import { cn } from '@/lib/utils';
 
 const TABS: Array<{ tab: PanelTab; label: string; icon: typeof X }> = [
   { tab: 'changes', label: 'Changes', icon: GitCompareArrows },
+  { tab: 'tasks', label: 'Tasks', icon: ListChecks },
 ];
 
-/** The panel to the right of a session: its project's changes, and more tabs to come. */
+/** The panel to the right of a session: its project's changes, and the agent's task list. */
 export function SidePanel({ view }: { view: SessionViewState }) {
   const tab = usePanel();
+  const root = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId)?.root);
+  const sessionPaths = useMemo(
+    () => (tab === 'changes' && root ? sessionFiles(view.entries, view.live, root) : undefined),
+    [tab, root, view.entries, view.live],
+  );
   if (!tab) return null;
   return (
     <aside aria-label="Side panel" className="flex w-[min(460px,42vw)] shrink-0 flex-col border-l bg-background">
@@ -47,8 +58,32 @@ export function SidePanel({ view }: { view: SessionViewState }) {
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {tab === 'changes' && view.workspaceId && <ChangesPanel workspaceId={view.workspaceId} />}
+        {tab === 'changes' && view.workspaceId && (
+          <ChangesPanel workspaceId={view.workspaceId} {...(sessionPaths ? { sessionPaths } : {})} />
+        )}
+        {tab === 'tasks' && <TasksTab view={view} />}
       </div>
     </aside>
+  );
+}
+
+/** The agent's task list as it stands, whole. */
+function TasksTab({ view }: { view: SessionViewState }) {
+  const todos = useMemo(() => latestTodos(view.entries, view.live), [view.entries, view.live]);
+  if (!todos || todos.length === 0) {
+    return (
+      <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">
+        No task list yet — the agent keeps one for longer work.
+      </p>
+    );
+  }
+  const done = todos.filter((t) => t.status === 'completed').length;
+  return (
+    <div className="flex flex-col gap-2 px-4 py-3 text-xs">
+      <p className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
+        {done} of {todos.length} done
+      </p>
+      <TodoList todos={todos} />
+    </div>
   );
 }

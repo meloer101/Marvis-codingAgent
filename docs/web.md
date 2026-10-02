@@ -355,12 +355,17 @@ The token is as powerful as the user's shell — a client can switch a session t
   project's changes against HEAD — branch and ahead/behind, then each file with
   a letter for its change and its line counts — and opens a file to its patch
   (`parsePatch`, hunks numbered from the file, the same diff view as the
-  cards). While it shows, `SessionSync.watchGit` keeps the status fresh: on
+  cards). "This session" narrows the list to the files the session's own
+  `write` and `edit` calls touched, a sub-agent's included
+  (`lib/sessionFiles.ts`) — what its `bash` commands changed can't be told
+  apart. While it shows, `SessionSync.watchGit` keeps the status fresh: on
   every `git_changed` and reconnect, one load at a time; an open diff fetches
   again on each `git_changed`. git runs with optional locks off, so it never
-  takes the index lock from a command the agent is running.
+  takes the index lock from a command the agent is running. **Tasks** shows the
+  agent's task list whole; while it does, the task dock above the composer
+  steps aside.
 - **Task list** (`components/TaskDock.tsx`): what the agent last passed to
   `todo` (`lib/todos.ts`, read off the transcript, so it survives a reload),
   docked above the composer while any of it is left — one line with progress
-  and the task in hand that opens to the list. `todo` cards in the transcript
-  stay folded.
+  and the task in hand that opens to the list — unless the side panel's Tasks
+  tab shows it. `todo` cards in the transcript stay folded.

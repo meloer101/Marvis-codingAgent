@@ -26,12 +26,15 @@ const status: GitStatus = {
   ],
 };
 
-function renderPanel(gitDiff = vi.fn(async () => ({ kind: 'text' as const, patch: '@@ -1 +1 @@\n-let a = 1;\n+let a = 2;\n' }))) {
+function renderPanel(
+  gitDiff = vi.fn(async () => ({ kind: 'text' as const, patch: '@@ -1 +1 @@\n-let a = 1;\n+let a = 2;\n' })),
+  sessionPaths?: ReadonlySet<string>,
+) {
   const release = vi.fn();
   const sync = { watchGit: vi.fn(() => release), loadGitStatus: vi.fn(async () => {}), gitDiff };
   render(
     <SyncProvider sync={sync as unknown as SessionSync}>
-      <ChangesPanel workspaceId="w1" />
+      <ChangesPanel workspaceId="w1" {...(sessionPaths ? { sessionPaths } : {})} />
     </SyncProvider>,
   );
   return { sync, release, gitDiff };
@@ -45,7 +48,7 @@ describe('ChangesPanel', () => {
     act(() => useAppStore.setState({ git: { w1: status } }));
     expect(screen.getByText('feature')).toBeTruthy();
     expect(screen.getByText('↑2')).toBeTruthy();
-    expect(screen.getByText('3 files changed')).toBeTruthy();
+    expect(screen.getByText('3 changed')).toBeTruthy();
     const math = screen.getByRole('button', { name: /math\.ts/ });
     expect(math.textContent).toContain('M');
     expect(math.textContent).toContain('+3');
@@ -62,6 +65,17 @@ describe('ChangesPanel', () => {
     expect(gitDiff).toHaveBeenCalledWith('w1', 'src/math.ts');
     await act(async () => useAppStore.setState({ gitRev: { w1: 1 } }));
     expect(gitDiff).toHaveBeenCalledTimes(2);
+  });
+
+  it("narrows to the files this session's edits and writes touched", () => {
+    renderPanel(undefined, new Set(['src/math.ts']));
+    act(() => useAppStore.setState({ git: { w1: status } }));
+    expect(screen.getByRole('radio', { name: /All/ }).textContent).toContain('3');
+    const mine = screen.getByRole('radio', { name: /This session/ });
+    expect(mine.textContent).toContain('1');
+    fireEvent.click(mine);
+    expect(screen.getByRole('button', { name: /math\.ts/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /new\.txt/ })).toBeNull();
   });
 
   it('says so outside a repository, and when nothing changed', () => {

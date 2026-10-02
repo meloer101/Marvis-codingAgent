@@ -6,10 +6,10 @@ import { platform } from '@/platform';
  * The side panel to the right of a session: which tab is showing, or null
  * when it's closed. Kept across reloads; ⌥⌘B (Ctrl+Alt+B) toggles it.
  */
-export type PanelTab = 'changes';
+export type PanelTab = 'changes' | 'tasks';
 
 const KEY = 'hc.panel';
-const TABS: readonly PanelTab[] = ['changes'];
+const TABS: readonly PanelTab[] = ['changes', 'tasks'];
 
 const read = (): PanelTab | null => {
   const v = platform.storage.get(KEY);

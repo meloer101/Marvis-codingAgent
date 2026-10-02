@@ -10,6 +10,7 @@ import {
   Gauge,
   GitCompareArrows,
   Keyboard,
+  ListChecks,
   ListCollapse,
   ListTree,
   MessageSquare,
@@ -260,11 +261,15 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       if (t === theme) continue;
       items.push({ id: `theme-${t}`, group: 'App', label: `Theme: ${THEMES[t].label}`, keywords: 'appearance', icon: THEMES[t].icon, run: () => setTheme(t) });
     }
-    items.push(
-      panel
-        ? { id: 'panel-close', group: 'App', label: 'Hide the side panel', hint: '⌥⌘B', keywords: 'changes git diff', icon: PanelRightClose, run: () => setPanel(null) }
-        : { id: 'panel-changes', group: 'App', label: 'Show changes', hint: '⌥⌘B', keywords: 'git diff panel status', icon: GitCompareArrows, run: () => setPanel('changes') },
-    );
+    if (panel !== 'changes') {
+      items.push({ id: 'panel-changes', group: 'App', label: 'Show changes', hint: panel ? undefined : '⌥⌘B', keywords: 'git diff panel status', icon: GitCompareArrows, run: () => setPanel('changes') });
+    }
+    if (panel !== 'tasks') {
+      items.push({ id: 'panel-tasks', group: 'App', label: 'Show tasks', keywords: 'todo panel plan', icon: ListChecks, run: () => setPanel('tasks') });
+    }
+    if (panel) {
+      items.push({ id: 'panel-close', group: 'App', label: 'Hide the side panel', hint: '⌥⌘B', keywords: 'changes tasks', icon: PanelRightClose, run: () => setPanel(null) });
+    }
     items.push(
       verbose
         ? { id: 'fold', group: 'App', label: 'Fold exploration calls', hint: '⌃O', keywords: 'transcript compact verbose', icon: ListCollapse, run: () => setVerbose(false) }

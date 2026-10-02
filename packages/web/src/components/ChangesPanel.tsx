@@ -12,13 +12,22 @@ import { cn } from '@/lib/utils';
 
 /**
  * The project's changes against HEAD: the branch, then one row per changed
- * file that opens to its diff. Fresh whenever a session may have changed
- * files (`git_changed`), and on reconnect.
+ * file that opens to its diff — all of them, or only those this session's
+ * edits and writes touched (`sessionPaths`). Fresh whenever a session may
+ * have changed files (`git_changed`), and on reconnect.
  */
-export function ChangesPanel({ workspaceId }: { workspaceId: string }) {
+export function ChangesPanel({ workspaceId, sessionPaths }: { workspaceId: string; sessionPaths?: ReadonlySet<string> }) {
   const sync = useSync();
   const status = useAppStore((s) => s.git[workspaceId]);
+  const [scope, setScope] = useState<'all' | 'session'>('all');
   useEffect(() => sync.watchGit(workspaceId), [sync, workspaceId]);
+  const mine = useMemo(
+    () =>
+      status?.repo && sessionPaths
+        ? status.files.filter((f) => sessionPaths.has(f.path) || (f.oldPath !== undefined && sessionPaths.has(f.oldPath)))
+        : [],
+    [status, sessionPaths],
+  );
 
   if (!status) {
     return (
@@ -31,6 +40,7 @@ export function ChangesPanel({ workspaceId }: { workspaceId: string }) {
   if (!status.repo) {
     return <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">Not a git repository.</p>;
   }
+  const files = scope === 'session' ? mine : status.files;
   return (
     <div className="flex flex-col">
       <div className="flex items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
@@ -46,9 +56,20 @@ export function ChangesPanel({ workspaceId }: { workspaceId: string }) {
           </span>
         )}
         <span className="flex-1" />
-        <span className="shrink-0">
-          {status.files.length === 0 ? 'clean' : `${status.files.length} ${status.files.length === 1 ? 'file' : 'files'} changed`}
-        </span>
+        {sessionPaths ? (
+          <div role="radiogroup" aria-label="Which changes" className="flex shrink-0 rounded-md border p-0.5">
+            <ScopeButton on={scope === 'all'} onClick={() => setScope('all')} label="All" count={status.files.length} />
+            <ScopeButton
+              on={scope === 'session'}
+              onClick={() => setScope('session')}
+              label="This session"
+              count={mine.length}
+              title="Files this session's edits and writes changed (not what its commands did)"
+            />
+          </div>
+        ) : (
+          <span className="shrink-0">{status.files.length === 0 ? 'clean' : `${status.files.length} changed`}</span>
+        )}
         <button
           type="button"
           onClick={() => void sync.loadGitStatus(workspaceId)}
@@ -59,16 +80,48 @@ export function ChangesPanel({ workspaceId }: { workspaceId: string }) {
           <RefreshCw className="size-3.5" />
         </button>
       </div>
-      {status.files.length === 0 ? (
-        <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">No changes.</p>
+      {files.length === 0 ? (
+        <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">
+          {scope === 'session' && status.files.length > 0 ? 'This session has not edited any of these files.' : 'No changes.'}
+        </p>
       ) : (
         <ul>
-          {status.files.map((f) => (
+          {files.map((f) => (
             <ChangedFile key={f.path} workspaceId={workspaceId} file={f} />
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+function ScopeButton({
+  on,
+  onClick,
+  label,
+  count,
+  title,
+}: {
+  on: boolean;
+  onClick: () => void;
+  label: string;
+  count: number;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={on}
+      onClick={onClick}
+      title={title}
+      className={cn(
+        'rounded px-1.5 py-0.5 text-[11px] transition-colors',
+        on ? 'bg-accent font-medium text-foreground' : 'hover:text-foreground',
+      )}
+    >
+      {label} <span className="font-mono text-[10px] tabular-nums opacity-70">{count}</span>
+    </button>
   );
 }
 

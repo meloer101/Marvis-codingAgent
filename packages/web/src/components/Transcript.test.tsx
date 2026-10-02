@@ -6,6 +6,7 @@ import type { Entry, ToolItem } from '@harness-code/protocol';
 import { TaskDock } from '@/components/TaskDock';
 import { Transcript } from '@/components/Transcript';
 import type { SessionViewState } from '@/lib/sessionModel';
+import { setPanel } from '@/lib/panel';
 import { setVerbose } from '@/lib/verbose';
 
 afterEach(() => {
@@ -219,6 +220,14 @@ describe('TaskDock', () => {
     fireEvent.click(line);
     expect(screen.getByText('Add a test')).toBeTruthy();
     expect(screen.getByText('Read the code').className).toContain('line-through');
+  });
+
+  it("steps aside while the side panel's Tasks tab shows the list", () => {
+    act(() => setPanel('tasks'));
+    const { container } = render(<TaskDock view={view({ entries: withTodos([{ content: 'Fix the bug', status: 'in_progress' }]) })} />);
+    expect(container.textContent).toBe('');
+    act(() => setPanel(null));
+    expect(container.textContent).toContain('Fix the bug');
   });
 
   it('goes away once everything is done', () => {
