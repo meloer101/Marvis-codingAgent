@@ -57,7 +57,8 @@ export function SidePanel({ view }: { view: SessionViewState }) {
           <X className="size-3.5" />
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* Each tab scrolls itself: Changes keeps its commit box in view. */}
+      <div className="flex min-h-0 flex-1 flex-col">
         {tab === 'changes' && view.workspaceId && (
           <ChangesPanel workspaceId={view.workspaceId} {...(sessionPaths ? { sessionPaths } : {})} />
         )}
@@ -79,7 +80,7 @@ function TasksTab({ view }: { view: SessionViewState }) {
   }
   const done = todos.filter((t) => t.status === 'completed').length;
   return (
-    <div className="flex flex-col gap-2 px-4 py-3 text-xs">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3 text-xs">
       <p className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
         {done} of {todos.length} done
       </p>

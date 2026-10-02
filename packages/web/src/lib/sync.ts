@@ -26,6 +26,7 @@ import type {
   AskDecision,
   DirSuggestion,
   FileMatch,
+  GitCommitResult,
   GitDiff,
   PushEvent,
   QueuedMessage,
@@ -459,6 +460,34 @@ export class SessionSync {
   /** One file's changes; rejects when it can't be asked (the caller shows why). */
   gitDiff(workspaceId: string, path: string): Promise<GitDiff> {
     return this.rpc.call('git.diff', { workspaceId, path });
+  }
+
+  // The status reloads on the git_changed push each change sends. Staging and
+  // reverting fail into the banner; commit, push and pull request reject with
+  // git's reason, for the panel to show where they were asked for.
+
+  gitStage(workspaceId: string, paths: string[]): Promise<void> {
+    return this.#run(this.rpc.call('git.stage', { workspaceId, paths }));
+  }
+
+  gitUnstage(workspaceId: string, paths: string[]): Promise<void> {
+    return this.#run(this.rpc.call('git.unstage', { workspaceId, paths }));
+  }
+
+  gitRevert(workspaceId: string, paths: string[]): Promise<void> {
+    return this.#run(this.rpc.call('git.revert', { workspaceId, paths }));
+  }
+
+  gitCommit(workspaceId: string, message: string, paths?: string[]): Promise<GitCommitResult> {
+    return this.rpc.call('git.commit', { workspaceId, message, ...(paths ? { paths } : {}) });
+  }
+
+  gitPush(workspaceId: string): Promise<void> {
+    return this.rpc.call('git.push', { workspaceId });
+  }
+
+  gitCreatePr(workspaceId: string, pr: { title: string; body?: string; draft?: boolean }): Promise<{ url: string }> {
+    return this.rpc.call('git.createPr', { workspaceId, ...pr });
   }
 
   // -- session management -------------------------------------------------------

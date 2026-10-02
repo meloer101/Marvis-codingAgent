@@ -101,6 +101,11 @@ the server with the same schemas the client is typed from.
 | `fs.suggestDirs {prefix}` | directory completion for the add dialog |
 | `git.status {workspaceId, sessionId?}` | the workspace's changes against HEAD: branch, upstream, ahead/behind, and per file its staged / unstaged change and lines added / removed |
 | `git.diff {workspaceId, sessionId?, path}` | one file's patch against HEAD (an untracked file against nothing); binary, too big (> 1 MB) or a secret: withheld |
+| `git.stage` / `git.unstage {workspaceId, sessionId?, paths}` | stage files as they are on disk (new files and deletions too) / take them out of the index |
+| `git.revert {workspaceId, sessionId?, paths}` | throw changes away: back to HEAD (a rename to its old name), or deleted when HEAD lacks the file — never a secret |
+| `git.commit {workspaceId, sessionId?, message, paths?}` | commit what is staged, staging `paths` first when given; hooks run → `{sha, summary}` |
+| `git.push {workspaceId, sessionId?}` | push the branch; one without an upstream is published to `origin` (or the only remote) |
+| `git.createPr {workspaceId, sessionId?, title, body?, draft?}` | `gh pr create` for the branch → `{url}` |
 | `fs.search {workspaceId, query, limit?}` | a workspace's files matching an `@` query, best first; no ignored files, no secrets |
 | `session.list` | every workspace's sessions (on disk plus live), newest first |
 | `session.start {text, attachments?, workspaceId?, model?, mode?, effort?}` | create a session and send its first message (how a draft becomes a session); a bad attachment creates nothing |
@@ -361,7 +366,15 @@ The token is as powerful as the user's shell — a client can switch a session t
   apart. While it shows, `SessionSync.watchGit` keeps the status fresh: on
   every `git_changed` and reconnect, one load at a time; an open diff fetches
   again on each `git_changed`. git runs with optional locks off, so it never
-  takes the index lock from a command the agent is running. **Tasks** shows the
+  takes the index lock from a command the agent is running. Each row's
+  checkbox stages or unstages the file (half-filled when part of it is staged),
+  and its discard button throws the changes away once confirmed — saying when
+  that deletes a file. The footer commits what is staged, or the files shown
+  when nothing is (⌘↵ in the message), pushes (publishing a branch without an
+  upstream) and opens a pull request with `gh`, saying what each did or git's
+  reason it couldn't. Nothing prompts: a push that needs credentials fails
+  rather than waiting on a terminal. Each change pushes `git_changed` to every
+  tab. **Tasks** shows the
   agent's task list whole; while it does, the task dock above the composer
   steps aside.
 - **Task list** (`components/TaskDock.tsx`): what the agent last passed to

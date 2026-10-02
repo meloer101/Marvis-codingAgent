@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronRight, GitBranch, Loader2, RefreshCw } from 'lucide-react';
+import { ChevronRight, GitBranch, Loader2, RefreshCw, Square, SquareCheck, SquareMinus, Undo2 } from 'lucide-react';
 
 import type { GitDiff, GitFile } from '@harness-code/protocol';
 
+import { CommitBox } from '@/components/CommitBox';
 import { DiffView } from '@/components/DiffView';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { parsePatch } from '@/lib/diff';
+import { isNewFile, pathsOf } from '@/lib/gitFiles';
 import { langForPath } from '@/lib/highlight';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
@@ -13,13 +17,15 @@ import { cn } from '@/lib/utils';
 /**
  * The project's changes against HEAD: the branch, then one row per changed
  * file that opens to its diff — all of them, or only those this session's
- * edits and writes touched (`sessionPaths`). Fresh whenever a session may
- * have changed files (`git_changed`), and on reconnect.
+ * edits and writes touched (`sessionPaths`) — each to stage or throw away,
+ * and a footer to commit, push and open a pull request. Fresh whenever a
+ * session may have changed files (`git_changed`), and on reconnect.
  */
 export function ChangesPanel({ workspaceId, sessionPaths }: { workspaceId: string; sessionPaths?: ReadonlySet<string> }) {
   const sync = useSync();
   const status = useAppStore((s) => s.git[workspaceId]);
   const [scope, setScope] = useState<'all' | 'session'>('all');
+  const [reverting, setReverting] = useState<GitFile | null>(null);
   useEffect(() => sync.watchGit(workspaceId), [sync, workspaceId]);
   const mine = useMemo(
     () =>
@@ -42,8 +48,8 @@ export function ChangesPanel({ workspaceId, sessionPaths }: { workspaceId: strin
   }
   const files = scope === 'session' ? mine : status.files;
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
         <GitBranch className="size-3.5 shrink-0" />
         <span className="truncate font-mono text-foreground" title={status.upstream ? `tracking ${status.upstream}` : undefined}>
           {status.branch ?? 'detached HEAD'}
@@ -80,18 +86,76 @@ export function ChangesPanel({ workspaceId, sessionPaths }: { workspaceId: strin
           <RefreshCw className="size-3.5" />
         </button>
       </div>
-      {files.length === 0 ? (
-        <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">
-          {scope === 'session' && status.files.length > 0 ? 'This session has not edited any of these files.' : 'No changes.'}
-        </p>
-      ) : (
-        <ul>
-          {files.map((f) => (
-            <ChangedFile key={f.path} workspaceId={workspaceId} file={f} />
-          ))}
-        </ul>
-      )}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {files.length === 0 ? (
+          <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">
+            {scope === 'session' && status.files.length > 0 ? 'This session has not edited any of these files.' : 'No changes.'}
+          </p>
+        ) : (
+          <ul>
+            {files.map((f) => (
+              <ChangedFile
+                key={f.path}
+                workspaceId={workspaceId}
+                file={f}
+                onStage={(stage) =>
+                  void (stage ? sync.gitStage(workspaceId, pathsOf(f)) : sync.gitUnstage(workspaceId, pathsOf(f)))
+                }
+                onRevert={() => setReverting(f)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+      <CommitBox workspaceId={workspaceId} status={status} files={files} />
+      <RevertDialog
+        file={reverting}
+        onClose={() => setReverting(null)}
+        onConfirm={(f) => {
+          setReverting(null);
+          void sync.gitRevert(workspaceId, pathsOf(f));
+        }}
+      />
     </div>
+  );
+}
+
+function RevertDialog({
+  file,
+  onClose,
+  onConfirm,
+}: {
+  file: GitFile | null;
+  onClose: () => void;
+  onConfirm: (file: GitFile) => void;
+}) {
+  return (
+    <Dialog open={file !== null} onOpenChange={(open) => !open && onClose()}>
+      {file && (
+        <DialogContent
+          title="Discard these changes?"
+          description={
+            isNewFile(file)
+              ? 'The last commit doesn’t have this file, so it is deleted. This can’t be undone.'
+              : 'The file goes back to how the last commit has it, staged and unstaged changes alike. This can’t be undone.'
+          }
+        >
+          <div className="flex flex-col gap-4 px-5 pt-3 pb-5">
+            <p className="truncate rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs">
+              {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => onConfirm(file)}>
+                {isNewFile(file) ? 'Delete file' : 'Discard'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      )}
+    </Dialog>
   );
 }
 
@@ -136,43 +200,82 @@ export function changeLetter(file: GitFile): { letter: string; tone: string; lab
   return { letter: 'M', tone: 'text-brass', label: 'modified' };
 }
 
-function ChangedFile({ workspaceId, file }: { workspaceId: string; file: GitFile }) {
+function ChangedFile({
+  workspaceId,
+  file,
+  onStage,
+  onRevert,
+}: {
+  workspaceId: string;
+  file: GitFile;
+  onStage: (stage: boolean) => void;
+  onRevert: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const { letter, tone, label } = changeLetter(file);
   const slash = file.path.lastIndexOf('/');
   const name = file.path.slice(slash + 1);
   const dir = slash === -1 ? '' : file.path.slice(0, slash);
   const sides = [file.staged && `staged: ${file.staged}`, file.unstaged && `unstaged: ${file.unstaged}`].filter(Boolean).join(' · ');
+  // Fully staged, partly (staged with more changes since), or not at all.
+  const staged = file.staged !== undefined && file.staged !== 'conflicted';
+  const partly = staged && file.unstaged !== undefined;
+  const StageIcon = !staged ? Square : partly ? SquareMinus : SquareCheck;
   return (
-    <li className="border-b">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-        className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-accent/60"
-      >
-        <ChevronRight className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
-        <span className={cn('w-3 shrink-0 text-center font-mono text-[11px] font-semibold', tone)} title={sides || label} aria-label={label}>
-          {letter}
-        </span>
-        <span className="min-w-0 truncate font-mono text-[11px]">
-          {name}
-          {dir && <span className="text-muted-foreground"> {dir}</span>}
-        </span>
-        <span className="flex-1" />
-        <span className="shrink-0 font-mono text-[10px] tabular-nums">
-          {file.binary ? (
-            <span className="text-muted-foreground">binary</span>
-          ) : (
-            <>
-              {(file.added ?? 0) > 0 && <span className="text-success">+{file.added}</span>}
-              {(file.added ?? 0) > 0 && (file.removed ?? 0) > 0 && ' '}
-              {(file.removed ?? 0) > 0 && <span className="text-destructive">−{file.removed}</span>}
-            </>
+    <li className="group border-b">
+      <div className="flex min-w-0 items-center transition-colors hover:bg-accent/60">
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={!staged ? false : partly ? 'mixed' : true}
+          aria-label={`Stage ${file.path}`}
+          title={!staged ? 'Stage' : partly ? 'Partly staged — stage the rest' : 'Unstage'}
+          onClick={() => onStage(!staged || partly)}
+          className={cn(
+            'shrink-0 py-1.5 pr-1 pl-2.5 transition-colors hover:text-foreground',
+            staged ? 'text-primary' : 'text-muted-foreground/70',
           )}
-        </span>
-      </button>
+        >
+          <StageIcon className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 pl-1 text-left text-xs"
+        >
+          <ChevronRight className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
+          <span className={cn('w-3 shrink-0 text-center font-mono text-[11px] font-semibold', tone)} title={sides || label} aria-label={label}>
+            {letter}
+          </span>
+          <span className="min-w-0 truncate font-mono text-[11px]">
+            {name}
+            {dir && <span className="text-muted-foreground"> {dir}</span>}
+          </span>
+          <span className="flex-1" />
+          <span className="shrink-0 font-mono text-[10px] tabular-nums">
+            {file.binary ? (
+              <span className="text-muted-foreground">binary</span>
+            ) : (
+              <>
+                {(file.added ?? 0) > 0 && <span className="text-success">+{file.added}</span>}
+                {(file.added ?? 0) > 0 && (file.removed ?? 0) > 0 && ' '}
+                {(file.removed ?? 0) > 0 && <span className="text-destructive">−{file.removed}</span>}
+              </>
+            )}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onRevert}
+          aria-label={`Discard changes to ${file.path}`}
+          title="Discard changes"
+          className="mr-1.5 shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-destructive focus-visible:opacity-100"
+        >
+          <Undo2 className="size-3.5" />
+        </button>
+      </div>
       {open && <FileDiff workspaceId={workspaceId} path={file.path} />}
     </li>
   );
