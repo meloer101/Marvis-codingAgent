@@ -378,6 +378,16 @@ describe('global shortcuts', () => {
     expect(sync.create).not.toHaveBeenCalled();
   });
 
+  it('Ctrl+O switches the transcript to verbose and back; ⌘O does not', () => {
+    renderApp(dockView({ pendingAsk: null, askId: null, running: false }));
+    fireEvent.keyDown(window, { key: 'o', ctrlKey: true });
+    expect(localStorage.getItem('hc.verbose')).toBe('1');
+    fireEvent.keyDown(window, { key: 'o', metaKey: true });
+    expect(localStorage.getItem('hc.verbose')).toBe('1');
+    fireEvent.keyDown(window, { key: 'o', ctrlKey: true });
+    expect(localStorage.getItem('hc.verbose')).toBeNull();
+  });
+
   it('the Escape that closes the palette does not stop the run', () => {
     const sync = renderApp(dockView({ pendingAsk: null, askId: null, running: true }));
     act(() => useAppStore.setState({ paletteOpen: true }));

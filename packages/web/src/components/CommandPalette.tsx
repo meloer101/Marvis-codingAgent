@@ -9,6 +9,8 @@ import {
   FolderPlus,
   Gauge,
   Keyboard,
+  ListCollapse,
+  ListTree,
   MessageSquare,
   Minimize2,
   Monitor,
@@ -35,6 +37,7 @@ import { useSync } from '@/lib/syncContext';
 import { setTheme, useTheme } from '@/lib/theme';
 import type { Theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import { setVerbose, useVerbose } from '@/lib/verbose';
 
 const FALLBACK_MODES: readonly PermissionMode[] = ['ask', 'acceptEdits', 'plan', 'readOnly'];
 const GROUPS: readonly PaletteGroup[] = ['New', 'This session', 'Sessions', 'App'];
@@ -164,6 +167,7 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
   const workspaces = useAppStore((s) => s.workspaces);
   const models = useAppStore((s) => (view?.workspaceId ? s.models[view.workspaceId] : undefined));
   const theme = useTheme();
+  const verbose = useVerbose();
   const workspaceId = view?.workspaceId;
 
   // The models to switch to: fresh each time the palette opens.
@@ -252,6 +256,11 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       if (t === theme) continue;
       items.push({ id: `theme-${t}`, group: 'App', label: `Theme: ${THEMES[t].label}`, keywords: 'appearance', icon: THEMES[t].icon, run: () => setTheme(t) });
     }
+    items.push(
+      verbose
+        ? { id: 'fold', group: 'App', label: 'Fold exploration calls', hint: '⌃O', keywords: 'transcript compact verbose', icon: ListCollapse, run: () => setVerbose(false) }
+        : { id: 'verbose', group: 'App', label: 'Show every tool call', hint: '⌃O', keywords: 'transcript verbose expand', icon: ListTree, run: () => setVerbose(true) },
+    );
     items.push({
       id: 'help',
       group: 'App',
@@ -263,5 +272,5 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
     });
     // Group order, whatever order they were pushed in.
     return GROUPS.flatMap((g) => items.filter((i) => i.group === g));
-  }, [view, activeId, row, sessions, workspaces, models, theme, onNewSession, sync]);
+  }, [view, activeId, row, sessions, workspaces, models, theme, verbose, onNewSession, sync]);
 }

@@ -74,6 +74,7 @@ Rules: assistant prose is 15px/1.75 serif capped at 68ch; UI labels stay sans; C
 - **Attachments**: mono 11px chips (file icon, truncated path, × to detach) above the composer's text, and under the text of a sent message. The `@` menu lists the file name in mono with its folder after it, muted and truncated from the left.
 - **Command palette** (⌘K): a popover card at 14vh, max-w-xl, over a soft overlay; a search field with an `esc` hint, then rows (14px muted icon, 13px label, mono 10px hint — shortcut, `/command` or project · time) under mono uppercase group headings (New, This session, Sessions, App) until a query flattens them.
 - **Tool cards**: rounded-lg card, mono tool name, status icon in token colors (primary spinner / success check / destructive X), hover tint on the header row, body on `muted/40`.
+- **Exploration line**: a run of lookups folds into one quiet 12px muted line — chevron, search icon (violet spinner while one runs), "Read 3 files, searched for 2 patterns", then the running call in mono or "· 1 failed" in destructive — brightening on hover; it opens to the cards indented behind a left rule, as Session details does.
 - **Pending dock** (no modals): brass border + tint for permission asks, violet for plan review; kbd hints (`y`/`a`/`n`).
 - **Composer**: card surface, focus = violet border + ring + shadow lift; the text above, the footer controls below.
 - **Diffs**: `success`/`destructive` at 10% bg with matching text; mono 11px.

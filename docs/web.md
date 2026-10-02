@@ -286,7 +286,8 @@ The token is as powerful as the user's shell — a client can switch a session t
 - **Command palette** (⌘K, `components/CommandPalette.tsx`): start a session
   or add a project; stop, rename, pin, archive or compact the session on
   screen, open its usage or skills, switch its mode, model or effort; jump to
-  any session; switch the theme. ⇧⌘O starts a new session directly.
+  any session; switch the theme or the verbose transcript. ⇧⌘O starts a new
+  session directly.
 - **Sidebar** groups sessions by project (`lib/sidebar.ts`): pinned first, then
   newest, archived on request, a search across projects, rename in place and a
   ⋯ / right-click menu per row, and waiting / running / unread / time at the
@@ -298,7 +299,14 @@ The token is as powerful as the user's shell — a client can switch a session t
   store at most once per animation frame.
 - **Platform** (`platform.ts`) is the seam to the host environment — external
   links, notifications, storage — so a desktop shell can supply its own.
-- **Transcript rows** fold startup notices into one "Session details" line
-  (`lib/rows.ts`); tool calls render through the per-tool registry
+- **Transcript rows** (`lib/rows.ts`) fold startup notices into one "Session
+  details" line, and make one row of each assistant turn — its committed steps
+  and the one streaming — so two or more lookups in a row (`read`, `grep`,
+  `glob`, `webfetch`, `list_skills`), with the thinking between them, fold into
+  one line ("Read 3 files, searched for 2 patterns") that opens to the calls and
+  names the one still running. Ctrl+O (Ctrl on a Mac too, as in the TUI) or the
+  palette shows every call on its own instead; the choice is kept. Parts keep
+  their keys when the streaming step commits, so what was opened mid-run stays
+  open. Tool calls render through the per-tool registry
   (`components/tools/registry.tsx`); permission asks and plan reviews dock above
   the composer instead of opening modals (`components/PendingDock.tsx`).

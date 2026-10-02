@@ -1,25 +1,30 @@
 import { memo, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowDown, Brain, Check, ChevronRight, Circle, FileText, Info, Loader2, X } from 'lucide-react';
+import { AlertTriangle, ArrowDown, Brain, Check, ChevronRight, Circle, FileText, Info, Loader2, Search, X } from 'lucide-react';
 
 import type { Notice } from '@harness-code/core';
-import type { Entry, LiveSnapshot, ToolItem } from '@harness-code/protocol';
+import { describeToolInput } from '@harness-code/core/browser';
+import type { Entry, ToolItem } from '@harness-code/protocol';
 
 import { Markdown } from '@/components/Markdown';
 import { toolView } from '@/components/tools/registry';
 import { Button } from '@/components/ui/button';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
-import { briefNotice, transcriptRows } from '@/lib/rows';
+import { briefNotice, exploreSummary, transcriptRows, turnParts, withLive } from '@/lib/rows';
+import type { Part, Step } from '@/lib/rows';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { cn } from '@/lib/utils';
+import { useVerbose } from '@/lib/verbose';
 
 export function Transcript({ view }: { view: SessionViewState }) {
   const { entries, live, running } = view;
   const { ref, onScroll, atBottom, scrollToBottom } = useStickToBottom<HTMLDivElement>(
     `${entries.length}:${live.text.length}:${live.thinking.length}:${live.tools.length}:${running}`,
   );
+  const verbose = useVerbose();
   const liveEmpty = live.text === '' && live.thinking === '' && live.tools.length === 0;
-  const rows = useMemo(() => transcriptRows(entries), [entries]);
-  const conversationEmpty = rows.every((r) => r.kind === 'details');
+  const committed = useMemo(() => transcriptRows(entries), [entries]);
+  const rows = useMemo(() => withLive(committed, live, entries.length), [committed, live, entries.length]);
+  const conversationEmpty = committed.every((r) => r.kind === 'details');
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -28,6 +33,8 @@ export function Transcript({ view }: { view: SessionViewState }) {
           {rows.map((row) =>
             row.kind === 'entry' ? (
               <EntryRow key={row.key} entry={row.entry} />
+            ) : row.kind === 'turn' ? (
+              <TurnRow key={row.key} steps={row.steps} verbose={verbose} />
             ) : (
               <SessionDetails key={row.key} notices={row.notices} />
             ),
@@ -37,7 +44,6 @@ export function Transcript({ view }: { view: SessionViewState }) {
               Send a message to start.
             </p>
           )}
-          {!liveEmpty && <AssistantBlock thinking={live.thinking} text={live.text} tools={live.tools} streaming />}
           {running && liveEmpty && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin text-primary" />
@@ -61,23 +67,59 @@ export function Transcript({ view }: { view: SessionViewState }) {
   );
 }
 
+const ROW_STYLE = { contentVisibility: 'auto', containIntrinsicSize: 'auto 80px' } as const;
+
 /** Committed rows never change identity, so memo skips them while the live region streams. */
 const EntryRow = memo(function EntryRow({ entry }: { entry: Entry }) {
   return (
-    <div
-      className="animate-rise"
-      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 80px' }}
-    >
+    <div className="animate-rise" style={ROW_STYLE}>
       {entry.kind === 'user' ? (
         <UserMessage text={entry.text} {...(entry.attachments ? { attachments: entry.attachments } : {})} />
-      ) : entry.kind === 'assistant' ? (
-        <AssistantBlock thinking={entry.thinking} text={entry.text} tools={entry.tools} />
-      ) : (
+      ) : entry.kind === 'notice' ? (
         <NoticeRow notice={entry.notice} />
-      )}
+      ) : null}
     </div>
   );
 });
+
+/**
+ * One assistant turn: its steps' thinking, text and tool calls, with runs of
+ * exploration calls folded into a line unless `verbose`. Only the turn that is
+ * streaming gets new steps, so the others skip re-rendering; parts keep their
+ * keys when the streaming step commits, so a card opened mid-run stays open.
+ */
+const TurnRow = memo(
+  function TurnRow({ steps, verbose }: { steps: readonly Step[]; verbose: boolean }) {
+    const parts = useMemo(() => turnParts(steps, verbose), [steps, verbose]);
+    return (
+      <div className="flex flex-col gap-2 text-sm" style={ROW_STYLE}>
+        {parts.map((part) => (
+          <div key={part.key} className="animate-rise">
+            <PartView part={part} />
+          </div>
+        ))}
+      </div>
+    );
+  },
+  (a, b) => a.verbose === b.verbose && a.steps.length === b.steps.length && a.steps.every((s, i) => s === b.steps[i]),
+);
+
+function PartView({ part }: { part: Part }) {
+  switch (part.kind) {
+    case 'thinking':
+      return <Thinking text={part.text} active={part.active} />;
+    case 'text':
+      return (
+        <div className={cn(part.streaming && 'md-streaming')}>
+          <Markdown text={part.text} streaming={part.streaming} />
+        </div>
+      );
+    case 'tool':
+      return <ToolCard tool={part.tool} />;
+    case 'explore':
+      return <ExploreGroup parts={part.parts} />;
+  }
+}
 
 export function UserMessage({ text, attachments }: { text: string; attachments?: readonly string[] }) {
   return (
@@ -116,27 +158,6 @@ export function AttachmentChips({ paths, onRemove }: { paths: readonly string[];
   );
 }
 
-function AssistantBlock({
-  thinking,
-  text,
-  tools,
-  streaming = false,
-}: LiveSnapshot & { streaming?: boolean }) {
-  return (
-    <div className="flex flex-col gap-2 text-sm">
-      {thinking && <Thinking text={thinking} active={streaming && text === '' && tools.length === 0} />}
-      {text && (
-        <div className={cn(streaming && tools.length === 0 && 'md-streaming')}>
-          <Markdown text={text} streaming={streaming} />
-        </div>
-      )}
-      {tools.map((t) => (
-        <ToolCard key={t.id} tool={t} />
-      ))}
-    </div>
-  );
-}
-
 function Thinking({ text, active }: { text: string; active: boolean }) {
   return (
     <details className="group text-muted-foreground">
@@ -152,7 +173,7 @@ function Thinking({ text, active }: { text: string; active: boolean }) {
   );
 }
 
-function ToolCard({ tool }: { tool: ToolItem }) {
+const ToolCard = memo(function ToolCard({ tool }: { tool: ToolItem }) {
   const isError = tool.result?.isError === true;
   const view = toolView(tool);
   // Follow the renderer's default (errors open, small diffs open…) until the
@@ -194,7 +215,62 @@ function ToolCard({ tool }: { tool: ToolItem }) {
       {open && <div className="border-t bg-muted/40">{view.body}</div>}
     </div>
   );
-}
+});
+
+/**
+ * A run of exploration calls as one quiet line — "Read 3 files, searched for 2
+ * patterns" — that opens to the calls themselves (and the thinking between
+ * them). While one runs, the line names what it is looking at.
+ */
+const ExploreGroup = memo(
+  function ExploreGroup({ parts }: { parts: Extract<Part, { kind: 'explore' }>['parts'] }) {
+    const [open, setOpen] = useState(false);
+    const tools = parts.flatMap((p) => (p.kind === 'tool' ? [p.tool] : []));
+    const current = tools.findLast((t) => t.running);
+    const failed = tools.filter((t) => t.result?.isError).length;
+    return (
+      <div className="text-xs">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className="flex w-full min-w-0 items-center gap-1.5 py-0.5 text-left text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />
+          {current ? (
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+          ) : (
+            <Search className="size-3.5 shrink-0" />
+          )}
+          <span className="shrink-0">{exploreSummary(tools)}</span>
+          {current && (
+            <span className="min-w-0 truncate font-mono text-[11px] opacity-80">
+              {describeToolInput(current.name, current.input)}
+            </span>
+          )}
+          {failed > 0 && <span className="shrink-0 text-destructive">· {failed} failed</span>}
+        </button>
+        {open && (
+          <div className="mt-2 ml-1.5 flex flex-col gap-2 border-l pl-3">
+            {parts.map((p) =>
+              p.kind === 'tool' ? (
+                <ToolCard key={p.key} tool={p.tool} />
+              ) : (
+                <Thinking key={p.key} text={p.text} active={p.active} />
+              ),
+            )}
+          </div>
+        )}
+      </div>
+    );
+  },
+  (a, b) =>
+    a.parts.length === b.parts.length &&
+    a.parts.every((p, i) => {
+      const q = b.parts[i]!;
+      return p.kind === 'tool' ? q.kind === 'tool' && q.tool === p.tool : q.kind === 'thinking' && q.text === p.text && q.active === p.active;
+    }),
+);
 
 /**
  * The startup diagnostics as one quiet line — "skills 2 · memory 1 · mcp 1/1

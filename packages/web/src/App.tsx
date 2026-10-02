@@ -14,6 +14,7 @@ import type { Route } from '@/lib/route';
 import { allCommands } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
+import { toggleVerbose } from '@/lib/verbose';
 import { platform } from '@/platform';
 
 function useRoute(): Route {
@@ -65,7 +66,8 @@ export function App() {
     window.location.hash = routeToHash(workspaceId ? { kind: 'new', workspaceId } : { kind: 'home' });
   };
 
-  // Global keys: the command palette and a new session anywhere, Esc stops
+  // Global keys: the command palette, a new session and the verbose
+  // transcript (Ctrl+O, as in the TUI — Ctrl on a Mac too) anywhere, Esc stops
   // the active run. The composer's menus and the pending dock swallow their
   // own Escape, and an Escape that closes a dialog or the palette never aborts.
   useEffect(() => {
@@ -80,6 +82,11 @@ export function App() {
         e.preventDefault();
         sync.setPaletteOpen(false);
         newSession();
+        return;
+      }
+      if (e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        toggleVerbose();
         return;
       }
       if (e.key === 'Escape' && activeId && !e.defaultPrevented) {
