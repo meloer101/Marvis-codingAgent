@@ -23,6 +23,10 @@ import { basename, join } from 'node:path';
 import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir } from '@harness-code/core';
 import type { EffortOptions, PermissionMode } from '@harness-code/core';
 import type {
+  DirEntry,
+  EditorId,
+  EditorInfo,
+  FileContent,
   FileMatch,
   GitDiff,
   GitStatus,
@@ -35,13 +39,16 @@ import type {
   WorkspaceInspection,
 } from '@harness-code/protocol';
 
-import { FileIndex } from './files.js';
+import { detectEditors, openInEditor } from './editors.js';
+import type { Editor } from './editors.js';
+import { FileIndex, readWorkspaceFile } from './files.js';
 import { gitDiff, gitStatus } from './git.js';
 import { BusyError, InvalidRequestError } from './host.js';
 import type { SessionHost } from './host.js';
 import { inspectDirectory } from './inspect.js';
 import { SessionPreviewNotFoundError, SessionRegistry } from './registry.js';
 import type { RegistryListener, SessionConfigFactory } from './registry.js';
+import { workspacePath } from './paths.js';
 import { workspaceId } from './workspaces.js';
 import type { WorkspaceRecord, WorkspaceStore } from './workspaces.js';
 
@@ -72,6 +79,8 @@ export interface WorkspaceHubOptions {
   sweepMs?: number;
   /** The home directory (tests). */
   home?: string;
+  /** The editors files can be opened in (tests); found on the machine by default. */
+  editors?: () => Promise<Editor[]>;
 }
 
 /** A request named a workspace this server doesn't host. The WS layer maps it to `not_found`. */
@@ -101,6 +110,8 @@ export class WorkspaceHub {
   /** Session id → workspace id, learned from lists, creations and lookups. */
   readonly #sessionIndex = new Map<string, string>();
   readonly #files = new FileIndex();
+  readonly #findEditors: () => Promise<Editor[]>;
+  #editors: Promise<Editor[]> | undefined;
   #rev = 0;
   readonly #sweepTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -109,6 +120,7 @@ export class WorkspaceHub {
     this.#setup = opts.setup;
     this.#idleMs = opts.idleMs;
     this.#home = opts.home;
+    this.#findEditors = opts.editors ?? (() => detectEditors());
     const sweepMs = opts.sweepMs ?? DEFAULT_SWEEP_MS;
     if (sweepMs > 0) {
       this.#sweepTimer = setInterval(() => this.sweep(), sweepMs);
@@ -157,6 +169,37 @@ export class WorkspaceHub {
     if (!entry) throw new WorkspaceNotFoundError(id);
     if (entry.missing) return [];
     return this.#files.search(entry.record.root, query, limit);
+  }
+
+  /** The entries of a folder in workspace `id` (`''` for its root). */
+  async listDir(id: string, dir: string): Promise<DirEntry[]> {
+    const entry = this.#present(id);
+    return entry ? this.#files.list(entry.record.root, dir) : [];
+  }
+
+  /** A file of workspace `id`, for the Files tab. */
+  async readFile(id: string, path: string): Promise<FileContent> {
+    const entry = this.#present(id);
+    return entry ? readWorkspaceFile(entry.record.root, path) : { kind: 'withheld', reason: 'The project folder is missing.' };
+  }
+
+  /** The editors on this machine, looked for once. */
+  async editors(): Promise<EditorInfo[]> {
+    return (await this.#editorList()).map(({ id, name }) => ({ id, name }));
+  }
+
+  /** Open a file of workspace `id` in `editorId`, at `line`. */
+  async openInEditor(id: string, path: string, editorId: EditorId, line?: number): Promise<void> {
+    const entry = this.#present(id);
+    if (!entry) throw new WorkspaceNotFoundError(id);
+    const editor = (await this.#editorList()).find((e) => e.id === editorId);
+    if (!editor) throw new InvalidRequestError(`${editorId} isn't installed here`);
+    openInEditor(editor, join(entry.record.root, workspacePath(path)), line);
+  }
+
+  #editorList(): Promise<Editor[]> {
+    this.#editors ??= this.#findEditors().catch(() => []);
+    return this.#editors;
   }
 
   /** Workspace `id`'s changes against HEAD. */
@@ -414,6 +457,11 @@ export class WorkspaceHub {
 
   #forward(workspace: string, event: PushEvent): void {
     if (event.type === 'session_upsert') this.#sessionIndex.set(event.summary.id, workspace);
+    // Files came or went: the listing behind the Files tab and `@` is stale.
+    if (event.type === 'git_changed') {
+      const root = this.#entries.get(workspace)?.record.root;
+      if (root) this.#files.invalidate(root);
+    }
     for (const listener of this.#listeners) listener(event);
   }
 

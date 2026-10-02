@@ -37,7 +37,30 @@ export interface ServerInfo {
   defaultMode: PermissionMode;
   models: string[];
   modes: PermissionMode[];
+  /** The editors on this machine a file can be opened in (`editor.open`). */
+  editors: EditorInfo[];
 }
+
+export type EditorId = 'vscode' | 'cursor' | 'zed';
+
+export interface EditorInfo {
+  id: EditorId;
+  /** "VS Code", "Cursor", "Zed". */
+  name: string;
+}
+
+/** One entry of a workspace folder (`fs.list`). */
+export interface DirEntry {
+  name: string;
+  dir: boolean;
+}
+
+/** A workspace file's contents (`fs.read`). */
+export type FileContent =
+  | { kind: 'text'; content: string }
+  | { kind: 'binary' }
+  /** Too big, a secret, missing, or linking outside the workspace. */
+  | { kind: 'withheld'; reason: string };
 
 /** Where a new session in a workspace starts, and what its model offers. */
 export interface WorkspaceDefaults {
@@ -329,6 +352,26 @@ export const methods = {
    */
   'fs.search': method<{ workspaceId: string; query: string; limit?: number }, FileMatch[]>(
     z.object({ workspaceId: workspaceIdSchema, query: z.string().max(512), limit: z.number().int().min(1).max(200).optional() }),
+  ),
+  /**
+   * A workspace folder's entries (`dir` relative to its root, `''` for the
+   * root): folders first. What `.gitignore` leaves out and secrets aren't listed.
+   */
+  'fs.list': method<{ workspaceId: string; sessionId?: string; dir: string }, DirEntry[]>(
+    z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional(), dir: z.string().max(4096) }),
+  ),
+  /** A workspace file's text; binary, over 1 MB, a secret or outside the workspace: withheld. */
+  'fs.read': method<{ workspaceId: string; sessionId?: string; path: string }, FileContent>(
+    z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional(), path: pathSchema }),
+  ),
+  /** Open a workspace file in an editor on this machine, at a line. */
+  'editor.open': method<{ workspaceId: string; path: string; line?: number; editor: EditorId }, void>(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      path: pathSchema,
+      line: z.number().int().min(1).optional(),
+      editor: z.enum(['vscode', 'cursor', 'zed']),
+    }),
   ),
   /**
    * The workspace's changes against HEAD. `sessionId` is accepted for when a

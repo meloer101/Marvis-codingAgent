@@ -11,10 +11,12 @@
 
 import { execFile } from 'node:child_process';
 import { open, rm } from 'node:fs/promises';
-import { isAbsolute, join, normalize } from 'node:path';
+import { join } from 'node:path';
 
 import { isSensitivePath } from '@harness-code/core';
 import type { GitChange, GitCommitResult, GitDiff, GitFile, GitStatus } from '@harness-code/protocol';
+
+import { workspacePath } from './paths.js';
 
 /** git's empty tree: the base for a repository without commits yet. */
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904';
@@ -25,14 +27,6 @@ const MAX_COUNTED_BYTES = 512 * 1024;
 const TIMEOUT_MS = 10_000;
 /** Commits (hooks), pushes and pull requests (the network). */
 const SLOW_TIMEOUT_MS = 120_000;
-
-/** Not a path inside the workspace (absolute, or climbing out of it). */
-export class GitPathError extends Error {
-  constructor(path: string) {
-    super(`not a path in the workspace: ${path}`);
-    this.name = 'GitPathError';
-  }
-}
 
 /** A git (or gh) command that failed; the message is what it printed about why. */
 export class GitCommandError extends Error {
@@ -235,13 +229,6 @@ async function countLines(path: string): Promise<{ added: number; removed: numbe
   } catch {
     return undefined;
   }
-}
-
-/** A workspace-relative path, checked to stay inside it. */
-export function workspacePath(path: string): string {
-  const p = normalize(path).replace(/\\/g, '/');
-  if (isAbsolute(p) || p === '..' || p.startsWith('../') || p === '.' || p === '') throw new GitPathError(path);
-  return p;
 }
 
 export async function gitDiff(root: string, path: string): Promise<GitDiff> {

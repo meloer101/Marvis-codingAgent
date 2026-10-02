@@ -99,6 +99,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       defaultMode: launch.defaults.mode,
       models: [],
       modes: launch.defaults.modes,
+      editors: await hub.editors(),
     };
   };
 

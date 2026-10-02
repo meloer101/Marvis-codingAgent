@@ -1,5 +1,6 @@
 /**
- * `@` mentions: the files of a workspace, and a fuzzy search over them.
+ * The files of a workspace: a fuzzy search over them (`@` mentions), its
+ * folders one level at a time and a file's contents (the Files tab).
  *
  * The list comes from `git ls-files` (tracked plus untracked, minus what
  * `.gitignore` excludes) where the workspace is in a repository, else from a
@@ -10,11 +11,16 @@
  */
 
 import { execFile } from 'node:child_process';
-import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { open, readdir, realpath } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 
 import { isSensitivePath } from '@harness-code/core';
-import type { FileMatch } from '@harness-code/protocol';
+import type { DirEntry, FileContent, FileMatch } from '@harness-code/protocol';
+
+import { staysInside, workspacePath } from './paths.js';
+
+/** Files bigger than this aren't sent to a browser. */
+const MAX_READ_BYTES = 1024 * 1024;
 
 /** How long a listing is reused. */
 const TTL_MS = 10_000;
@@ -74,6 +80,30 @@ export class FileIndex {
     return scored.slice(0, limit).map(({ path }) => ({ path }));
   }
 
+  /** The entries directly in `dir` (`''` for the root): folders first, then files, each by name. */
+  async list(root: string, dir: string): Promise<DirEntry[]> {
+    const prefix = dir === '' ? '' : `${workspacePath(dir)}/`;
+    const dirs = new Set<string>();
+    const files: string[] = [];
+    for (const path of await this.#files(root)) {
+      if (!path.startsWith(prefix)) continue;
+      const rest = path.slice(prefix.length);
+      const slash = rest.indexOf('/');
+      if (slash === -1) files.push(rest);
+      else dirs.add(rest.slice(0, slash));
+    }
+    const byName = (a: string, b: string): number => a.localeCompare(b);
+    return [
+      ...[...dirs].sort(byName).map((name) => ({ name, dir: true })),
+      ...files.sort(byName).map((name) => ({ name, dir: false })),
+    ];
+  }
+
+  /** Forget `root`'s listing — its files changed. */
+  invalidate(root: string): void {
+    this.#cache.delete(root);
+  }
+
   #files(root: string): Promise<string[]> {
     const hit = this.#cache.get(root);
     if (hit && this.#now() - hit.at < TTL_MS) return hit.files;
@@ -81,6 +111,40 @@ export class FileIndex {
     this.#cache.set(root, { at: this.#now(), files });
     files.catch(() => this.#cache.delete(root));
     return files;
+  }
+}
+
+/**
+ * A workspace file's text. Withheld: a secret (by its name or what it links
+ * to), a link out of the workspace, a folder, anything over 1 MB, or a file
+ * that isn't there.
+ */
+export async function readWorkspaceFile(root: string, path: string): Promise<FileContent> {
+  const rel = workspacePath(path);
+  if (isSensitivePath(rel)) return { kind: 'withheld', reason: 'This looks like a secret, so its contents stay on disk.' };
+  const abs = join(root, rel);
+  try {
+    if (!(await staysInside(root, abs))) return { kind: 'withheld', reason: 'It links to somewhere outside the project.' };
+    if (isSensitivePath(relative(await realpath(root), await realpath(abs)))) {
+      return { kind: 'withheld', reason: 'It links to a secret, so its contents stay on disk.' };
+    }
+    const handle = await open(abs, 'r');
+    try {
+      const stats = await handle.stat();
+      if (!stats.isFile()) return { kind: 'withheld', reason: 'Not a file.' };
+      if (stats.size > MAX_READ_BYTES) {
+        return { kind: 'withheld', reason: `Too big to show here (${(stats.size / 1024 / 1024).toFixed(1)} MB).` };
+      }
+      const buf = Buffer.alloc(stats.size);
+      await handle.read(buf, 0, stats.size, 0);
+      if (buf.subarray(0, 8192).includes(0)) return { kind: 'binary' };
+      return { kind: 'text', content: buf.toString('utf8') };
+    } finally {
+      await handle.close();
+    }
+  } catch (err) {
+    if ((err as { code?: unknown }).code === 'ENOENT') return { kind: 'withheld', reason: 'No such file.' };
+    throw err;
   }
 }
 

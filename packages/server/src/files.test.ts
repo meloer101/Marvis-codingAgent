@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { FileIndex, fuzzyScore, listFiles } from './files.js';
+import { FileIndex, fuzzyScore, listFiles, readWorkspaceFile } from './files.js';
+import { WorkspacePathError } from './paths.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -72,5 +73,66 @@ describe('FileIndex', () => {
     expect(await index.search(root, 'b')).toEqual([]);
     now = 60_000;
     expect(await index.search(root, 'b')).toEqual([{ path: 'b.ts' }]);
+  });
+});
+
+describe('FileIndex.list', () => {
+  it('lists a folder one level down, folders first, without ignored files or secrets', async () => {
+    const root = await tree({
+      'README.md': '',
+      'src/b.ts': '',
+      'src/a.ts': '',
+      'src/lib/deep.ts': '',
+      '.env': 'KEY=1',
+      'dist/out.js': '',
+      '.gitignore': 'dist/\n',
+    });
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    const index = new FileIndex();
+    expect(await index.list(root, '')).toEqual([
+      { name: 'src', dir: true },
+      { name: '.gitignore', dir: false },
+      { name: 'README.md', dir: false },
+    ]);
+    expect(await index.list(root, 'src')).toEqual([
+      { name: 'lib', dir: true },
+      { name: 'a.ts', dir: false },
+      { name: 'b.ts', dir: false },
+    ]);
+    await expect(index.list(root, '../up')).rejects.toBeInstanceOf(WorkspacePathError);
+  });
+
+  it('sees new files once told the listing is stale', async () => {
+    const root = await tree({ 'a.ts': '' });
+    const index = new FileIndex();
+    expect((await index.list(root, '')).map((e) => e.name)).toEqual(['a.ts']);
+    await writeFile(join(root, 'b.ts'), '');
+    expect((await index.list(root, '')).map((e) => e.name)).toEqual(['a.ts']);
+    index.invalidate(root);
+    expect((await index.list(root, '')).map((e) => e.name)).toEqual(['a.ts', 'b.ts']);
+  });
+});
+
+describe('readWorkspaceFile', () => {
+  it('reads text, and withholds binaries, big files, secrets and missing files', async () => {
+    const root = await tree({ 'a.ts': 'const a = 1;\n', '.env': 'KEY=1', 'big.txt': 'x'.repeat(1024 * 1024 + 1) });
+    await writeFile(join(root, 'img.bin'), Buffer.from([1, 0, 2]));
+    expect(await readWorkspaceFile(root, 'a.ts')).toEqual({ kind: 'text', content: 'const a = 1;\n' });
+    expect(await readWorkspaceFile(root, 'img.bin')).toEqual({ kind: 'binary' });
+    expect(await readWorkspaceFile(root, 'big.txt')).toMatchObject({ kind: 'withheld', reason: expect.stringMatching(/Too big/) });
+    expect(await readWorkspaceFile(root, '.env')).toMatchObject({ kind: 'withheld', reason: expect.stringMatching(/secret/) });
+    expect(await readWorkspaceFile(root, 'gone.ts')).toEqual({ kind: 'withheld', reason: 'No such file.' });
+    await expect(readWorkspaceFile(root, '../outside')).rejects.toBeInstanceOf(WorkspacePathError);
+  });
+
+  it('follows no link out of the workspace, nor to a secret inside it', async () => {
+    const root = await realpath(await tree({ '.env': 'KEY=1', 'ok.ts': 'fine' }));
+    const outside = await tree({ 'secret.txt': 'nope' });
+    await symlink(join(outside, 'secret.txt'), join(root, 'escape.txt'));
+    await symlink(join(root, '.env'), join(root, 'config.txt'));
+    await symlink(join(root, 'ok.ts'), join(root, 'alias.ts'));
+    expect(await readWorkspaceFile(root, 'escape.txt')).toMatchObject({ kind: 'withheld', reason: expect.stringMatching(/outside/) });
+    expect(await readWorkspaceFile(root, 'config.txt')).toMatchObject({ kind: 'withheld', reason: expect.stringMatching(/secret/) });
+    expect(await readWorkspaceFile(root, 'alias.ts')).toEqual({ kind: 'text', content: 'fine' });
   });
 });

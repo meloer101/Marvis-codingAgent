@@ -33,7 +33,6 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { BusyError, InvalidRequestError, SessionNotFoundError } from './host.js';
 import {
   GitCommandError,
-  GitPathError,
   createPullRequest,
   gitCommit,
   gitPush,
@@ -42,6 +41,7 @@ import {
   gitUnstage,
 } from './git.js';
 import { WorkspaceNotFoundError } from './hub.js';
+import { WorkspacePathError } from './paths.js';
 import { suggestDirs } from './inspect.js';
 import type { WorkspaceHub } from './hub.js';
 import { SessionPreviewNotFoundError } from './registry.js';
@@ -240,6 +240,18 @@ class Connection {
       case 'fs.search': {
         const { workspaceId, query, limit } = params as MethodParams<'fs.search'>;
         return hub.searchFiles(workspaceId, query, limit);
+      }
+      case 'fs.list': {
+        const { workspaceId, dir } = params as MethodParams<'fs.list'>;
+        return hub.listDir(workspaceId, dir);
+      }
+      case 'fs.read': {
+        const { workspaceId, path } = params as MethodParams<'fs.read'>;
+        return hub.readFile(workspaceId, path);
+      }
+      case 'editor.open': {
+        const { workspaceId, path, line, editor } = params as MethodParams<'editor.open'>;
+        return hub.openInEditor(workspaceId, path, editor, line);
       }
       case 'git.status':
         return hub.gitStatus((params as MethodParams<'git.status'>).workspaceId);
@@ -455,7 +467,7 @@ function mapError(err: unknown): { code: ErrorCode; message: string } {
   if (err instanceof SessionNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof SessionPreviewNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof WorkspaceNotFoundError) return { code: 'not_found', message: err.message };
-  if (err instanceof GitPathError) return { code: 'bad_request', message: err.message };
+  if (err instanceof WorkspacePathError) return { code: 'bad_request', message: err.message };
   if (err instanceof GitCommandError) return { code: 'bad_request', message: err.message };
   const message = err instanceof Error ? err.message : String(err);
   return { code: 'internal', message };

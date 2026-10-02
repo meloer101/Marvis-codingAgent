@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   GitCommandError,
-  GitPathError,
   createPullRequest,
   gitCommit,
   gitDiff,
@@ -19,6 +18,7 @@ import {
   parseNumstat,
   parseStatus,
 } from './git.js';
+import { WorkspacePathError } from './paths.js';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -115,8 +115,8 @@ describe('gitDiff', () => {
     await writeFile(join(root, 'img.bin'), Buffer.from([0, 1, 2, 0, 3]));
     expect(await gitDiff(root, '.env')).toMatchObject({ kind: 'withheld' });
     expect(await gitDiff(root, 'img.bin')).toEqual({ kind: 'binary' });
-    await expect(gitDiff(root, '../elsewhere')).rejects.toBeInstanceOf(GitPathError);
-    await expect(gitDiff(root, '/etc/passwd')).rejects.toBeInstanceOf(GitPathError);
+    await expect(gitDiff(root, '../elsewhere')).rejects.toBeInstanceOf(WorkspacePathError);
+    await expect(gitDiff(root, '/etc/passwd')).rejects.toBeInstanceOf(WorkspacePathError);
   });
 });
 
