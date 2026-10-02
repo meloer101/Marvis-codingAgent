@@ -42,6 +42,9 @@ afterEach(async () => {
   for (const fn of cleanups.splice(0).reverse()) await fn();
 });
 
+/** The read-only calls the mock reel opens with, before its first prompt. */
+const LOOK_AROUND = ['glob', 'grep', 'read'];
+
 async function boot(): Promise<{ server: RunningServer; cwd: string }> {
   const cwd = await mkdtemp(join(tmpdir(), 'hc-web-e2e-'));
   const server = await startServer({ cwd, mock: true });
@@ -146,8 +149,8 @@ describe('SessionSync ↔ hc web --mock', () => {
     // The mid-run snapshot carries the turn so far (not just finished turns).
     expect(bView()!.entries[0]).toMatchObject({ kind: 'user', text: 'set up a scratch file' });
     const bTools = () => bView()!.entries.flatMap((e) => (e.kind === 'assistant' ? e.tools : []));
-    expect(bTools().map((t) => t.name)).toEqual(['bash', 'write']);
-    expect(bTools()[0]!.result?.content).toContain('hello from the hc web mock');
+    expect(bTools().map((t) => t.name)).toEqual([...LOOK_AROUND, 'bash', 'write']);
+    expect(bTools()[LOOK_AROUND.length]!.result?.content).toContain('hello from the hc web mock');
     await b.sync.answerAsk(id!, ask2, 'once');
     await until(() => view()?.askId !== ask2, 'tab A sees ask #2 resolved');
 
@@ -162,7 +165,7 @@ describe('SessionSync ↔ hc web --mock', () => {
     const final = view()!;
     expect(final.entries.find((e) => e.kind === 'user')).toMatchObject({ text: 'set up a scratch file' });
     const tools = final.entries.flatMap((e) => (e.kind === 'assistant' ? e.tools.map((t) => t.name) : []));
-    expect(tools).toEqual(['bash', 'write', 'edit']);
+    expect(tools).toEqual([...LOOK_AROUND, 'bash', 'write', 'edit']);
     expect(final.entries.at(-1)).toMatchObject({ kind: 'assistant', text: 'All set — the scratch file is ready.' });
     expect(await readFile(join(cwd, 'mock-demo.txt'), 'utf8')).toContain('edited by the mock');
 
@@ -171,6 +174,7 @@ describe('SessionSync ↔ hc web --mock', () => {
     expect(bView()!.entries.at(-1)).toMatchObject({ text: 'All set — the scratch file is ready.' });
     // The write card came from the snapshot; its result arrived as a later event.
     expect(bTools().map((t) => [t.name, t.result !== undefined])).toEqual([
+      ...LOOK_AROUND.map((name) => [name, true]),
       ['bash', true],
       ['write', true],
       ['edit', true],

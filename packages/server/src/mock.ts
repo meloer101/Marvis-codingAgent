@@ -5,12 +5,18 @@
  * for screenshots (`hc web --mock`, docs/web.md "Running it").
  *
  * The script, consumed across two sends, covers every UI surface: streamed
- * thinking + text, a `bash` tool, `write` + `edit` file tools (each asks for
- * permission in `ask` mode), and — after the client switches to plan mode —
- * an `exit_plan_mode` plan approval.
+ * thinking + text, read-only lookups, a `bash` tool, `write` + `edit` file
+ * tools (each asks for permission in `ask` mode), and — after the client
+ * switches to plan mode — an `exit_plan_mode` plan approval.
  */
 
-import { DEFAULT_CAPABILITIES, ProviderError, ScriptedProvider, effortOptions } from '@harness-code/core';
+import {
+  DEFAULT_ALLOW_RULES,
+  DEFAULT_CAPABILITIES,
+  ProviderError,
+  ScriptedProvider,
+  effortOptions,
+} from '@harness-code/core';
 import type {
   AgentSessionConfig,
   EffortOptions,
@@ -28,9 +34,20 @@ const MOCK_FILE = 'mock-demo.txt';
 /** The fixed reel. A fresh copy is handed to every new session. */
 function mockScript(): ScriptedTurn[] {
   return [
-    // Send #1 (ask mode): think, talk, then three tools that each prompt.
+    // Send #1 (ask mode): look around (read-only, so no prompts — the web
+    // folds these into one line), then three tools that each prompt.
     {
       thinking: 'Let me get my bearings in this workspace before I touch anything.',
+      toolCalls: [
+        { name: 'glob', input: { pattern: '*.md' } },
+        { name: 'grep', input: { pattern: 'TODO', glob: '*.md' } },
+      ],
+    },
+    {
+      thinking: 'A README would say what this project is.',
+      toolCalls: [{ name: 'read', input: { path: 'README.md', limit: 20 } }],
+    },
+    {
       // `tee` keeps this out of the read-only set — read-only commands are
       // allowed in every mode now, and this reel exists to show the approval
       // flow.
@@ -152,7 +169,8 @@ export function mockConfigFactory(cwd: string, agentDir?: string): SessionConfig
       cwd,
       model: mockModel(provider, opts.model && MOCK_MODELS[opts.model] ? opts.model : MOCK_MODEL_REF),
       resolveModel: (ref) => mockModel(provider, ref),
-      settings: {},
+      // A real project's defaults: lookups run without asking.
+      settings: { permissions: { allow: [...DEFAULT_ALLOW_RULES] } },
       budgets: {},
       mode: opts.mode ?? 'ask',
       skills: false,
