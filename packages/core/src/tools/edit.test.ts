@@ -45,6 +45,22 @@ describe('editTool', () => {
     expect(await readFile(join(cwd, 'a.txt'), 'utf8')).toBe('baz bar');
   });
 
+  it('tells a frontend the line the replacement starts at, but not the model', async () => {
+    await writeFile(join(cwd, 'a.txt'), 'one\ntwo\nthree\nfour\n', 'utf8');
+    await readTool.execute({ path: 'a.txt' }, ctx);
+    const exact = await editTool.execute({ path: 'a.txt', oldString: 'three\n', newString: '3\n' }, ctx);
+    expect(exact.display).toEqual({ startLine: 3 });
+    expect(exact.content).not.toContain('3');
+    // A fuzzy match reports where it landed too.
+    const fuzzy = await editTool.execute({ path: 'a.txt', oldString: '  four\n', newString: '4\n' }, ctx);
+    expect(fuzzy.display).toEqual({ startLine: 4 });
+    // Several places at once: no single line to give.
+    await writeFile(join(cwd, 'b.txt'), 'x\nx\n', 'utf8');
+    await readTool.execute({ path: 'b.txt' }, ctx);
+    const all = await editTool.execute({ path: 'b.txt', oldString: 'x', newString: 'y', replaceAll: true }, ctx);
+    expect(all.display).toBeUndefined();
+  });
+
   it('rejects an ambiguous match unless replaceAll is set', async () => {
     await writeFile(join(cwd, 'a.txt'), 'foo foo', 'utf8');
     await readTool.execute({ path: 'a.txt' }, ctx);

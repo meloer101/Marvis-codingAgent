@@ -60,6 +60,8 @@ export const editTool: ToolSpec<z.infer<typeof schema>> = {
     const occurrences = countOccurrences(text, input.oldString);
     let updated: string;
     let note = '';
+    // Where the one replacement starts, for a frontend's line numbers.
+    let at: number | undefined = occurrences === 1 ? text.indexOf(input.oldString) : undefined;
     if (occurrences === 0) {
       // No exact match: retry line by line with looser comparisons. replaceAll
       // stays exact — a loose match applied everywhere is too easy to get wrong.
@@ -86,6 +88,7 @@ export const editTool: ToolSpec<z.infer<typeof schema>> = {
           : input.newString;
       updated = text.slice(0, fuzzy.start) + replacement + text.slice(fuzzy.end);
       note = ` (matched ${TIER_LABEL[fuzzy.tier]})`;
+      at = fuzzy.start;
     } else if (occurrences > 1 && !input.replaceAll) {
       return {
         content:
@@ -107,9 +110,19 @@ export const editTool: ToolSpec<z.infer<typeof schema>> = {
 
     const stats = await stat(path);
     ctx.session.markRead(path, stats.mtimeMs);
-    return { content: `Replaced ${Math.max(occurrences, 1)} occurrence(s) in ${input.path}${note}` };
+    return {
+      content: `Replaced ${Math.max(occurrences, 1)} occurrence(s) in ${input.path}${note}`,
+      ...(at !== undefined ? { display: { startLine: lineAt(text, at) } } : {}),
+    };
   },
 };
+
+/** The 1-based line of character `index`. */
+function lineAt(text: string, index: number): number {
+  let line = 1;
+  for (let i = text.indexOf('\n'); i !== -1 && i < index; i = text.indexOf('\n', i + 1)) line++;
+  return line;
+}
 
 function countOccurrences(text: string, needle: string): number {
   if (needle === '') return 0;

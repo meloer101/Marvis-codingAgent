@@ -198,6 +198,18 @@ describe('loadTranscript', () => {
     expect(transcript[0]?.type).toBe('message');
   });
 
+  it("surfaces what a tool call's result carried for display", async () => {
+    const recorder = new SessionRecorder(agentDir, 'test-session');
+    await recorder.recordToolCall({
+      id: 'call_1',
+      name: 'edit',
+      input: {},
+      result: { content: 'Replaced 1 occurrence(s) in a.ts', display: { startLine: 12 } },
+    });
+    const transcript = await loadTranscript(agentDir, 'test-session');
+    expect(transcript).toMatchObject([{ type: 'tool_display', toolUseId: 'call_1', display: { startLine: 12 } }]);
+  });
+
   it('turns a compaction event into a divider marker between the messages before and after it', async () => {
     // Unlike `loadSession` (which replays the post-compaction snapshot as the
     // model history), the transcript shows every message that was actually

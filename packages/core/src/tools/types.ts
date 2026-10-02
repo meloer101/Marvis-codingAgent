@@ -30,9 +30,20 @@ export interface ToolContext {
   onOutput?: (text: string) => void;
 }
 
+/** What a frontend can show about a call beyond its content. Never sent to the model. */
+export interface ToolDisplay {
+  /**
+   * The 1-based line an `edit` with a single replacement starts at — the same
+   * line before and after it, since nothing above it changed.
+   */
+  startLine?: number;
+}
+
 export interface ToolResult {
   content: string;
   isError?: boolean;
+  /** For display only: the model sees `content` and `isError`, nothing else. */
+  display?: ToolDisplay;
   /** Set by a tool that is a deliberate end of the run (e.g. `exit_plan_mode` with no interactive approver). */
   endsRun?: boolean;
 }

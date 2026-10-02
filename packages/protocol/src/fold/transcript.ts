@@ -6,21 +6,30 @@
  */
 
 import { attachedFilePath } from '@harness-code/core/browser';
-import type { Notice, TranscriptItem } from '@harness-code/core';
+import type { Notice, ToolDisplay, TranscriptItem } from '@harness-code/core';
 
 import type { Entry, ToolItem } from './reducer.js';
 
 /**
  * Rebuild display entries from the persisted transcript: one `assistant` entry
  * per assistant message, tool results (which ride in the next `user` message)
- * attached back onto their tool cards, files attached to a user message as its
- * `attachments`, compactions as a divider notice.
+ * attached back onto their tool cards (with what they carried for display),
+ * files attached to a user message as its `attachments`, compactions as a
+ * divider notice.
  */
 export function entriesFromTranscript(items: TranscriptItem[]): Entry[] {
   const entries: Entry[] = [];
   const tools = new Map<string, ToolItem>();
+  // Recorded as a call ends, ahead of the message carrying its result.
+  const displays = new Map<string, ToolDisplay>();
 
   for (const item of items) {
+    if (item.type === 'tool_display') {
+      const result = tools.get(item.toolUseId)?.result;
+      if (result) result.display = item.display;
+      else displays.set(item.toolUseId, item.display);
+      continue;
+    }
     if (item.type === 'compaction') {
       const notice: Notice = {
         kind: 'compaction',
@@ -58,7 +67,14 @@ export function entriesFromTranscript(items: TranscriptItem[]): Entry[] {
         else userText += block.text;
       } else if (block.type === 'tool_result') {
         const tool = tools.get(block.toolUseId);
-        if (tool) tool.result = { content: block.content, ...(block.isError ? { isError: true } : {}) };
+        const display = displays.get(block.toolUseId);
+        if (tool) {
+          tool.result = {
+            content: block.content,
+            ...(block.isError ? { isError: true } : {}),
+            ...(display ? { display } : {}),
+          };
+        }
       }
     }
     if (userText || attachments.length > 0) {

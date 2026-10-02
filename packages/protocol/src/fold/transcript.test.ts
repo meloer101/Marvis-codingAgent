@@ -38,6 +38,19 @@ describe('entriesFromTranscript', () => {
     expect(entries[2]).toMatchObject({ notice: { kind: 'compaction' } });
   });
 
+  it('puts back what a result carried for display, whichever is recorded first', () => {
+    const edit = (id: string) => ({ type: 'tool_use' as const, id, name: 'edit', input: {} });
+    const result = (id: string) => ({ type: 'tool_result' as const, toolUseId: id, content: 'Replaced 1 occurrence(s)' });
+    const entries = entriesFromTranscript([
+      { type: 'message', ts: 1, message: { role: 'assistant', content: [edit('a'), edit('b')] } },
+      { type: 'tool_display', ts: 2, toolUseId: 'a', display: { startLine: 7 } },
+      { type: 'message', ts: 3, message: { role: 'user', content: [result('a'), result('b')] } },
+      { type: 'tool_display', ts: 4, toolUseId: 'b', display: { startLine: 40 } },
+    ]);
+    const tools = entries[0]!.kind === 'assistant' ? entries[0]!.tools : [];
+    expect(tools.map((t) => t.result?.display)).toEqual([{ startLine: 7 }, { startLine: 40 }]);
+  });
+
   it('shows attached files as the message\'s attachments, not as its text', () => {
     const block = attachedFileBlock('src/a "b".ts', '     1\tconst a = 1;');
     const entries = entriesFromTranscript([

@@ -20,7 +20,7 @@ import { assertInsideWorkspace } from '../permissions/paths.js';
 import type { PermissionMode } from '../permissions/types.js';
 import { typedText } from './attachments.js';
 import type { ContentBlock, Message, ReasoningEffort, ToolResultBlock, ToolUseBlock } from '../provider/types.js';
-import type { ToolResult } from '../tools/types.js';
+import type { ToolDisplay, ToolResult } from '../tools/types.js';
 
 // ---------------------------------------------------------------------------
 // In-memory session state
@@ -143,7 +143,9 @@ export class SessionRecorder {
  */
 export type TranscriptItem =
   | { type: 'message'; ts: number; message: Message }
-  | { type: 'compaction'; ts: number; tokensBefore: number; tokensAfter: number };
+  | { type: 'compaction'; ts: number; tokensBefore: number; tokensAfter: number }
+  /** What a call's result carried for display (`ToolResult.display`) — not in the messages. */
+  | { type: 'tool_display'; ts: number; toolUseId: string; display: ToolDisplay };
 
 async function readSessionEvents(agentDir: string, id: string): Promise<SessionEvent[]> {
   const raw = await readFile(sessionPath(agentDir, id), 'utf8');
@@ -203,6 +205,8 @@ export async function loadTranscript(agentDir: string, id: string): Promise<Tran
         tokensBefore: event.compaction.tokensBefore,
         tokensAfter: event.compaction.tokensAfter,
       });
+    } else if (event.type === 'tool_call' && event.toolCall?.result.display) {
+      out.push({ type: 'tool_display', ts: event.ts, toolUseId: event.toolCall.id, display: event.toolCall.result.display });
     }
   }
   return out;
