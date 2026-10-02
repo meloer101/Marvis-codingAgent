@@ -292,13 +292,17 @@ describe('AgentLoop', () => {
     const hooks: AgentHooks = {
       onBeforeToolCall: () => ({ decision: 'deny', reason: 'not allowed in this test' }),
     };
-    const loop = new AgentLoop({ model: resolvedModel(provider), tools, cwd: '/tmp', hooks });
+    const events: AgentEvent[] = [];
+    const loop = new AgentLoop({ model: resolvedModel(provider), tools, cwd: '/tmp', hooks, onEvent: (e) => events.push(e) });
 
     const result = await loop.run([userText('hi')]);
 
     expect(ran).toBe(false);
     const toolResult = result.messages[2]?.content[0];
     expect(toolResult).toMatchObject({ type: 'tool_result', isError: true });
+    // It never ran, so it has no duration.
+    const end = events.find((e) => e.type === 'tool_call_end');
+    expect(end && 'durationMs' in end).toBe(false);
   });
 
   it('does not execute a tool when the ask handler denies', async () => {

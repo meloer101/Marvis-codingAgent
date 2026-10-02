@@ -80,7 +80,7 @@ export interface ToolCallStartEvent {
   input: unknown;
 }
 
-/** `durationMs`: how long the tool ran, not counting a permission prompt. */
+/** `durationMs`: how long the tool ran, not counting a permission prompt; absent for a denied call. */
 export interface ToolCallEndEvent {
   type: 'tool_call_end';
   id: string;
@@ -945,7 +945,8 @@ export class AgentLoop {
         id: call.id,
         name: call.name,
         result: outcome.result,
-        durationMs: outcome.durationMs,
+        // A denied call never ran: no duration to show.
+        ...(decision.decision !== 'deny' ? { durationMs: outcome.durationMs } : {}),
       });
       await this.opts.recorder?.recordToolCall({
         id: call.id,
