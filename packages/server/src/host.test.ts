@@ -159,6 +159,27 @@ describe('SessionHost', () => {
     expect(stopIdx).toBeGreaterThan(firstDeltaIdx);
   });
 
+  it("coalesces a tool's output per call, cutting a burst too big to send to its tail", async () => {
+    const { host, events } = await makeHost([{ text: 'x' }]);
+    host.onAgentEvent({ type: 'tool_call_output', id: 'a', text: 'one\n' });
+    host.onAgentEvent({ type: 'tool_call_output', id: 'a', text: 'two\n' });
+    host.onAgentEvent({ type: 'tool_call_output', id: 'b', text: 'other\n' });
+    host.onAgentEvent({ type: 'tool_call_output', id: 'b', text: `${'y'.repeat(20_000)}\nend\n` });
+    host.onAgentEvent({ type: 'tool_call_end', id: 'b', name: 'bash', result: { content: 'ok' } });
+
+    const out = events().filter((e) => e.type === 'tool_call_output' || e.type === 'tool_call_end');
+    expect(out.map((e) => [e.type, 'id' in e ? e.id : null])).toEqual([
+      ['tool_call_output', 'a'],
+      ['tool_call_output', 'b'],
+      ['tool_call_end', 'b'],
+    ]);
+    expect(out[0]).toMatchObject({ text: 'one\ntwo\n' });
+    const burst = (out[1] as { text: string }).text;
+    expect(burst.length).toBeLessThanOrEqual(16_002);
+    expect(burst.startsWith('…\nyyy')).toBe(true);
+    expect(burst.endsWith('\nend\n')).toBe(true);
+  });
+
   it('emits run_start before streaming and brackets the run with run_end', async () => {
     const { host, events } = await makeHost([{ text: 'done' }]);
     const settled = runSettled(host);

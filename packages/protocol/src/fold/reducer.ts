@@ -25,6 +25,29 @@ export interface ToolItem {
   input: unknown;
   running: boolean;
   result?: ToolResult;
+  /**
+   * What the tool has printed so far, while it runs (`tool_call_output`) — the
+   * last `LIVE_OUTPUT_CHARS` of it. Dropped once the result arrives.
+   */
+  output?: string;
+  /** How long it ran; known only for calls that finished while being watched. */
+  durationMs?: number;
+}
+
+/** How much of a running tool's output a frontend keeps: the tail is what matters. */
+export const LIVE_OUTPUT_CHARS = 32_000;
+
+/**
+ * `output` with `text` appended, cut to its last `LIVE_OUTPUT_CHARS` — from a
+ * line start when one is near, and marked so the cut shows.
+ */
+export function appendOutput(output: string | undefined, text: string): string {
+  const next = (output ?? '') + text;
+  if (next.length <= LIVE_OUTPUT_CHARS) return next;
+  let tail = next.slice(-LIVE_OUTPUT_CHARS);
+  const nl = tail.indexOf('\n');
+  if (nl !== -1 && nl < 1_000) tail = tail.slice(nl + 1);
+  return `…\n${tail}`;
 }
 
 export interface LiveSnapshot {

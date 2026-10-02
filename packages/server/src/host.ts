@@ -9,7 +9,9 @@
  *  - **Delta coalescing.** Consecutive `text_delta` / `thinking_delta` are
  *    buffered and flushed as one event every ~30 ms, and immediately before any
  *    non-delta event — the same rule as `packages/protocol`'s `EventBuffer`,
- *    moved to the server so every socket sees ~30 frames/s.
+ *    moved to the server so every socket sees ~30 frames/s. A running tool's
+ *    `tool_call_output` coalesces the same way, keeping only the tail of a
+ *    burst too big to be worth sending.
  *  - **Busy flag and queue.** One run at a time: a message sent while one is
  *    going waits in a queue every client sees, and goes when the run ends.
  *    Abort empties the queue, handing its messages back to the caller.
@@ -50,6 +52,16 @@ import type {
 const RING_CAPACITY = 5000;
 /** Delta flush cadence — coalesce deltas into ~30 frames/s. */
 const COALESCE_MS = 30;
+/**
+ * Most of one flush of tool output that is sent; a command printing faster
+ * than this has its burst cut to the tail (a client keeps only the tail anyway).
+ */
+const OUTPUT_BURST_CHARS = 16_000;
+
+/** A run of same-kind deltas awaiting flush: model text, or one tool's output. */
+type Coalesced =
+  | { type: 'text_delta' | 'thinking_delta'; text: string }
+  | { type: 'tool_call_output'; id: string; text: string };
 /** Wire events after which the session's list row (running / pending / title) may differ. */
 const SUMMARY_EVENTS: ReadonlySet<WireEvent['type']> = new Set([
   'run_start',
@@ -168,8 +180,8 @@ export class SessionHost {
   readonly #asks: PendingAsk[] = [];
   #pendingPlan: PendingPlan | null = null;
 
-  // Delta coalescing buffer: a run of same-typed deltas awaiting flush.
-  #pending: { type: 'text_delta' | 'thinking_delta'; text: string } | null = null;
+  // Delta coalescing buffer: a run of same-kind deltas awaiting flush.
+  #pending: Coalesced | null = null;
   #timer: ReturnType<typeof setTimeout> | undefined;
 
   /**
@@ -251,8 +263,8 @@ export class SessionHost {
   // -- seams handed to AgentSession.create ----------------------------------
 
   readonly onAgentEvent = (event: AgentEvent): void => {
-    if (event.type === 'text_delta' || event.type === 'thinking_delta') {
-      this.#bufferDelta(event.type, event.text);
+    if (event.type === 'text_delta' || event.type === 'thinking_delta' || event.type === 'tool_call_output') {
+      this.#bufferDelta(event);
       return;
     }
     // Any non-delta event flushes the coalesced run first, preserving order.
@@ -729,13 +741,14 @@ export class SessionHost {
 
   // -- event pipeline -------------------------------------------------------
 
-  #bufferDelta(type: 'text_delta' | 'thinking_delta', text: string): void {
-    if (this.#pending && this.#pending.type === type) {
-      this.#pending.text += text;
+  #bufferDelta(delta: Coalesced): void {
+    const pending = this.#pending;
+    if (pending && pending.type === delta.type && (pending.type !== 'tool_call_output' || pending.id === (delta as { id: string }).id)) {
+      pending.text += delta.text;
     } else {
-      // A type switch (thinking → text) flushes the previous run first.
-      if (this.#pending) this.#flushDeltas();
-      this.#pending = { type, text };
+      // A switch (thinking → text, one tool's output → another's) flushes the previous run first.
+      if (pending) this.#flushDeltas();
+      this.#pending = { ...delta };
     }
     if (!this.#timer) {
       this.#timer = setTimeout(() => {
@@ -753,7 +766,11 @@ export class SessionHost {
     const pending = this.#pending;
     if (!pending) return;
     this.#pending = null;
-    this.#push({ type: pending.type, text: pending.text });
+    this.#push(
+      pending.type === 'tool_call_output'
+        ? { type: 'tool_call_output', id: pending.id, text: burstTail(pending.text) }
+        : { type: pending.type, text: pending.text },
+    );
   }
 
   /** Emit a non-delta wire event, flushing any coalesced deltas ahead of it. */
@@ -771,4 +788,13 @@ export class SessionHost {
     for (const listener of this.#listeners) listener(frame);
     if (SUMMARY_EVENTS.has(event.type)) this.#onSummaryChange?.();
   }
+}
+
+/** A burst of tool output cut to its last `OUTPUT_BURST_CHARS`, from a line start when one is near. */
+function burstTail(text: string): string {
+  if (text.length <= OUTPUT_BURST_CHARS) return text;
+  let tail = text.slice(-OUTPUT_BURST_CHARS);
+  const nl = tail.indexOf('\n');
+  if (nl !== -1 && nl < 1_000) tail = tail.slice(nl + 1);
+  return `…\n${tail}`;
 }

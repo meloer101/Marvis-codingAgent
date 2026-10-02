@@ -12,7 +12,7 @@
 import type { AgentEvent } from '@harness-code/core';
 
 import type { LiveSnapshot, ToolItem } from './reducer.js';
-import { emptyLive } from './reducer.js';
+import { appendOutput, emptyLive } from './reducer.js';
 
 export class EventBuffer {
   private live: LiveSnapshot = emptyLive();
@@ -58,11 +58,21 @@ export class EventBuffer {
         this.dirty = true;
         break;
       }
+      case 'tool_call_output': {
+        const tool = this.byId.get(e.id);
+        if (tool?.running) {
+          tool.output = appendOutput(tool.output, e.text);
+          this.dirty = true;
+        }
+        break;
+      }
       case 'tool_call_end': {
         const tool = this.byId.get(e.id);
         if (tool) {
           tool.running = false;
           tool.result = e.result;
+          delete tool.output;
+          if (e.durationMs !== undefined) tool.durationMs = e.durationMs;
           this.dirty = true;
           if (!this.hasRunningTool()) this.batchBoundary = true;
         }

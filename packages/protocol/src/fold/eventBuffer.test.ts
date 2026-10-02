@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentEvent } from '@harness-code/core';
 
 import { EventBuffer } from './eventBuffer.js';
+import { LIVE_OUTPUT_CHARS, appendOutput } from './reducer.js';
 
 function start(id: string, name = 'bash'): AgentEvent {
   return { type: 'tool_call_start', id, name, input: { command: 'ls' } };
@@ -26,6 +27,28 @@ describe('EventBuffer', () => {
     expect(b.hasBatchBoundary()).toBe(true);
     expect(b.hasRunningTool()).toBe(false);
     expect(b.snapshot().tools.map((t) => t.running)).toEqual([false, false]);
+  });
+
+  it('keeps what a running tool prints until its result replaces it, with the duration', () => {
+    const b = new EventBuffer();
+    b.onEvent(start('a'));
+    b.onEvent({ type: 'tool_call_output', id: 'a', text: 'one\n' });
+    b.onEvent({ type: 'tool_call_output', id: 'a', text: 'two\n' });
+    b.onEvent({ type: 'tool_call_output', id: 'nope', text: 'stray' });
+    expect(b.snapshot().tools[0]!.output).toBe('one\ntwo\n');
+    b.onEvent({ ...end('a'), durationMs: 1200 } as AgentEvent);
+    const [tool] = b.snapshot().tools;
+    expect(tool!.output).toBeUndefined();
+    expect(tool!.durationMs).toBe(1200);
+    expect(tool!.result?.content).toBe('ok');
+  });
+
+  it('keeps only the tail of long output, cut at a line start', () => {
+    const line = 'x'.repeat(99) + '\n';
+    const out = appendOutput(line.repeat(LIVE_OUTPUT_CHARS / 100), 'last\n');
+    expect(out.length).toBeLessThanOrEqual(LIVE_OUTPUT_CHARS + 2);
+    expect(out.startsWith('…\nxxx')).toBe(true);
+    expect(out.endsWith('\nlast\n')).toBe(true);
   });
 
   it('reset clears the boundary and the tool ledger', () => {

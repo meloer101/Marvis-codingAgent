@@ -50,13 +50,17 @@ function mockScript(): ScriptedTurn[] {
     {
       // `tee` keeps this out of the read-only set — read-only commands are
       // allowed in every mode now, and this reel exists to show the approval
-      // flow.
+      // flow. The loop prints in steps, in colour, to show output streaming.
       text: "I'll check that I can run commands here.",
       chunkSize: 12,
       toolCalls: [
         {
           name: 'bash',
-          input: { command: 'echo "hello from the hc web mock" | tee /dev/null' },
+          input: {
+            command:
+              'echo "hello from the hc web mock"; ' +
+              "for i in 1 2 3; do sleep 0.25; printf '\\033[32m✓\\033[0m step %s of 3\\n' \"$i\"; done | tee /dev/null",
+          },
         },
       ],
     },
