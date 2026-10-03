@@ -123,7 +123,7 @@ export const MOCK_MODEL_REF = 'mock/mock-model';
  * A reasoning model on the default effort ladder, so the effort picker has
  * something to show. The scripted provider ignores the effort it is sent.
  */
-const MOCK_CAPABILITIES: ModelCapabilities = { ...DEFAULT_CAPABILITIES, reasoning: true, defaultEffort: 'medium' };
+const MOCK_CAPABILITIES: ModelCapabilities = { ...DEFAULT_CAPABILITIES, reasoning: true, defaultEffort: 'medium', vision: true };
 
 /**
  * The models a mock session can switch between: the default, and a smaller
@@ -150,6 +150,7 @@ export function mockModels(): ModelDescription[] {
       maxOutputTokens: caps.maxOutputTokens,
       effortLevels: [...levels],
       ...(initial ? { defaultEffort: initial } : {}),
+      ...(caps.vision ? { vision: true } : {}),
       pricing: { inputPerMTok: 0, outputPerMTok: 0 },
     };
   });

@@ -14,6 +14,7 @@ import { z } from 'zod';
 
 import type {
   ContextSnapshot,
+  ImageInput,
   ModelDescription,
   PermissionMode,
   ReasoningEffort,
@@ -184,6 +185,8 @@ export interface QueuedMessage {
   text: string;
   /** Workspace files to read into it (`@path`). */
   attachments?: string[];
+  /** Images in it. */
+  images?: ImageInput[];
   /** Read at the run's next step, not after it (sent as a message if the run ends first). */
   steer?: boolean;
 }
@@ -367,6 +370,18 @@ const gitPathsSchema = z.object({
 });
 /** Files attached to a message (`@path`): workspace-relative paths. */
 const attachmentsSchema = z.array(pathSchema).max(20);
+/**
+ * Images in a message: base64 (5 MB decoded at most, checked again against the
+ * model and the count by the session), PNG, JPEG, GIF or WebP.
+ */
+const imagesSchema: z.ZodType<ImageInput[]> = z
+  .array(
+    z.object({
+      mediaType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+      data: z.string().min(1).max(7_000_000).regex(/^[A-Za-z0-9+/]+={0,2}$/, 'not base64'),
+    }),
+  )
+  .max(8);
 /** A worktree of its own for a new session, branched off `base` (a branch or commit). */
 const worktreeSchema = z.object({ base: z.string().min(1).max(256).regex(/^[^-\s][^\s]*$/, 'not a branch name') });
 
@@ -566,6 +581,7 @@ export const methods = {
     {
       text: string;
       attachments?: string[];
+      images?: ImageInput[];
       workspaceId?: string;
       model?: string;
       mode?: PermissionMode;
@@ -577,6 +593,7 @@ export const methods = {
     z.object({
       text: z.string(),
       attachments: attachmentsSchema.optional(),
+      images: imagesSchema.optional(),
       workspaceId: workspaceIdSchema.optional(),
       model: z.string().optional(),
       mode: permissionModeSchema.optional(),
@@ -600,8 +617,17 @@ export const methods = {
    * for the run to end. `attachments` are workspace files read into it; one
    * the session may not read is `bad_request`, before anything is sent.
    */
-  'session.send': method<{ id: string; text: string; attachments?: string[]; steer?: boolean }, SendResult>(
-    z.object({ id: sessionIdSchema, text: z.string(), attachments: attachmentsSchema.optional(), steer: z.boolean().optional() }),
+  'session.send': method<
+    { id: string; text: string; attachments?: string[]; images?: ImageInput[]; steer?: boolean },
+    SendResult
+  >(
+    z.object({
+      id: sessionIdSchema,
+      text: z.string(),
+      attachments: attachmentsSchema.optional(),
+      images: imagesSchema.optional(),
+      steer: z.boolean().optional(),
+    }),
   ),
   /**
    * Stop the run; a pending prompt settles as a deny. The queue is emptied too:

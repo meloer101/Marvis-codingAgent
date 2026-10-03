@@ -186,12 +186,22 @@ export class SessionModel {
       case 'user_input':
         // A message sent mid-run was read here: after the step that just finished.
         this.#dispatch({ type: 'COMMIT_LIVE', live: this.#takeLive() });
-        this.#dispatch({ type: 'USER', text: event.text, ...(event.attachments ? { attachments: event.attachments } : {}) });
+        this.#dispatch({
+          type: 'USER',
+          text: event.text,
+          ...(event.attachments ? { attachments: event.attachments } : {}),
+          ...(event.images ? { images: event.images } : {}),
+        });
         return true;
       case 'run_start':
         this.#buffer.reset();
         this.#liveDirty = false;
-        this.#dispatch({ type: 'USER', text: event.input, ...(event.attachments ? { attachments: event.attachments } : {}) });
+        this.#dispatch({
+          type: 'USER',
+          text: event.input,
+          ...(event.attachments ? { attachments: event.attachments } : {}),
+          ...(event.images ? { images: event.images } : {}),
+        });
         this.#state = { ...this.#state, running: true };
         return true;
       case 'run_end': {

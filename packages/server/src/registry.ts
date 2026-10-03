@@ -25,6 +25,7 @@ import { listSessionIds, loadTranscript, readSessionMeta, readSessionSummary } f
 import type {
   AgentSessionConfig,
   EffortOptions,
+  ImageInput,
   PermissionMode,
   ReasoningEffort,
   SessionMeta,
@@ -285,16 +286,18 @@ export class SessionRegistry {
   async start(opts: {
     text: string;
     attachments?: readonly string[];
+    images?: readonly ImageInput[];
     model?: string;
     mode?: PermissionMode;
     effort?: ReasoningEffort;
     worktree?: { base: string };
   }): Promise<{ snapshot: SessionSnapshot; runId: string }> {
-    const { text, attachments = [], worktree, ...spawnOpts } = opts;
+    const { text, attachments = [], images = [], worktree, ...spawnOpts } = opts;
     await this.#checkEffort(spawnOpts.model, spawnOpts.effort);
     const host = await this.#spawn(spawnOpts, worktree ? { base: worktree.base, hint: text } : undefined);
     try {
       await host.checkAttachments(attachments);
+      host.checkImages(images);
     } catch (err) {
       // Nothing was said yet: the session leaves nothing behind.
       this.#hosts.delete(host.id);
@@ -304,7 +307,7 @@ export class SessionRegistry {
     }
     this.#announce(host.id);
     const snapshot = await host.snapshot();
-    const { runId } = host.run(text, attachments);
+    const { runId } = host.run(text, attachments, images);
     return { snapshot, runId };
   }
 

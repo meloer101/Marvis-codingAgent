@@ -13,6 +13,7 @@
 import type {
   AgentEvent,
   ContextSnapshot,
+  ImageInput,
   Notice,
   PermissionMode,
   ReasoningEffort,
@@ -94,6 +95,8 @@ export type Entry =
       text: string;
       /** Workspace files attached to the message (read into it ahead of the text). */
       attachments?: string[];
+      /** Images in it. */
+      images?: ImageInput[];
     }
   | { kind: 'assistant'; id: number; thinking: string; text: string; tools: ToolItem[] }
   | { kind: 'notice'; id: number; notice: Notice };
@@ -138,7 +141,7 @@ export type FoldAction =
     }
   | { type: 'TURN_END'; live: LiveSnapshot; usage?: Usage; context?: ContextSnapshot }
   | { type: 'NOTICE'; notice: Notice }
-  | { type: 'USER'; text: string; attachments?: string[] }
+  | { type: 'USER'; text: string; attachments?: string[]; images?: ImageInput[] }
   | { type: 'SET_MODE'; mode: PermissionMode }
   | { type: 'SET_EFFORT'; effort: ReasoningEffort }
   /** A model switch: the effort goes with it (absent: none), and the meter when given. */
@@ -216,6 +219,7 @@ export function foldReducer(state: FoldState, action: FoldAction): FoldState {
             id: state.entries.length,
             text: action.text,
             ...(action.attachments?.length ? { attachments: action.attachments } : {}),
+            ...(action.images?.length ? { images: action.images } : {}),
           },
         ],
       };

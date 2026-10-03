@@ -744,6 +744,32 @@ describe('SessionHost queue', () => {
   });
 });
 
+describe('SessionHost images', () => {
+  const image = { mediaType: 'image/png' as const, data: 'iVBORw0KGgo=' };
+
+  it('puts images in the run, shows them with run_start, and keeps them with a queued message', async () => {
+    const { host, events } = await makeHost([{ text: 'a' }, { text: 'b' }], { capabilities: { vision: true } });
+    const settled = new Promise<void>((resolve) => {
+      let ends = 0;
+      host.addListener((f) => {
+        if (f.t === 'evt' && f.event.type === 'run_end' && ++ends === 2) resolve();
+      });
+    });
+    await host.send('what is this?', [], { images: [image] });
+    const queued = await host.send('and this?', [], { images: [image] });
+    expect(queued).toMatchObject({ queued: { images: [image] } });
+    await settled;
+    const starts = events().filter((e) => e.type === 'run_start');
+    expect(starts.map((e) => e.type === 'run_start' && e.images)).toEqual([[image], [image]]);
+  });
+
+  it("refuses images a model can't see, before anything is sent", async () => {
+    const { host, events } = await makeHost([{ text: 'a' }]);
+    await expect(host.send('what is this?', [], { images: [image] })).rejects.toBeInstanceOf(InvalidRequestError);
+    expect(events().filter((e) => e.type === 'run_start')).toHaveLength(0);
+  });
+});
+
 describe('SessionHost attachments', () => {
   it('reads attached files into the run, and keeps them with a queued message', async () => {
     const { host, events, cwd } = await makeHost([{ text: 'a' }, { text: 'b' }]);

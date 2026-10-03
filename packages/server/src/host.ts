@@ -48,7 +48,7 @@ import {
   sessionTitleFrom,
   updateSessionMeta,
 } from '@harness-code/core';
-import type { AlwaysAllow, SessionMetaPatch, SessionWorktreeMeta, SteeringInput } from '@harness-code/core';
+import type { AlwaysAllow, ImageInput, SessionMetaPatch, SessionWorktreeMeta, SteeringInput } from '@harness-code/core';
 import type {
   QueuedMessage,
   SendResult,
@@ -505,17 +505,24 @@ export class SessionHost {
    * Send a message: start a run for it, or — while one is going — queue it to
    * be sent when that run ends; with `steer`, for the run to read at its next
    * step (`#takeSteering`) — a `/command` is never steered, it waits for the
-   * run to end. Attachments the session may not read are refused
-   * (`InvalidRequestError`) before either.
+   * run to end. Attachments the session may not read, and images it can't
+   * send, are refused (`InvalidRequestError`) before either.
    */
-  async send(text: string, attachments: readonly string[] = [], opts: { steer?: boolean } = {}): Promise<SendResult> {
+  async send(
+    text: string,
+    attachments: readonly string[] = [],
+    opts: { steer?: boolean; images?: readonly ImageInput[] } = {},
+  ): Promise<SendResult> {
+    const images = opts.images ?? [];
     if (attachments.length > 0) await this.checkAttachments(attachments);
-    if (!this.#busy) return this.run(text, attachments);
+    this.checkImages(images);
+    if (!this.#busy) return this.run(text, attachments, images);
     const steer = opts.steer === true && !text.trim().startsWith('/');
     const queued: QueuedMessage = {
       id: randomUUID(),
       text,
       ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
+      ...(images.length > 0 ? { images: [...images] } : {}),
       ...(steer ? { steer: true } : {}),
     };
     this.#queue.push(queued);
@@ -533,7 +540,21 @@ export class SessionHost {
     const taken = this.#queue.filter((q) => q.steer);
     this.#queue.splice(0, this.#queue.length, ...this.#queue.filter((q) => !q.steer));
     this.#emitQueue();
-    return taken.map((q) => ({ text: q.text, ...(q.attachments ? { attachments: q.attachments } : {}) }));
+    return taken.map((q) => ({
+      text: q.text,
+      ...(q.attachments ? { attachments: q.attachments } : {}),
+      ...(q.images ? { images: q.images } : {}),
+    }));
+  }
+
+  /** Refuse images the session can't send (its model can't see them, too many or too big), as a bad request. */
+  checkImages(images: readonly ImageInput[]): void {
+    try {
+      this.#requireSession().checkImages(images);
+    } catch (err) {
+      if (err instanceof AttachmentError) throw new InvalidRequestError(err.message);
+      throw err;
+    }
   }
 
   /** Refuse attachments the session may not read, as a bad request. */
@@ -565,30 +586,42 @@ export class SessionHost {
     const next = this.#queue.shift();
     if (!next) return;
     this.#emitQueue();
-    this.run(next.text, next.attachments);
+    this.run(next.text, next.attachments, next.images);
   }
 
   /**
    * Start a run for `text`. Returns immediately with the run id; events stream
    * asynchronously and the run is bracketed by `run_start` / `run_end` (or
    * `run_error`). Throws `BusyError` if a run is already active.
-   * `attachments` are read into the message (checked by `send`).
+   * `attachments` are read into the message and `images` put in it (checked by `send`).
    */
-  run(text: string, attachments: readonly string[] = []): { runId: string } {
+  run(text: string, attachments: readonly string[] = [], images: readonly ImageInput[] = []): { runId: string } {
     if (this.#busy) throw new BusyError();
     const runId = randomUUID();
     this.#busy = true;
     this.#currentRunId = runId;
     if (!this.#metaSynced) this.#writeMeta();
     this.#firstInput ??= text;
-    this.#emit({ type: 'run_start', runId, input: text, ...(attachments.length > 0 ? { attachments: [...attachments] } : {}) });
+    this.#emit({
+      type: 'run_start',
+      runId,
+      input: text,
+      ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
+      ...(images.length > 0 ? { images: [...images] } : {}),
+    });
     const abort = new AbortController();
     this.#runAbort = abort;
-    this.#runDone = this.#execute(runId, text, attachments, abort.signal);
+    this.#runDone = this.#execute(runId, text, attachments, images, abort.signal);
     return { runId };
   }
 
-  async #execute(runId: string, text: string, attachments: readonly string[], signal: AbortSignal): Promise<void> {
+  async #execute(
+    runId: string,
+    text: string,
+    attachments: readonly string[],
+    images: readonly ImageInput[],
+    signal: AbortSignal,
+  ): Promise<void> {
     const session = this.#requireSession();
     try {
       const trimmed = text.trim();
@@ -615,6 +648,7 @@ export class SessionHost {
       const result = await session.runTurn(effective, {
         signal,
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(images.length > 0 ? { images } : {}),
         takeInput: () => this.#takeSteering(signal),
       });
       this.#endRun(runId, {

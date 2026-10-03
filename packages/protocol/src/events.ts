@@ -9,6 +9,7 @@ import type {
   AgentEvent,
   AgentStopReason,
   ContextSnapshot,
+  ImageInput,
   Notice,
   PermissionMode,
   ReasoningEffort,
@@ -23,7 +24,7 @@ export type WireEvent =
   // Notice, forwarded verbatim
   | { type: 'notice'; notice: Notice }
   // run lifecycle — brackets one runTurn()
-  | { type: 'run_start'; runId: string; input: string; attachments?: string[] }
+  | { type: 'run_start'; runId: string; input: string; attachments?: string[]; images?: ImageInput[] }
   | { type: 'run_end'; runId: string; stopReason: AgentStopReason; usage: Usage; sessionUsage: Usage }
   | { type: 'run_error'; runId: string; message: string }
   // human-in-the-loop

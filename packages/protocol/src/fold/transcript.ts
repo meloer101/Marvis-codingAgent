@@ -6,7 +6,7 @@
  */
 
 import { attachedFilePath } from '@harness-code/core/browser';
-import type { Notice, ToolDisplay, TranscriptItem } from '@harness-code/core';
+import type { ImageInput, Notice, ToolDisplay, TranscriptItem } from '@harness-code/core';
 
 import type { Entry, ToolItem } from './reducer.js';
 
@@ -73,8 +73,11 @@ export function entriesFromTranscript(items: TranscriptItem[]): Entry[] {
     }
     let userText = '';
     const attachments: string[] = [];
+    const images: ImageInput[] = [];
     for (const block of message.content) {
-      if (block.type === 'text') {
+      if (block.type === 'image') {
+        images.push({ mediaType: block.mediaType, data: block.data });
+      } else if (block.type === 'text') {
         const attached = attachedFilePath(block.text);
         if (attached !== null) attachments.push(attached);
         else userText += block.text;
@@ -90,8 +93,14 @@ export function entriesFromTranscript(items: TranscriptItem[]): Entry[] {
         }
       }
     }
-    if (userText || attachments.length > 0) {
-      entries.push({ kind: 'user', id: entries.length, text: userText, ...(attachments.length > 0 ? { attachments } : {}) });
+    if (userText || attachments.length > 0 || images.length > 0) {
+      entries.push({
+        kind: 'user',
+        id: entries.length,
+        text: userText,
+        ...(attachments.length > 0 ? { attachments } : {}),
+        ...(images.length > 0 ? { images } : {}),
+      });
     }
   }
   return entries;
