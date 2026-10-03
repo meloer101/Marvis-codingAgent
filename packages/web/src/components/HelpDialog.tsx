@@ -40,13 +40,13 @@ export function HelpDialog({ commands, onClose }: { commands: SlashCommand[]; on
       role="presentation"
     >
       <div
-        className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-xl border bg-popover p-5 shadow-2xl"
+        className="max-h-[80vh] w-full max-w-lg overflow-y-auto rounded-lg border bg-popover p-5 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Help"
       >
         <div className="mb-3 flex items-center">
-          <h2 className="flex-1 font-serif text-base font-semibold tracking-[-0.01em]">Commands and shortcuts</h2>
+          <h2 className="flex-1 text-sm font-semibold">Commands and shortcuts</h2>
           <button
             type="button"
             onClick={onClose}
@@ -57,7 +57,7 @@ export function HelpDialog({ commands, onClose }: { commands: SlashCommand[]; on
           </button>
         </div>
 
-        <h3 className="mt-4 mb-1 font-mono text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+        <h3 className="mt-4 mb-1 text-[11px] font-medium tracking-[0.02em] text-faint">
           Commands
         </h3>
         <ul className="space-y-1 text-sm">
@@ -69,7 +69,7 @@ export function HelpDialog({ commands, onClose }: { commands: SlashCommand[]; on
           ))}
         </ul>
 
-        <h3 className="mt-4 mb-1 font-mono text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+        <h3 className="mt-4 mb-1 text-[11px] font-medium tracking-[0.02em] text-faint">
           Keyboard
         </h3>
         <ul className="space-y-1 text-sm">

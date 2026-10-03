@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Loader2, Search, Sparkle } from 'lucide-react';
+import { LoaderCircle, Search, Sparkle } from 'lucide-react';
 
 import type { SkillInfo } from '@harness-code/protocol';
 
@@ -45,10 +45,10 @@ export function SkillsDialog({
           )}
           {skills === undefined ? (
             <p className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin" /> Loading skills…
+              <LoaderCircle className="size-3.5 animate-spin" /> Loading skills…
             </p>
           ) : shown.length === 0 ? (
-            <p className="py-4 font-serif text-sm text-muted-foreground italic">
+            <p className="py-4 text-[13px] text-muted-foreground">
               {skills.length === 0 ? 'No skills installed. Add one under .agent/skills/.' : 'No skill matches.'}
             </p>
           ) : (

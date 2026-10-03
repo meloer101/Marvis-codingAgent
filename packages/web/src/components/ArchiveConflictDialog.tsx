@@ -21,7 +21,7 @@ export function ArchiveConflictDialog() {
           description={`${conflict.reason.charAt(0).toUpperCase()}${conflict.reason.slice(1)}. What was committed stays on its branch${branch ? ` ${branch}` : ''}.`}
         >
           <div className="flex flex-col gap-4 px-5 pt-3 pb-5">
-            {title && <p className="truncate rounded-md border bg-muted/40 px-3 py-2 text-sm">{title}</p>}
+            {title && <p className="truncate rounded-md bg-subtle px-3 py-2 text-[13px]">{title}</p>}
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => sync.dismissArchiveConflict()}>
                 Cancel

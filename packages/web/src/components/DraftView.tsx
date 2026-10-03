@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronDown, Folder, Loader2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Folder, LoaderCircle } from 'lucide-react';
 
 import { nextPermissionMode } from '@harness-code/core/browser';
 import type { ImageInput, PermissionMode, ReasoningEffort } from '@harness-code/core';
@@ -8,6 +8,7 @@ import type { Workspace } from '@harness-code/protocol';
 import { Composer } from '@/components/Composer';
 import { EffortPicker, ModeChip, ModelPicker, WorktreePicker } from '@/components/ComposerControls';
 import { ContextButton } from '@/components/UsagePanel';
+import { MainHeader, SidebarOpener } from '@/components/Regions';
 import { UserMessage } from '@/components/Transcript';
 import { relativeTime } from '@/lib/format';
 import { routeToHash } from '@/lib/route';
@@ -138,27 +139,28 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 text-sm">
+      <MainHeader>
+        <SidebarOpener workspaceId={workspace?.id} />
         {workspace && <ProjectPicker workspaces={workspaces} current={workspace} />}
-        <span className="text-muted-foreground/60">/</span>
-        <span className="text-[13px] font-medium text-muted-foreground">New session</span>
-      </header>
+        {workspace && <span className="text-faint">/</span>}
+        <span className="text-sm font-semibold">New session</span>
+      </MainHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {starting === null ? (
           <Welcome workspace={workspace} />
         ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
+          <div className="mx-auto flex max-w-[700px] flex-col gap-5 px-5 pt-8 pb-4">
             <UserMessage text={starting.text} attachments={starting.attachments} images={starting.images} />
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin text-primary" />
-              <span className="font-serif italic">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <LoaderCircle className="size-3 animate-spin text-primary" />
+              <span>
                 {place.kind === 'worktree' ? `Making a worktree off ${place.base}…` : 'Starting the session…'}
               </span>
             </div>
           </div>
         )}
       </div>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
+      <div className="mx-auto flex w-full max-w-[700px] flex-col gap-2 px-5 pt-2 pb-4">
         {keyProblem && starting === null && <KeyProblem message={keyProblem} />}
         <Composer
           key={`draft-${workspace?.id ?? ''}`}
@@ -209,8 +211,8 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
 function ProjectPicker({ workspaces, current }: { workspaces: Workspace[]; current: Workspace }) {
   const sync = useSync();
   return (
-    <span className="relative flex items-center" title={current.root}>
-      <Folder className="pointer-events-none absolute left-2 size-3.5 text-muted-foreground" aria-hidden />
+    <span className="relative flex shrink-0 items-center" title={current.root}>
+      <Folder className="pointer-events-none absolute left-2 size-[13px] text-muted-foreground" aria-hidden />
       <select
         aria-label="Project"
         value={current.id}
@@ -218,7 +220,7 @@ function ProjectPicker({ workspaces, current }: { workspaces: Workspace[]; curre
           if (e.target.value === ADD_PROJECT) sync.setAddProjectOpen(true);
           else window.location.hash = routeToHash({ kind: 'new', workspaceId: e.target.value });
         }}
-        className="h-7 max-w-44 cursor-pointer appearance-none truncate rounded-md border bg-card pr-7 pl-7 text-xs font-medium shadow-xs transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+        className="h-[27px] max-w-44 cursor-pointer appearance-none truncate rounded-md bg-muted pr-7 pl-7 text-xs font-medium transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
       >
         {workspaces.map((w) => (
           <option key={w.id} value={w.id} disabled={w.missing === true}>
@@ -228,7 +230,7 @@ function ProjectPicker({ workspaces, current }: { workspaces: Workspace[]; curre
         ))}
         <option value={ADD_PROJECT}>Add project…</option>
       </select>
-      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+      <ChevronDown className="pointer-events-none absolute top-1/2 right-2 size-3 -translate-y-1/2 text-muted-foreground" />
     </span>
   );
 }
@@ -239,33 +241,40 @@ function Welcome({ workspace }: { workspace: Workspace | undefined }) {
     ? sessions.filter((s) => s.workspaceId === workspace.id && !s.archived).slice(0, RECENT)
     : [];
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6 px-6 text-center">
-      <div className="flex flex-col items-center gap-2">
-        <span className="font-serif text-[34px] font-semibold tracking-[-0.02em]">
-          hc<span className="text-brass">·</span>web
-        </span>
-        <p className="max-w-72 font-serif text-[15px] leading-relaxed text-muted-foreground italic">
+    <div className="mx-auto flex h-full max-w-[700px] flex-col justify-end gap-8 px-5 pb-6">
+      <div className="flex flex-col gap-1.5">
+        <h1 className="text-xl leading-[26px] font-semibold">
           {workspace ? (
             <>
-              What are we working on in <span className="font-medium text-foreground not-italic">{workspace.name}</span>?
+              What are we working on in <span>{workspace.name}</span>?
             </>
           ) : (
-            'A coding agent, bound for the browser.'
+            'hc web'
           )}
-        </p>
+        </h1>
+        {workspace ? (
+          <p className="flex min-w-0 items-baseline gap-1 text-[13px] text-muted-foreground">
+            <span className="shrink-0">A new session works in</span>
+            <span className="min-w-0 truncate font-mono text-xs text-foreground [direction:rtl]" title={workspace.root}>
+              <span dir="ltr">{workspace.root}</span>
+            </span>
+          </p>
+        ) : (
+          <p className="text-[13px] text-muted-foreground">A coding agent, bound for the browser.</p>
+        )}
       </div>
       {recent.length > 0 && (
-        <div className="w-full max-w-sm text-left">
-          <p className="mb-1.5 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">Recent</p>
-          <ul className="flex flex-col">
+        <div className="flex flex-col gap-px">
+          <p className="px-2 pb-1 text-[11px] font-medium tracking-[0.02em] text-faint">Recent</p>
+          <ul className="flex flex-col gap-px">
             {recent.map((s) => (
               <li key={s.id}>
                 <a
                   href={routeToHash({ kind: 'session', id: s.id })}
-                  className="flex items-center gap-3 rounded-md px-2 py-1.5 text-[13px] transition-colors hover:bg-accent"
+                  className="flex h-7 items-center gap-2 rounded-md px-2 text-[13px] text-muted-foreground transition-colors hover:bg-subtle hover:text-foreground"
                 >
                   <span className="min-w-0 flex-1 truncate">{s.title}</span>
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{relativeTime(s.mtimeMs)}</span>
+                  <span className="shrink-0 font-mono text-[11px] text-faint">{relativeTime(s.mtimeMs)}</span>
                 </a>
               </li>
             ))}
@@ -279,8 +288,8 @@ function Welcome({ workspace }: { workspace: Workspace | undefined }) {
 /** The default model can't run here as configured — usually a key this project's environment lacks. */
 function KeyProblem({ message }: { message: string }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-brass/40 bg-brass-subtle/60 px-3 py-2 text-xs text-brass-strong">
-      <AlertTriangle className="mt-px size-3.5 shrink-0" />
+    <div className="flex animate-rise-lg items-start gap-2 rounded-lg bg-warning-subtle px-3.5 py-2.5 text-xs">
+      <AlertTriangle className="mt-px size-3.5 shrink-0 text-warning" />
       <span>
         {message} To share a key across projects, put it in <code className="font-mono">~/.agent/.env</code>.
       </span>

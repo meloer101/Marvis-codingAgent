@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { AlertTriangle, FolderGit2, FolderOpen, Loader2, Plug } from 'lucide-react';
+import { AlertTriangle, FolderGit2, FolderOpen, LoaderCircle, Plug } from 'lucide-react';
 
 import type { DirSuggestion, WorkspaceInspection } from '@harness-code/protocol';
 
@@ -134,7 +134,7 @@ function AddProjectForm({ onDone }: { onDone: () => void }) {
             spellCheck={false}
             aria-label="Project folder"
             aria-autocomplete="list"
-            className="w-full rounded-md border bg-background px-3 py-2 font-mono text-sm outline-none focus:border-primary/45 focus:ring-2 focus:ring-primary/25"
+            className="w-full rounded-md bg-subtle px-3 py-2 font-mono text-[13px] outline-none placeholder:text-faint focus:ring-2 focus:ring-ring/30"
           />
           {suggestions.length > 0 && (
             <ul
@@ -172,7 +172,7 @@ function AddProjectForm({ onDone }: { onDone: () => void }) {
             Cancel
           </Button>
           <Button size="sm" disabled={!ready} onClick={() => void submit()}>
-            {adding && <Loader2 className="animate-spin" />}
+            {adding && <LoaderCircle className="animate-spin" />}
             {covered ? 'Open project' : trust ? 'Trust and add' : 'Add project'}
           </Button>
         </div>
@@ -185,7 +185,7 @@ function Preview({ inspection, inspecting }: { inspection: WorkspaceInspection |
   if (!inspection) {
     return inspecting ? (
       <p className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Loader2 className="size-3.5 animate-spin" /> Looking…
+        <LoaderCircle className="size-3.5 animate-spin" /> Looking…
       </p>
     ) : null;
   }
@@ -200,7 +200,7 @@ function Preview({ inspection, inspecting }: { inspection: WorkspaceInspection |
     );
   }
   return (
-    <div className="flex flex-col gap-2 rounded-lg border bg-muted/40 p-3 text-xs">
+    <div className="flex flex-col gap-2 rounded-lg bg-subtle p-3 text-xs">
       <div className="flex items-center gap-2">
         {inspection.git ? (
           <FolderGit2 className="size-3.5 text-primary" />
@@ -221,7 +221,7 @@ function Preview({ inspection, inspecting }: { inspection: WorkspaceInspection |
       {inspection.mcpServers.length > 0 && (
         <div>
           <p className="mb-1 flex items-center gap-1.5 font-medium">
-            <Plug className="size-3.5 text-brass" /> Starts with every session
+            <Plug className="size-3.5 text-muted-foreground" /> Starts with every session
           </p>
           <ul className="flex flex-col gap-0.5">
             {inspection.mcpServers.map((s) => (
@@ -236,7 +236,7 @@ function Preview({ inspection, inspecting }: { inspection: WorkspaceInspection |
         </div>
       )}
       {inspection.warnings.map((w) => (
-        <p key={w} className="flex items-start gap-1.5 text-brass">
+        <p key={w} className="flex items-start gap-1.5 text-warning">
           <AlertTriangle className="mt-px size-3.5 shrink-0" />
           {w}
         </p>

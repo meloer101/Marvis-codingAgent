@@ -117,7 +117,7 @@ function Palette({
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-foreground/20 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
-          className="fixed top-[14vh] left-1/2 z-50 flex max-h-[min(34rem,72vh)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-2xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+          className="fixed top-[14vh] left-1/2 z-50 flex max-h-[min(34rem,72vh)] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 flex-col overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-2xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
         >
           <DialogPrimitive.Title className="sr-only">Command palette</DialogPrimitive.Title>
           <label className="flex items-center gap-2.5 border-b px-4 py-3">
@@ -133,11 +133,11 @@ function Palette({
               aria-activedescendant={shown[active] ? `palette-${shown[active].id}` : undefined}
               className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             />
-            <kbd className="font-mono text-[10px] text-muted-foreground">esc</kbd>
+            <kbd className="font-mono text-[11px] text-muted-foreground">esc</kbd>
           </label>
           <ul id="palette-list" ref={listRef} role="listbox" aria-label="Commands" className="min-h-0 overflow-y-auto p-1.5">
             {shown.length === 0 && (
-              <li className="px-3 py-6 text-center font-serif text-[13px] text-muted-foreground italic">Nothing matches.</li>
+              <li className="px-3 py-6 text-center text-[13px] text-muted-foreground">Nothing matches.</li>
             )}
             {shown.map((item, i) => {
               const heading = grouped && shown[i - 1]?.group !== item.group ? item.group : null;
@@ -145,7 +145,7 @@ function Palette({
               return (
                 <li key={item.id} role="presentation">
                   {heading && (
-                    <p className="px-2.5 pt-2.5 pb-1 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
+                    <p className="px-2.5 pt-2.5 pb-1 text-[11px] font-medium tracking-[0.02em] text-faint">
                       {heading}
                     </p>
                   )}
@@ -163,9 +163,9 @@ function Palette({
                     {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" /> : <span className="size-3.5 shrink-0" />}
                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
                     {item.altRun && i === active && (
-                      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">⌥↵ beside</span>
+                      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">⌥↵ beside</span>
                     )}
-                    {item.hint && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{item.hint}</span>}
+                    {item.hint && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{item.hint}</span>}
                   </div>
                 </li>
               );
