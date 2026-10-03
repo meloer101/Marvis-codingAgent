@@ -183,6 +183,11 @@ export class SessionModel {
       case 'notice':
         this.#dispatch({ type: 'NOTICE', notice: event.notice });
         return true;
+      case 'user_input':
+        // A message sent mid-run was read here: after the step that just finished.
+        this.#dispatch({ type: 'COMMIT_LIVE', live: this.#takeLive() });
+        this.#dispatch({ type: 'USER', text: event.text, ...(event.attachments ? { attachments: event.attachments } : {}) });
+        return true;
       case 'run_start':
         this.#buffer.reset();
         this.#liveDirty = false;

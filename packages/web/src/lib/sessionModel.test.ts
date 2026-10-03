@@ -55,6 +55,23 @@ describe('SessionModel', () => {
     });
   });
 
+  it('shows a message read mid-run where it was read: after the step, before the next', () => {
+    const m = new SessionModel(snapshot());
+    feed(m, [
+      { type: 'run_start', runId: 'r', input: 'go' },
+      { type: 'tool_call_start', id: 't1', name: 'bash', input: { command: 'ls' } },
+      { type: 'tool_call_end', id: 't1', name: 'bash', result: { content: 'a' } },
+      { type: 'user_input', text: 'use b instead', attachments: ['b.txt'] },
+      { type: 'text_delta', text: 'ok, b' },
+    ]);
+    expect(m.state.entries).toMatchObject([
+      { kind: 'user', text: 'go' },
+      { kind: 'assistant', tools: [{ id: 't1' }] },
+      { kind: 'user', text: 'use b instead', attachments: ['b.txt'] },
+    ]);
+    expect(m.state.live.text).toBe('ok, b');
+  });
+
   it('drops duplicate and stale seqs', () => {
     const m = new SessionModel(snapshot({ lastSeq: 5 }));
     expect(m.apply(5, { type: 'run_start', runId: 'r', input: 'old' })).toBe(false);

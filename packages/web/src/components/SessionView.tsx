@@ -69,12 +69,12 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
   }, [requestId]);
 
   /** Client-side commands never reach the server — see lib/slash.ts. */
-  const send = async (text: string, attachments: string[]): Promise<boolean> => {
+  const send = async (text: string, attachments: string[], opts: { steer?: boolean } = {}): Promise<boolean> => {
     if (!view) return false;
     const action = clientCommand(text, { effortLevels: view.effortLevels, modes });
     switch (action?.kind) {
       case undefined:
-        return sync.send(id, text, attachments);
+        return sync.send(id, text, attachments, opts);
       case 'help':
         sync.setHelpOpen(true);
         return true;
@@ -174,7 +174,7 @@ function SessionComposer({
   /** Where `@` looks for files: where the session works. */
   checkout: Checkout | undefined;
   modes: readonly PermissionMode[];
-  onSend: (text: string, attachments: string[]) => Promise<boolean>;
+  onSend: (text: string, attachments: string[], opts?: { steer?: boolean }) => Promise<boolean>;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   commands: SlashCommand[];
   connected: boolean;

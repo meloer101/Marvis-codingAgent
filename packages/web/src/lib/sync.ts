@@ -253,10 +253,19 @@ export class SessionSync {
     }
   }
 
-  async send(id: string, text: string, attachments: string[] = []): Promise<boolean> {
+  /**
+   * Send a message: it starts a run, or waits for the one going to end — or,
+   * with `steer`, for the agent to read it at the run's next step.
+   */
+  async send(id: string, text: string, attachments: string[] = [], opts: { steer?: boolean } = {}): Promise<boolean> {
     try {
       await this.#act(id, () =>
-        this.rpc.call('session.send', { id, text, ...(attachments.length > 0 ? { attachments } : {}) }),
+        this.rpc.call('session.send', {
+          id,
+          text,
+          ...(attachments.length > 0 ? { attachments } : {}),
+          ...(opts.steer ? { steer: true } : {}),
+        }),
       );
       return true;
     } catch (err) {

@@ -43,8 +43,9 @@ function loadFiles(sessionId: string): string[] {
  * (↑/↓ to move, Enter or Tab to pick — Enter on a command typed out in full
  * sends it); a picked file is attached while its
  * `@path` stays in the text. Shift+Tab switches the permission mode. While a
- * run is going Stop joins the send button, and what is sent waits in the
- * session's queue; the draft (and its attachments) survives reloads per
+ * run is going Stop joins the send button, Enter sends for the agent to read
+ * at its next step (`steer`), and ⌥Enter — or the Queue button — waits for the
+ * run to end instead; the draft (and its attachments) survives reloads per
  * session. The footer holds what the next message runs under (`controls`)
  * and, before the send button, `trailing` (the context meter).
  */
@@ -68,7 +69,8 @@ export function Composer({
   running: boolean;
   disabled: boolean;
   commands: SlashCommand[];
-  onSend: (text: string, attachments: string[]) => Promise<boolean>;
+  /** `steer`: sent while a run is going, for the agent to read at its next step rather than after the run. */
+  onSend: (text: string, attachments: string[], opts: { steer: boolean }) => Promise<boolean>;
   onAbort: () => void;
   /** Called when the `/` menu opens — the session's MCP prompt commands can load then. */
   onCommandMenu?: () => void;
@@ -175,13 +177,14 @@ export function Composer({
 
   const canSend = !disabled && text.trim() !== '';
 
-  const submit = async (): Promise<void> => {
+  /** Send what is typed: while a run is going, to steer it unless `queue`d for after. */
+  const submit = async (opts: { queue?: boolean } = {}): Promise<void> => {
     if (!canSend) return;
     const value = text;
     const files = attachments;
     setText('');
     setAttached([]);
-    if (!(await onSend(value, files))) {
+    if (!(await onSend(value, files, { steer: running && !opts.queue }))) {
       setText(value);
       setAttached(files);
     }
@@ -247,7 +250,7 @@ export function Composer({
     }
     if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229) return;
     e.preventDefault();
-    void submit();
+    void submit({ queue: e.altKey });
   };
 
   const followCaret = (el: HTMLTextAreaElement): void => setCaret(el.selectionStart);
@@ -275,7 +278,7 @@ export function Composer({
           onKeyDown={onKeyDown}
           placeholder={
             running
-              ? 'Running… what you send now waits its turn'
+              ? 'Running… Enter: read at its next step · ⌥Enter: after this turn'
               : `Message hc — Enter to send, / for commands${onSearchFiles ? ', @ for files' : ''}`
           }
           className="max-h-60 min-h-11 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm outline-none placeholder:text-muted-foreground"
@@ -291,15 +294,27 @@ export function Composer({
           )}
           {running ? (
             canSend && (
-              <Button
-                size="icon-sm"
-                className="rounded-lg"
-                onClick={() => void submit()}
-                aria-label="Queue"
-                title="Queue — sent when this turn ends"
-              >
-                <ListEnd />
-              </Button>
+              <>
+                <Button
+                  size="icon-sm"
+                  variant="secondary"
+                  className="rounded-lg"
+                  onClick={() => void submit({ queue: true })}
+                  aria-label="Queue"
+                  title="Queue — sent when this turn ends (⌥Enter)"
+                >
+                  <ListEnd />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  className="rounded-lg"
+                  onClick={() => void submit()}
+                  aria-label="Send now"
+                  title="Send now — read at the agent's next step (Enter)"
+                >
+                  <ArrowUp />
+                </Button>
+              </>
             )
           ) : (
             <Button size="icon-sm" className="rounded-lg" onClick={() => void submit()} disabled={!canSend} aria-label="Send" title="Send">

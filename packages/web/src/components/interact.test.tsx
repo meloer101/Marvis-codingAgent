@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../App';
@@ -43,7 +43,7 @@ describe('Composer', () => {
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
     expect(onSend).not.toHaveBeenCalled();
     fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('hello', []);
+    expect(onSend).toHaveBeenCalledWith('hello', [], { steer: false });
   });
 
   it('does not send on the Enter that confirms an IME candidate', () => {
@@ -70,7 +70,7 @@ describe('Composer', () => {
     const { textarea, onSend } = renderComposer();
     fireEvent.change(textarea, { target: { value: '/help' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('/help', []);
+    expect(onSend).toHaveBeenCalledWith('/help', [], { steer: false });
   });
 
   it('Escape closes the menu without reaching the window (which would abort)', () => {
@@ -84,14 +84,23 @@ describe('Composer', () => {
     window.removeEventListener('keydown', onWindowEsc);
   });
 
-  it('shows Stop while running, and queues what is sent meanwhile', () => {
+  it('shows Stop while running; Enter steers what is sent meanwhile, ⌥Enter and Queue wait for the turn', async () => {
     const { textarea, onSend, onAbort } = renderComposer({ running: true });
     expect(screen.queryByLabelText('Queue')).toBeNull(); // nothing typed yet
+    expect(screen.queryByLabelText('Send now')).toBeNull();
     fireEvent.click(screen.getByLabelText('Stop'));
     expect(onAbort).toHaveBeenCalled();
     fireEvent.change(textarea, { target: { value: 'next' } });
     fireEvent.click(screen.getByLabelText('Queue'));
-    expect(onSend).toHaveBeenCalledWith('next', []);
+    expect(onSend).toHaveBeenLastCalledWith('next', [], { steer: false });
+    await waitFor(() => expect(textarea.value).toBe(''));
+    fireEvent.change(textarea, { target: { value: 'use tabs' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).toHaveBeenLastCalledWith('use tabs', [], { steer: true });
+    await waitFor(() => expect(textarea.value).toBe(''));
+    fireEvent.change(textarea, { target: { value: 'afterwards' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', altKey: true });
+    expect(onSend).toHaveBeenLastCalledWith('afterwards', [], { steer: false });
   });
 
   it('puts restored text in front of the draft, once', () => {
@@ -117,7 +126,7 @@ describe('Composer', () => {
     expect(onSend).not.toHaveBeenCalled(); // Enter picked the file
 
     fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('look at @src/Composer.tsx ', ['src/Composer.tsx']);
+    expect(onSend).toHaveBeenCalledWith('look at @src/Composer.tsx ', ['src/Composer.tsx'], { steer: false });
   });
 
   it('detaching a file takes its @path out of the text', async () => {
@@ -139,6 +148,23 @@ describe('Composer', () => {
 });
 
 describe('QueuedMessages', () => {
+  it('puts what the agent reads at its next step above what waits for the turn to end', () => {
+    render(
+      <QueuedMessages
+        queue={[
+          { id: 'q1', text: 'afterwards' },
+          { id: 'q2', text: 'use tabs', steer: true },
+        ]}
+        onEdit={() => {}}
+        onRemove={() => {}}
+      />,
+    );
+    const text = screen.getByRole('region', { name: 'Queued messages' }).textContent ?? '';
+    expect(text.indexOf('Next step')).toBeLessThan(text.indexOf('use tabs'));
+    expect(text.indexOf('use tabs')).toBeLessThan(text.indexOf('Queued · sent when this turn ends'));
+    expect(text.indexOf('Queued · sent when this turn ends')).toBeLessThan(text.indexOf('afterwards'));
+  });
+
   it('lists what waits, each to edit or remove', () => {
     const onEdit = vi.fn();
     const onRemove = vi.fn();

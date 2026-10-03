@@ -53,10 +53,8 @@
 
 - **文本截断后的有限次自动续写**：纯文本的 `max_tokens` 停止已经作为单独的 stop reason 暴露出来，
   但 loop 会直接停下，没有 hermes-agent 那样有次数上限的续写。*(S, 低)*
-- **[codex] 回合中途插话（steering）**：运行中也接受用户输入，在下一次模型请求前注入，而不是像现在
-  这样由 server 返回 `busy`（`packages/server/src/host.ts`）或被 TUI 忽略。需要
-  `AgentSession.steer()`、一个协议方法，以及 TUI / web 输入框的支持（`core/src/session/turn.rs` 的
-  `run_turn`）。*(M)*
+- **TUI 的回合中途插话**：core（`runTurn({takeInput})`、`user_input` 事件）和 web（`session.send {steer}`）
+  10-03 已支持，见 [`web.md`](./web.md) 的 Steering。剩下 TUI：运行中输入框接受输入、显示待读的消息。*(S)*
 - **[codex] 兼容 Claude 的命令 hooks**：在 `settings.json` 里按 Claude Code 的 schema 配置 `hooks`
   （PreToolUse / PostToolUse / UserPromptSubmit / Stop / SessionStart / PreCompact；stdin 传 JSON，
   退出码 2 表示阻断，stdout 返回 `permissionDecision` / `updatedInput` / `additionalContext`），
@@ -255,7 +253,8 @@
 - **MVP（M0–M5）10-03 已完成**：转录可读性、审查闭环（Changes / Files / Tasks 面板、行评论）和终端都已上线，现状见
   [`web.md`](./web.md)。
 - **每会话 git worktree 10-03 已完成**：草稿选 base 分支，`.worktreeinclude`，归档即清理、再运行时恢复，见 [`web.md`](./web.md) 的 Worktrees。
-- **MVP 之后**：P1 运行中插话（B 节的 steering）、分屏、块级暂存/还原；P2 图片附件（provider 加 image 内容块）、rewind / 编辑历史消息 / fork、后台进程、
+- **运行中插话 10-03 已完成**（web）：Enter 在下一步插入，⌥Enter 排到本轮之后，见 [`web.md`](./web.md) 的 Steering。
+- **MVP 之后**：P1 分屏、块级暂存/还原；P2 图片附件（provider 加 image 内容块）、rewind / 编辑历史消息 / fork、后台进程、
   统计与 trace 视图、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）、覆盖已有文件的 `write` 显示真实
   diff（要 write 记下旧内容）、子代理的调用和工具耗时落盘（现在只在实时视图里有）；P3 桌面壳。
 

@@ -122,7 +122,7 @@ the server with the same schemas the client is typed from.
 | `session.open {id}` | the live snapshot, resuming the session first if needed |
 | `session.subscribe {id, sinceSeq?, epoch?}` | start receiving the session's events; replays the gap or answers `{reset, snapshot}` |
 | `session.unsubscribe {id}` | stop receiving them |
-| `session.send {id, text, attachments?}` | start a run, or queue the message behind the one going (`{runId}` or `{queued}`) |
+| `session.send {id, text, attachments?, steer?}` | start a run, or queue the message behind the one going (`{runId}` or `{queued}`); with `steer`, the run reads it at its next step |
 | `session.unqueue {id, queuedId}` | take a queued message back before it goes |
 | `session.abort {id}` | stop the run; pending prompts settle as a deny, and the queue comes back as `{unqueued}` |
 | `session.setMode {id, mode}` | change the permission mode |
@@ -211,6 +211,18 @@ processes. The two are managed separately.
   Abort empties the queue and hands its messages back in its answer (the tab
   that stopped puts them in front of its draft); one sent after the Stop, while
   the run winds down, still goes. Closing a host sends nothing more.
+- **Steering.** A message sent with `steer` waits in the same queue, marked
+  `steer`, for the run itself: the loop asks for what the user said
+  (`AgentLoopOptions.takeInput`) after each step's tool results — the text
+  joins that results message, so the model reads it before its next request —
+  and when the model ends its turn, where it becomes a new message and the run
+  goes on. Several waiting are read as one message, their files first. A
+  `user_input` event marks where it was read, and the message leaves the
+  queue then; until then it can be taken back, Stop hands it back with the
+  rest, and one the run never got to goes as the next message. A `/command`
+  is never steered. Recorded with the step it joined, it reads back from disk
+  as the user's message after that step. Nothing steered, the requests are
+  byte-identical to before.
 - **Switching models** (`session.setModel`) happens between runs. The history
   carries over; the effort is kept where the new model offers it and folded to
   its nearest level otherwise; compaction follows the model unless a small
@@ -365,8 +377,11 @@ The token is as powerful as the user's shell — a client can switch a session t
   ask → acceptEdits → plan → auto), the model menu (each model's window, price
   and key status; `model.list` loads as it opens), the effort menu and, before
   the send button, the context ring that opens the breakdown and usage. While a
-  run is going Stop sits beside a Queue button; queued messages dock above the
-  composer, each to edit or remove.
+  run is going, Enter (or "Send now") steers it — the agent reads the message
+  at its next step — and ⌥Enter (or Queue) waits for the turn to end; Stop sits
+  beside them. Both kinds dock above the composer, steering ones first, each to
+  edit or remove until it goes; a steered message appears in the transcript
+  where the agent read it.
 - **Commands** (`lib/slash.ts`): `/help`, `/clear`, `/model`, `/effort`,
   `/mode`, `/cost` and `/skills` stay in the page — given an argument they set
   it (`/effort max`, `/mode accept-edits`), without one they open their picker;

@@ -276,6 +276,28 @@ describe('SessionSync ↔ hc web --mock', () => {
     expect(row).toMatchObject({ archived: true, worktree: { branch: worktree.branch, missing: true } });
   });
 
+  it('steers a run: a message sent with steer is read at the next step, in the same run', async () => {
+    const { server } = await boot();
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'server info');
+    const id = await a.sync.create();
+    const view = () => a.store.getState().views[id!];
+    expect(await a.sync.send(id!, 'set up a scratch file')).toBe(true);
+    const bash = await until(() => view()?.askId, 'the bash ask');
+
+    expect(await a.sync.send(id!, 'keep it short', [], { steer: true })).toBe(true);
+    await until(() => view()?.queue[0]?.steer === true, 'the steering message waiting');
+    await a.sync.answerAsk(id!, bash, 'once');
+
+    // Read after the bash step: out of the queue, into the transcript, in the same run.
+    await until(() => view()?.entries.some((e) => e.kind === 'user' && e.text === 'keep it short'), 'the message read');
+    expect(view()!.queue).toHaveLength(0);
+    expect(view()!.running).toBe(true);
+    const users = view()!.entries.filter((e) => e.kind === 'user').map((e) => (e.kind === 'user' ? e.text : ''));
+    expect(users).toEqual(['set up a scratch file', 'keep it short']);
+    await a.sync.abort(id!);
+  });
+
   it('turns a draft into a session with its first message', async () => {
     const { server } = await boot();
     const a = tab(server);
