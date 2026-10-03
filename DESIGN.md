@@ -1,107 +1,98 @@
 # Design
 
-Visual system for the `hc web` console. Strategic context lives in [PRODUCT.md](PRODUCT.md); this file answers "how it looks". Source of truth in code: `packages/web/src/index.css` (tokens), `packages/web/src/lib/theme.ts` (theme switching).
+Visual system for the `hc web` console — **v3 "Hierarchy"** on the v2 **Graphite** tokens. Strategic context lives in [PRODUCT.md](PRODUCT.md); this file answers "how it looks". The reference frames are in the Figma file *Learning Project*, page "v3 · Hierarchy" (Session / Usage / Settings, light and dark, the collapsed states, a motion demo and the "v3 · Direction" rules). Source of truth in code: `packages/web/src/index.css` (tokens, motion), `packages/web/src/lib/theme.ts` (theme switching), `packages/web/src/components/Regions.tsx` (regions and their toggles).
 
-## Mood
+## Principles
 
-"A bookbinder's workshop at dusk" — oiled wood, brass tools, violet twilight. 工匠感、迅捷、飞跃: a surface built for hours of reading, with the warmth carried by typography and one brass accent, never by a cream background.
+What removes the "AI look" is a clear order of importance, not decoration.
+
+1. **Decide the order before styling.** Each screen names one thing the eye lands on first — the approval, the total cost, the section being edited — then what supports it, then what can recede.
+2. **Zones by fill, not by frame.** Navigation and work share one white sheet, split by a single hairline. Auxiliary zones (the side panel) sit on grey. Inside a zone, groups are blocks of fill with no outline.
+3. **White on grey, grey on white.** On a grey zone, white marks what can be acted on or is selected: cards, fields, the chosen tab. On white, grey does the same job: the selected row, buttons, tool blocks, table heads.
+4. **Outlines only where fill cannot work:** the composer (the one field on white that must be found), checkboxes, and error states. Search (`subtle`) is a lighter grey than selection (`muted`), so the two never read alike.
+5. **One tinted block per screen.** Amber is reserved for what is waiting on the user — one, never more.
+6. **Weight, and one size step.** Titles 14 semibold; section titles and key figures 20; the hero number 36. Names are medium. Meta stays tertiary grey.
+7. **Each toggle stays in its corner.** The sidebar's toggle sits top-left, the side panel's top-right — on the region while it is open, in the main header once it is closed.
+8. **Motion marks a change of state, nothing else.**
 
 ## Color
 
-Strategy: **Restrained+** — tinted neutrals in the violet hue family (285°), one violet primary (seed hue 280°), one brass accent. Light and dark are tuned independently, not mechanically inverted. All values OKLCH.
+Near-neutral greys, one blue for what is live or linked, ink for the primary action, amber only for what waits on the user. Light and dark are tuned separately.
 
-### Light
+| Token | Light | Dark | Role |
+| --- | --- | --- | --- |
+| `background` | `#ffffff` | `#0f0f11` | the sheet; cards on grey |
+| `foreground` | `#111114` | `#ededf0` | ink |
+| `muted-foreground` | `#5c5c66` | `#a3a3ad` | secondary text, icons |
+| `faint` | `#8a8a93` | `#71717a` | meta: times, counts, hints, placeholders |
+| `subtle` | `#f7f7f8` | `#161619` | search, tool blocks, table heads, settings blocks |
+| `muted` (= `accent`, `secondary`) | `#efeff1` | `#202024` | selection, buttons on white, the side panel |
+| `ink` / `on-ink` | `#111114` / `#fff` | `#ededf0` / `#0f0f11` | the one primary action in a group |
+| `primary` | `#2b59e8` | `#5b83ff` | running, unread, links, focus, the chart |
+| `warning` / `warning-subtle` / `warning-dot` | `#a15c07` / `#fdf6e7` / `#e8a317` | `#e0a93b` / `#2a2112` / `#e0a93b` | what waits on the user |
+| `success` | `#18794e` | `#3fb27f` | done, additions |
+| `destructive` | `#d1242f` | `#f2555a` | errors, deletions |
+| `diff-add` / `diff-del` | `#e9f6ee` / `#fcebec` | `#12261b` / `#2d1517` | diff line fills |
+| `border` / `border-strong` | `#e3e3e6` / `#cfcfd4` | `#2a2a2f` / `#3a3a41` | hairlines / the composer, checkboxes |
+| `chart-1` / `chart-2` | `#2b59e8` / `#0f8a8a` | `#5b83ff` / `#2bb3b3` | model calls (or a lone series) / tool calls |
 
-| Role | Value | Notes |
-| --- | --- | --- |
-| `background` | `oklch(0.982 0.004 285)` | near-white, whisper of violet — never cream |
-| `foreground` | `oklch(0.235 0.02 285)` | violet ink, ~14:1 |
-| `card` / `popover` | `oklch(0.996 0.002 285)` | elevation via near-white + border + `shadow-xs` |
-| `primary` | `oklch(0.51 0.16 280)` | the brand violet; white text on fills |
-| `muted-foreground` | `oklch(0.475 0.022 285)` | ≥4.5:1 — no washed-out gray |
-| `brass` | `oklch(0.55 0.1 78)` | warm accent, text-safe on light bg |
-| `brass-subtle` | `oklch(0.945 0.03 85)` | tint for pending/attention surfaces |
-| `destructive` | `oklch(0.55 0.19 25)` | |
-| `success` | `oklch(0.56 0.12 155)` | |
-| `border` | `oklch(0.9 0.009 285)` | |
-
-### Dark
-
-| Role | Value | Notes |
-| --- | --- | --- |
-| `background` | `oklch(0.178 0.012 285)` | violet-twilight near-black (environmental tint, deliberate) |
-| `foreground` | `oklch(0.925 0.009 285)` | ~14:1 |
-| `card` / `popover` | `oklch(0.212 / 0.218 0.014 285)` | |
-| `primary` | `oklch(0.485 0.14 280)` | deep enough for white text (≥4.5:1) |
-| `muted-foreground` | `oklch(0.685 0.02 285)` | ≥4.5:1 |
-| `brass` | `oklch(0.78 0.11 84)` | brighter for dark surfaces |
-| `border` | `oklch(0.92 0.01 285 / 11%)` | alpha borders on dark |
-
-### Semantic mapping
-
-- **Violet (`primary`)**: identity, running state, links, plan review, focus rings, send/approve actions.
-- **Brass**: waiting-on-you states — permission asks, pending dots, reconnecting banner, thinking marker, list markers, blockquote rule, the `·` in the wordmark.
-- **Success / destructive**: tool results and diff add/del only.
-- **Charts** (`chart-1`, `chart-2`): two categorical hues, in that order and never cycled — violet `oklch(0.51 0.16 280)` / `oklch(0.64 0.15 280)` and teal `oklch(0.62 0.11 195)` / `oklch(0.65 0.11 195)` (light / dark), checked against both surfaces for colour-blind separation. Marks only: values, labels and legends stay in ink or muted ink, and with two series a legend always names them.
-- Text on saturated fills is always white/near-white (Helmholtz-Kohlrausch); dark text only on pale or neutral fills.
+- Text on ink is `on-ink`; on blue fills, white (light) or near-black (dark).
+- Change letters: M amber, A/U success, D destructive, R blue.
+- Terminal output uses eight `--ansi-*` hues tuned per theme. Code is highlighted with Shiki `github-light-default` / `github-dark-default`, switched by `.dark` through CSS variables.
 
 ## Typography
 
-Self-hosted via Fontsource (same-origin; the server CSP is `font-src 'self'`):
+IBM Plex, self-hosted via Fontsource (the server CSP is `font-src 'self'`); CJK falls back to PingFang SC / Noto.
 
-| Role | Face | Used for |
+| Style | Face | Used for |
 | --- | --- | --- |
-| `--font-serif` | **Spectral** | assistant prose (`.md`), the wordmark, empty states, thinking body — the reading surface |
-| `--font-sans` | **Hanken Grotesk Variable** | UI chrome: buttons, sidebar, labels, headers |
-| `--font-mono` | **JetBrains Mono Variable** | code, paths, commands, usage numbers, kbd, tool names |
+| Display 36/1.1 semibold, −2% | Plex Sans | the hero figure (Usage) |
+| Title 20/26 semibold | Plex Sans | section titles, key figures |
+| Heading 14/1.4 semibold | Plex Sans | page and block titles, the session title, the approval question |
+| Body 14/1.57 | Plex Sans | messages and replies |
+| UI 13/1.4 (strong: medium) | Plex Sans | rows, tabs, buttons |
+| Small 12/1.4 | Plex Sans | controls, hints |
+| Label 11/1.4 medium, +2% | Plex Sans | group names, table heads, stat labels |
+| Caption 11/1.4 | Plex Sans | notes under figures, status |
+| Mono 12/1.55 (strong: medium) | Plex Mono | code, commands, paths, tool names, diffs |
+| Mono small 11/1.45 | Plex Mono | times, counts, durations, kbd hints |
 
-Rules: assistant prose is 15px/1.75 serif capped at 68ch; UI labels stay sans; CJK falls back to system fonts (PingFang SC / Noto). Code highlighting: Shiki `rose-pine-dawn` / `rose-pine-moon`, switched by `.dark` via CSS variables.
+No serif, no uppercase eyebrows.
 
-## Theming
+## Layout and regions
 
-- Class-based: `html.dark` toggles `@custom-variant dark`. `color-scheme` set per theme.
-- `public/theme.js` applies the persisted theme before first paint (external file — CSP forbids inline scripts). `lib/theme.ts` owns state: `system | light | dark`, persisted as `hc.theme` via platform storage, OS changes tracked while in `system`.
-- UI: one footer button in the sidebar cycles system → light → dark.
-- Theme switches glide (180ms ease-out on background/border/color); all motion has `prefers-reduced-motion` fallbacks.
+- **Shell:** sidebar (248px, white, a hairline on its right) + main (white) + side panel (`min(440px, 42vw)`, `muted` grey, no border). Radius: 4px for controls (`rounded-md`), 6px for blocks (`rounded-lg`).
+- **Headers** are 44px with no rule under them — the sheet goes on.
+- **Session column:** 660px of content (`max-w-[700px]` with 20px gutters), centred in the main area, transcript `pt-8`, 20px between turns, 12px within one.
+- **Toggles:** `PanelLeftClose` on the sidebar's top-left; once closed, `PanelLeftOpen` and an icon-only New session (26px `muted` square) take the main header's corner, with an amber dot on the toggle while a session waits. `PanelRightClose` at the panel's top-right; once closed, `PanelRightOpen` at the main header's right, after the terminal toggle.
+- **Split view** divides the main area into two panes behind a hairline; the unfocused pane's header sits on `subtle`.
 
 ## Components
 
-- **Sidebar**: serif wordmark `hc·web` (brass dot), card-style New session button with `⇧⌘O` hint, a search field (a small `⌘K` chip at its end opens the command palette), then one group per project — mono uppercase project name (11px, muted) with a fold chevron, and "+" / ⋯ that appear on hover. Session rows 13px, indented under their project; pinned ones carry a small pin at the left, one in a worktree a muted branch icon before its title, archived ones are muted and behind an "Archived (n)" toggle. The row's end shows the most urgent state: brass dot (waiting for you), violet spinner (running), violet dot (unread), else a mono relative time; on hover it gives way to ⋯. Rename happens in place in a violet-ringed field. "Add project" sits below the groups; footer = theme toggle + notification bell + usage and settings links + connection dot.
-- **Menus**: popover surface, rounded-lg, 13px items with 14px muted icons, accent highlight; destructive items (Delete…) in the destructive colour, set apart by a separator.
-- **Dialogs** (add project, delete session, remove project, archive over a worktree's uncommitted changes): centred popover card over a soft `foreground/25` overlay with a 2px blur, serif title, muted description. Reserved for decisions that deserve a pause — never for permission asks, which stay in the dock. The add-project preview is a `muted/40` panel; MCP servers are listed in mono with a brass plug icon, trust warnings in brass.
-- **Session header**: project chip (folder icon + name), for a session in a worktree its branch (violet-tinted pill: branch icon + mono 11px name; muted once archiving removed the worktree) / session title (13px medium; click turns it into a violet-ringed field to rename) · the spend at the far right (mono ↑in ↓out and cost), opening the usage popover. A new session's draft header has a project dropdown and "New session".
-- **Composer footer**: ghost controls (h-7, 12px medium, muted until hovered): in a draft first where it works ("Local" with a folder icon; "Worktree" and the mono base, branch icon, tinted violet — its menu: "Project folder" with the branch it's on, then the branches under "New worktree, branched from", the current one marked, and a muted note on `.worktreeinclude`), the mode chip (icon + label; tinted violet for acceptEdits / plan / auto, destructive for YOLO, plain for ask / read only), the model (violet dot + mono short name), the effort (gauge icon + level). Each opens a popover menu above it: a mono uppercase heading, radio rows with a violet check, each mode with a one-line muted hint, each model with its mono ref, price at the right in 10px mono, and a muted line of facts (window · reliable span · reasoning) — or, for a model that can't run, a brass warning in its place. Before the send button, the context ring (16px, violet → brass ≥80% → destructive ≥92%, dashed before the first measurement) and its percent open the usage popover: context used of window, a thin bar, the breakdown by bucket, then the session's tokens and cost, all mono tabular. While a run is going Stop (secondary) sits beside — once something is typed — Queue (secondary, list-end icon) and Send now (primary, arrow): Enter sends now, ⌥Enter queues.
-- **Queued messages**: a dashed `muted/30` panel docked above the composer — up to two groups, each under a mono uppercase heading: "Next step · read before the agent goes on" (steering), then "Queued · sent when this turn ends"; one row per message (corner-arrow icon, two lines max) with edit and remove icons that brighten on hover.
-- **Attachments**: mono 11px chips (file icon, truncated path, × to detach) above the composer's text, and under the text of a sent message. Images sit above them as 56px rounded thumbnails behind a border (a small round × at the corner in the composer); one opens whole in a dialog. The composer's image button (image-plus icon, ghost) sits after the footer controls; a model that can't see images dims it, and a brass line under the text says why. The `@` menu lists the file name in mono with its folder after it, muted and truncated from the left.
-- **Command palette** (⌘K): a popover card at 14vh, max-w-xl, over a soft overlay; a search field with an `esc` hint, then rows (14px muted icon, 13px label, mono 10px hint — shortcut, `/command` or project · time) under mono uppercase group headings (New, This session, Sessions, App) until a query flattens them.
-- **Tool cards**: rounded-lg card, mono tool name, status icon in token colors (primary spinner / success check / destructive X), hover tint on the header row, body on `muted/40`.
-- **Command output**: mono 11px on the card's `muted/40` body, following the tail while the command runs (max-h-60), read from the top once it ends (max-h-80). Terminal colours map to eight `--ansi-*` hues tuned per theme (bright variants share the hue); backgrounds at 22% of the hue. The header ends with a destructive `exit N` / `timed out` chip for a failure and the duration in 10px muted mono.
-- **Exploration line**: a run of lookups folds into one quiet 12px muted line — chevron, search icon (violet spinner while one runs), "Read 3 files, searched for 2 patterns", then the running call in mono or "· 1 failed" in destructive — brightening on hover; it opens to the cards indented behind a left rule, as Session details does.
-- **Copy / edit / fork / retry**: a 14px muted copy icon (check in success once copied) under a finished turn and at a message's top-right, shown on hover or focus; a user message's corner also has edit (pencil) and fork (git-fork) icons, gone while a run goes. Under the last reply, a quiet 12px "Regenerate" (rotate icon, muted until hovered). After a failed or stopped run, a secondary "Retry" button (rotate icon) with a muted one-line hint follows the error notice. Rewinding past later messages asks first in a dialog ("Rewind and edit").
-- **Side panel**: a `min(460px, 42vw)` column right of the session behind a left border; an h-12 top bar lining up with the session header holds the tabs (12px medium, icon + label, accent fill when selected) and a close ×. The header's panel button (panel-right icon) shows accent while it's open.
-- **Changes list**: a muted 12px bar — branch icon, mono branch name, `↑2 ↓1`, a bordered two-way toggle ("All 3" / "This session 1", accent fill on the chosen one, mono counts), refresh — then one row per file: chevron, a mono bold change letter (M brass, A/U success, D destructive, R violet, ! destructive), the mono file name with its folder muted after it, and `+3 −1` at the end. A row starts with its stage box (violet check when staged, a dash when partly, a muted empty square when not) and ends, on hover, with a discard icon that turns destructive; it opens to its patch on `muted/20`, hunk headers on a faint violet band, no height cap — the list scrolls. A file changed in place opens to "Staged" and "Unstaged" parts (mono uppercase labels, when it has both); each hunk header ends with 11px text buttons — Discard and Stage on the unstaged side, Unstage on the staged — muted until the hunk is hovered; Discard arms first, as a destructive "Discard?" pill. Under it, on `muted/20` behind a top border, the commit box: a message field, the primary Commit button ("Commit 2 staged" / "Commit 3 files"), and at the right secondary Push (mono ahead count) / Publish and Pull request; the pull-request form opens inline beneath; what happened is one muted line, or destructive with git's own words.
-- **Review comments**: in a Changes diff a line number brightens violet on hover and opens a comment under its line: a brass-tinted card (brass border at 30%, `brass-subtle` fill, a brass speech icon, 12px text, edit/delete icons that brighten on hover), or while writing a bordered field with Cancel and Comment. Pending comments put a brass-tinted bar above the commit box — "2 review comments", Discard, and the primary "Send to agent".
-- **Files tab**: a borderless find field under a search icon, then the tree — 12px rows indented 14px a level, chevron and brass folder icon for folders, a muted file icon and mono name for files. The viewer's bar: back arrow, the mono path, copy, and one quiet "↗ VS Code" style button per editor; the file below in the diff view's type, one line-number column, no sign column, the line it was opened at on a faint violet band.
-- **Terminal panel**: across the bottom of the session column behind a top border (whose edge drags it taller or shorter), on the page background. An h-8 tab bar: tabs as 12px pills (terminal icon, the shell's title in mono 11px, "exited" muted when it ended, × on hover; accent fill when chosen), + for another, × at the far right to hide. The screen is xterm in JetBrains Mono 12px: the app's background and ink, a violet cursor, the selection tint, and the eight `--ansi-*` hues. The header's terminal button shows accent while it's open.
-- **Task dock**: a card-surface line above the pending dock — violet list-check icon, "Tasks" (12px medium), mono `2/5`, the task in hand in muted text, a chevron — that opens to the list (violet dot in progress, success check done and struck through, muted circle pending). Gone once every task is done.
-- **Trace tab**: a muted 11px mono summary bar (runs · calls · wall time, then ↑↓ tokens, % cached, cost, refresh) with a legend at its end — a 8px `chart-1` square "Model call", a `chart-2` one "Tool call". Each run is a header row (chevron, "Run 2" in 12px medium, mono time, model, duration, cost; a stop reason other than end_turn in brass) over its rows: a 144px mono label (`model ↑12k ↓300`, or the tool's name and its input muted — "denied" / "failed" in destructive after an X), an 8px track on `muted/60` with the call's bar at its place on the run's span (rounded-sm, at least 3px), and the duration right-aligned in muted mono. Compactions and errors are text rows (minimize / warning icon), errors in destructive.
-- **Usage page**: a h-12 header (activity icon, "Usage") over a `max-w-5xl` column. Filters in one row on top: a bordered segmented range (7 days / 30 days / 90 days / All time, accent fill on the chosen) and a project select. Then the hero — the cost in 48px semibold, its label and note in 11px muted — beside four card tiles (2×2, one row of four when there is room). Charts and tables sit in cards (rounded-lg, border, p-4, a 14px medium title): the per-day columns in `chart-1`, at most 24px wide, 2px apart, rounded on top, over three hairline gridlines with mono 10px ticks; hovering or focusing a column shows a popover tooltip (the value in semibold, the day and sessions muted) kept inside the card; a quiet Table toggle at the card's top-right. Tables are 12px, numbers mono tabular and right-aligned, rows split by hairlines.
-- **Settings page**: the same h-12 header (gear icon, "Settings", the project select at the right when there are several) over a `max-w-5xl` column: the sections as a 176px column of 13px rows (icon + label, accent fill on the one shown) beside the page once the column is wide enough (a container query), a row of tabs above it until then. Each section opens with a muted 12px paragraph saying what it is, then cards as on the usage page — the file a card shows on a quiet mono line under its title, cut from the left so the file name stays. Rules are mono 12px rows with a × that shows on hover (destructive when hovered), a borderless "+ Add a rule" field under them, the server's reason in destructive beneath. Auto-mode rules show their `Label:` in ink and the rest muted; a group's built-in rules are one row that folds open. Unreadable files and an unavailable auto mode are brass-tinted notices with a warning icon. Memories: name in 12px medium, the type as a mono chip on `muted`, the description muted, what makes sessions skip one in brass; edit opens a mono textarea in place on `muted/30`, delete arms as a destructive "Delete?" pill. MCP servers: a brass plug, the mono name, a muted `yours · http` chip, the target in muted mono, then the state at the right — "signed in" with a success check and a ghost Sign out, an outline Sign in, or a violet spinner and "waiting for the browser" with a link to open the page again.
-- **Processes tab**: a muted mono line (`1 running · 2 ended`), then a row per background command, newest first: chevron, a status dot (violet pulsing while it runs, success for exit 0, destructive for another code, muted once stopped), the mono id muted, the command in mono, at the right its running time ticking or `exit 1` / `stopped` in 10px mono, and while it runs an outline Stop (filled square) that turns destructive on hover. A row opens to its output on `muted/40`, the terminal colours kept, max-h-96, following the tail. The tab shows only once there is a command, a violet count of the running ones beside its name; a narrow panel shows its tabs as icons alone. A `bash` card that started one carries a violet `background · bg1` chip and "Show bg1's output" under it.
-- **Switches** (settings): a 36×20 pill, violet when on and muted-foreground/30 when off, its knob the page background with a small shadow, sliding 16px.
-- **Pending dock** (no modals): brass border + tint for permission asks, violet for plan review; kbd hints (`y`/`a`/`n`).
-- **Composer**: card surface, focus = violet border + ring + shadow lift; the text above, the footer controls below.
-- **Diffs**: mono 11px; added / removed lines on `success` / `destructive` at 10% bg, with the `+` / `−` in that colour and the text in ink — Shiki colours once the grammar loads. The words that changed within a replaced line sit on the same hue at 25%. File line numbers, muted at 70%, in one column per side that has them (a new file has only the "after" one). Past 400 lines, a quiet full-width "Show all N lines" row.
-- **Banners**: brass tint for connection, destructive tint for errors.
-
-## Layout
-
-App shell: 256px sidebar + main column; transcript and composer centered at `max-w-3xl`. Split view divides the main column into two equal panes behind a left border; the terminal runs under both and the side panel stays at the right edge, for the focused pane. The unfocused pane's header sits on `muted/40` in muted ink and drops the terminal and panel buttons; each pane's header ends with a × to close it. Headers clip rather than spill (the project chip shrinks first). In the sidebar the focused session's row has the accent fill, the other one on screen half of it. Radius scale anchored at `--radius: 0.625rem`. Thin themed scrollbars. Selection tinted violet.
+- **Sidebar:** brand row (toggle, **hc** web, a `muted` "+ New" button); a `subtle` search field with a ⌘K hint that opens the palette; project groups under an 11px medium faint label (+ and ⋯ on hover; a chevron when folded); session rows 28px, 13px secondary, the focused one `muted` fill + medium ink, hover `subtle`. A row's end shows the most urgent state: amber dot (waiting), blue spinner (running), blue dot (unread), else a mono faint time; ⋯ on hover. "Add project" faint below. Footer: theme, notifications, Usage, Settings as 14px icons (the page shown gets a `muted` fill), then "● Connected".
+- **Session header:** project (faint) / title (14 semibold, click to rename) / branch (git-branch icon, mono 11 faint) · spend (mono 11 faint, opens the usage popover) · terminal and panel toggles.
+- **User message:** a `muted` block, 14/1.57, edit / fork / copy at its top-right on hover.
+- **Turn:** an exploration line ("Read 2 files, searched for 1 pattern", 12 faint, chevron), text at 14/1.57, tool blocks; under the last reply a copy icon and "Regenerate" (12 faint).
+- **Tool block:** `subtle` fill, no outline; a 32px header — status icon (success check, blue spinner, destructive X), the tool name in mono medium, its summary in mono secondary, meta (duration, `+1 −1`) in mono 11; the body on the same fill. A short command output shows open; a long one waits. An error adds a destructive outline. "Open file" floats in the block's corner on hover.
+- **Diffs:** mono 12; added and removed lines on `diff-add` / `diff-del`, the sign in success / destructive, line numbers faint in 32px columns.
+- **Approval (the amber block):** `warning-subtle`, 6px radius, no outline; a pulsing 6px dot and the question ("Run this command?", "Write this file?", "Make this edit?"), why it asks at the right in 12 faint; what will run on a white block (`$ npm test …`); then Allow once (ink), Always allow … (white), Deny (bare), each with its key in mono faint; "Add a note" at the end opens a white field whose note rides along with a deny. Plan review uses the same block.
+- **Composer:** white, a `border-strong` outline, 6px radius; 14/1.57 placeholder in faint; controls at 12 secondary with 13px icons — where it works (Local / Worktree), mode, the model (mono 11), effort, add image; at the right the context meter (28×3 bar + mono %) and the send button (28px ink square, 35% while empty). Stop and Queue are `muted` squares.
+- **Side panel:** text tabs (13; the chosen one white with medium ink and, for Changes, a mono count); content as white cards on the grey: the Changes list, the file tree, tasks, trace runs, processes.
+- **Changes:** the branch row (mono secondary, `↑2` faint, an All / This session switch whose chosen half is white with a hairline shadow); file rows 34px in a white card — checkbox (outlined; ink with a check or a bar), the letter, the folder faint and the name medium, `+n −n`; discard and open on hover. Commit box: a white message field, "Commit 1 staged ⌘↵" (ink), Push ↑2 and Pull request (white).
+- **Usage page:** filters (a `muted` segmented range with the chosen one white, a `muted` project chip); a `subtle` summary block — the cost at 36, four stats at 20 with 11px labels and faint notes; Cost per day — `chart-1` columns up to 24px, three hairline gridlines, mono faint ticks, the hovered column ink with an ink tooltip; tables with a `subtle` head row and no rules between rows, numbers mono secondary, cost mono medium, an unknown cost a faint dash.
+- **Settings page:** a 176px section list (the shown one `muted`), then the section's title at 20 and a 13px secondary paragraph; blocks on `subtle` (title 14 semibold · note, the file in mono faint); rules as white mono rows (× on hover); "+ Add a rule" faint, outlined in destructive with the server's reason under it when a rule is refused.
+- **Menus, popovers, the palette and dialogs** float: white (`popover`), a hairline border and a shadow; 13px items, highlighted on `muted`; dialog titles 14 semibold.
+- **Banners:** connection on `warning-subtle`, errors on a destructive tint.
 
 ## Motion
 
-Intentional and minimal: committed transcript rows rise 240ms expo-out (`animate-rise`), pending dock rises in, theme transition glide, existing spin/pulse for running states. No layout-property animation; reduced-motion disables all of it.
+Only state changes move, all on `cubic-bezier(0.16, 1, 0.3, 1)`; `prefers-reduced-motion` turns every one off.
+
+- A new row rises 8px and fades in over 240ms (`animate-rise`); rows that arrive together follow 140ms apart (`--rise-delay`).
+- The approval block rises 12px over 280ms (`animate-rise-lg`) and its dot pulses twice (`animate-pulse-twice`).
+- A region opens over 320ms easing out and closes over 200ms easing in; the main area reflows with it (`SlideRegion`). What was open at load is simply there.
+- A running spinner turns once a second. Theme switches glide (180ms on colours).
 
 ## Anti-patterns (per PRODUCT.md)
 
-No cream/beige backgrounds, no gradient text, no neon terminal green, no side-stripe accent borders, no glassmorphism, no decorative eyebrows. Warmth comes from Spectral, brass, and ink levels — not from the surface color.
+No outlines around every group, no cards inside cards on the same fill, no more than one amber block, no tinted page behind the main sheet, no gradients or glass, no uppercase mono eyebrows, no decorative icons.
