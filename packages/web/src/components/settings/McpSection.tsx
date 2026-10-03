@@ -8,7 +8,7 @@ import { platform } from '@/platform';
 import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
 
-import { Card, ErrorLine, PathNote, Problems, errorText, useLoaded } from './common';
+import { Card, Code, ErrorLine, PathNote, Problems, SectionIntro, errorText, useLoaded } from './common';
 
 /**
  * The MCP servers sessions here connect to, as their files name them, and
@@ -59,11 +59,11 @@ export function McpSection({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        Servers come from your <code className="font-mono">~/.agent/.mcp.json</code> and the project’s{' '}
-        <code className="font-mono">.mcp.json</code>; the project’s wins when both name one. Sessions connect as they start,
+      <SectionIntro title="MCP servers">
+        Servers come from your <Code>~/.agent/.mcp.json</Code> and the project’s{' '}
+        <Code>.mcp.json</Code>; the project’s wins when both name one. Sessions connect as they start,
         so one started after signing in is the first to use it.
-      </p>
+      </SectionIntro>
       <Problems problems={data.problems} />
       <Card label="MCP servers" title="MCP servers">
         {data.servers.length === 0 ? (
@@ -82,7 +82,7 @@ export function McpSection({ workspaceId }: { workspaceId: string }) {
             ))}
           </ul>
         )}
-        <div className="mt-3 flex flex-col gap-0.5 border-t pt-2">
+        <div className="mt-3 flex flex-col gap-0.5 pt-1">
           <PathNote path={data.userPath} />
           <PathNote path={data.projectPath} />
         </div>
@@ -107,9 +107,9 @@ function Server({
   return (
     <li className={cn('flex flex-col gap-1 py-2 text-xs first:pt-0 last:pb-0', s.shadowed && 'opacity-60')}>
       <div className="flex items-center gap-2">
-        <Plug className="size-3.5 shrink-0 text-brass" />
+        <Plug className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="shrink-0 font-mono font-medium">{s.name}</span>
-        <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">
+        <span className="shrink-0 rounded bg-muted px-1 text-[11px] text-muted-foreground">
           {s.scope === 'user' ? 'yours' : 'project'} · {s.transport}
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground" title={s.target}>

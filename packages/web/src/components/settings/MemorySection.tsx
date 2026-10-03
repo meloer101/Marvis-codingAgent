@@ -9,7 +9,7 @@ import { fmtBytes } from '@/lib/trace';
 import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
 
-import { Card, ErrorLine, PathNote, errorText, useLoaded } from './common';
+import { Card, ErrorLine, PathNote, SectionIntro, errorText, useLoaded } from './common';
 
 const ARM_MS = 4000;
 
@@ -43,10 +43,10 @@ export function MemorySection({ workspaceId, projectName }: { workspaceId: strin
   const scopeName = { user: 'Yours', global: 'Yours', project: 'This project' } as const;
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs leading-relaxed text-muted-foreground">
+      <SectionIntro title="Memory">
         Sessions read these as they start. Instruction files are given to the model whole; memories are listed by name
         and description, and read when they matter — the agent writes them as it learns.
-      </p>
+      </SectionIntro>
       <Card label="Instructions" title="Instructions">
         <ul className="flex flex-col divide-y">
           {data.instructions.map((file) => {
@@ -163,11 +163,11 @@ function MemoryRow({
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex items-center gap-2">
           <span className="truncate font-medium">{memory.name}</span>
-          <span className="shrink-0 rounded bg-muted px-1 font-mono text-[10px] text-muted-foreground">{memory.type || '?'}</span>
+          <span className="shrink-0 rounded bg-muted px-1 font-mono text-[11px] text-muted-foreground">{memory.type || '?'}</span>
         </span>
         {memory.description && <span className="text-muted-foreground">{memory.description}</span>}
         {memory.problem && (
-          <span className="flex items-center gap-1 text-[11px] text-brass-strong">
+          <span className="flex items-center gap-1 text-[11px] text-warning">
             <TriangleAlert className="size-3 shrink-0" />
             Sessions skip it: {memory.problem}
           </span>
@@ -247,7 +247,7 @@ function Editor({
     }
   };
   return (
-    <div className="flex flex-col gap-2 rounded-md border bg-muted/30 p-2">
+    <div className="flex flex-col gap-2 rounded-md bg-background p-2">
       <textarea
         aria-label="File text"
         value={text ?? ''}
@@ -263,7 +263,7 @@ function Editor({
         rows={Math.min(24, Math.max(8, (text ?? '').split('\n').length + 1))}
         placeholder={text === null ? 'Reading…' : undefined}
         spellCheck={false}
-        className="w-full resize-y rounded border bg-background p-2 font-mono text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="w-full resize-y rounded-md bg-subtle p-2 font-mono text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
       />
       <div className="flex items-center gap-2">
         <ErrorLine error={error} />

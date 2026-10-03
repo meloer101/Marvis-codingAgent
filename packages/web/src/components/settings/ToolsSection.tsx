@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
 
-import { Card, ErrorLine, Problems, errorText, useLoaded } from './common';
+import { Card, ErrorLine, Problems, SectionIntro, errorText, useLoaded } from './common';
 
 /**
  * Tools that change what the model is shown, so they're off until turned on
@@ -30,10 +30,10 @@ export function ToolsSection({ workspaceId }: { workspaceId: string }) {
   };
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs leading-relaxed text-muted-foreground">
+      <SectionIntro title="Tools">
         These change the tools the model is shown, so they stay off until you turn them on. A session keeps the tools it
         started with: one started afterwards is the first to have the change.
-      </p>
+      </SectionIntro>
       <Problems problems={data.problems} />
       <Card label="Background commands" title="Background commands" path={data.user.path}>
         <div className="flex items-start gap-4">
@@ -53,7 +53,7 @@ export function ToolsSection({ workspaceId }: { workspaceId: string }) {
             onClick={() => void toggle()}
             className={cn(
               'relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-60',
-              user ? 'bg-primary' : 'bg-muted-foreground/30',
+              user ? 'bg-ink' : 'bg-border-strong',
             )}
           >
             <span

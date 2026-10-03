@@ -9,7 +9,7 @@ import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
 
-import { Card, ErrorLine, Problems, RuleList, errorText, useLoaded } from './common';
+import { Card, ErrorLine, Problems, RuleList, SectionIntro, errorText, useLoaded } from './common';
 
 /** In the order the classifier weighs them. */
 const GROUPS: Array<{ group: AutoModeGroup; title: string; hint: string }> = [
@@ -40,10 +40,10 @@ export function AutoModeSection({ workspaceId }: { workspaceId: string }) {
   };
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs leading-relaxed text-muted-foreground">
+      <SectionIntro title="Auto mode">
         In auto mode a classifier model decides each call the rules don’t, by these. They are yours, for every
         project — a repository can’t set them. Open sessions take a change up at once.
-      </p>
+      </SectionIntro>
       {data.autoMode.unavailable && (
         <Problems problems={[`Auto mode isn’t available in this project: ${data.autoMode.unavailable}.`]} />
       )}
@@ -180,7 +180,7 @@ function Denials({ workspaceId }: { workspaceId: string }) {
           onClick={reload}
           aria-label="Refresh"
           title="Refresh"
-          className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           <RefreshCw className="size-3.5" />
         </button>
@@ -199,7 +199,7 @@ function Denials({ workspaceId }: { workspaceId: string }) {
               </a>
               {s.paused && (
                 <span
-                  className="flex shrink-0 items-center gap-1 rounded-full bg-brass-subtle px-1.5 py-px text-[10px] text-brass-strong"
+                  className="flex shrink-0 items-center gap-1 rounded-full bg-warning-subtle px-1.5 py-px text-[11px] text-warning"
                   title="After repeated denials, calls ask you until you approve one"
                 >
                   <Pause className="size-2.5" />
@@ -209,7 +209,7 @@ function Denials({ workspaceId }: { workspaceId: string }) {
             </div>
             <ul className="flex flex-col">
               {s.denials.map((d) => (
-                <li key={d.id} className="flex items-start gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent/50">
+                <li key={d.id} className="flex items-start gap-2 rounded px-1.5 py-1 text-xs hover:bg-background">
                   <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" aria-hidden />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate font-mono" title={d.summary}>
@@ -228,7 +228,7 @@ function Denials({ workspaceId }: { workspaceId: string }) {
                     <button
                       type="button"
                       onClick={() => void retry(s, d.id)}
-                      className="shrink-0 rounded-md border px-2 py-0.5 text-[11px] transition-colors hover:bg-accent"
+                      className="shrink-0 rounded-md bg-background px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-background/60"
                       title="The agent may make this exact call once more; it hears so on its next turn"
                     >
                       Allow a retry

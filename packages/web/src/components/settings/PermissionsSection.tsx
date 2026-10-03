@@ -6,7 +6,7 @@ import type { PermissionRuleList, SettingsView } from '@harness-code/protocol';
 import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
 
-import { Card, ErrorLine, Problems, RuleList, useLoaded } from './common';
+import { Card, Code, ErrorLine, Problems, RuleList, SectionIntro, useLoaded } from './common';
 
 const LISTS: Array<{ list: PermissionRuleList; title: string; hint: string }> = [
   { list: 'allow', title: 'Allow', hint: 'Runs without asking' },
@@ -28,12 +28,11 @@ export function PermissionsSection({ workspaceId, projectName }: { workspaceId: 
   };
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        What sessions may do without asking you. A rule names a tool — <code className="font-mono">Bash</code> — or a
-        tool and what it covers — <code className="font-mono">Bash(npm test:*)</code>,{' '}
-        <code className="font-mono">Edit(src/**)</code>, <code className="font-mono">WebFetch(domain:docs.rs)</code>.
-        Deny wins over ask, ask over allow. Open sessions take a change up at once.
-      </p>
+      <SectionIntro title="Permissions">
+        What sessions may do without asking you. A rule names a tool — <Code>Bash</Code> — or a tool and what it covers
+        — <Code>Bash(npm test:*)</Code>, <Code>Edit(src/**)</Code>, <Code>WebFetch(domain:docs.rs)</Code>. Deny wins
+        over ask, ask over allow. Open sessions take a change up at once.
+      </SectionIntro>
       <Problems problems={data.problems} />
       <Layer
         title="Yours"
@@ -82,8 +81,9 @@ function Layer({
           <div key={list} className="flex min-w-0 flex-col gap-1">
             <h3 className="text-xs font-medium">
               {listTitle}{' '}
-              <span className="font-mono font-normal text-muted-foreground tabular-nums">{rules[list].length}</span>
-              <span className="font-normal text-muted-foreground"> · {hint}</span>
+              <span className="font-normal text-faint tabular-nums">
+                {rules[list].length} · {hint}
+              </span>
             </h3>
             <RuleList
               label={`${title}: ${listTitle}`}
@@ -102,18 +102,18 @@ function Layer({
 function Builtin({ rules }: { rules: readonly string[] }) {
   const [open, setOpen] = useState(false);
   return (
-    <section aria-label="Built in" className="rounded-lg border border-dashed px-4 py-3">
+    <section aria-label="Built in" className="px-4">
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         className="flex w-full items-center gap-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground"
       >
-        <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+        <ChevronRight className={cn('size-[13px] transition-transform', open && 'rotate-90')} />
         Always allowed, built in: {rules.length} read-only tools and commands
       </button>
       {open && (
-        <ul className="mt-2 columns-1 gap-6 pl-5 font-mono text-[11px] text-muted-foreground sm:columns-2">
+        <ul className="mt-2 columns-1 gap-6 pl-5 font-mono text-[11px] text-faint sm:columns-2">
           {rules.map((r) => (
             <li key={r} className="break-inside-avoid break-words">
               {r}

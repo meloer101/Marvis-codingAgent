@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { BookOpen, Plug, Settings, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
+import { MainHeader, SidebarOpener } from '@/components/Regions';
+import { SelectChip } from '@/components/ui/select-chip';
 import { routeToHash } from '@/lib/route';
 import type { SettingsSection } from '@/lib/route';
 import { useAppStore } from '@/lib/store';
@@ -37,31 +39,27 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 text-sm">
-        <Settings className="size-3.5 text-muted-foreground" />
-        <span className="text-[13px] font-medium">Settings</span>
+      <MainHeader>
+        <SidebarOpener />
+        <Settings className="size-[15px] shrink-0 text-muted-foreground" />
+        <span className="text-sm font-semibold">Settings</span>
         <span className="flex-1" />
-        {present.length > 1 && workspace && (
-          <select
-            aria-label="Project"
-            value={workspace.id}
-            onChange={(e) => setChosen(e.target.value)}
-            className="h-7 max-w-48 rounded-md border bg-card px-2 text-xs shadow-xs focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-          >
+        {workspace && (
+          <SelectChip label="Project" value={workspace.id} onChange={setChosen}>
             {present.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name}
               </option>
             ))}
-          </select>
+          </SelectChip>
         )}
-      </header>
+      </MainHeader>
       {/* Sections beside the page once the column has room for both; tabs above it until then. */}
       <div className="@container min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-6 py-6 @3xl:flex-row @3xl:gap-8">
+        <div className="mx-auto flex max-w-[1040px] flex-col gap-4 px-5 pt-5 pb-6 @3xl:flex-row @3xl:gap-8">
           <nav
             aria-label="Settings sections"
-            className="flex shrink-0 gap-1 overflow-x-auto @3xl:sticky @3xl:top-0 @3xl:w-44 @3xl:flex-col @3xl:self-start @3xl:overflow-visible"
+            className="flex shrink-0 gap-0.5 overflow-x-auto @3xl:sticky @3xl:top-0 @3xl:w-44 @3xl:flex-col @3xl:self-start @3xl:overflow-visible"
           >
             {SECTIONS.map((s) => (
               <a
@@ -70,7 +68,7 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
                 aria-current={section === s.id ? 'page' : undefined}
                 className={cn(
                   'flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors',
-                  section === s.id ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+                  section === s.id ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-subtle hover:text-foreground',
                 )}
               >
                 <s.icon className="size-3.5 shrink-0" />

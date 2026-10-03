@@ -5,6 +5,8 @@ import { Activity, ChartColumn, Table2 } from 'lucide-react';
 import { fmtTokens } from '@harness-code/core/browser';
 import type { SessionStats, StatsSummary } from '@harness-code/protocol';
 
+import { MainHeader, SidebarOpener } from '@/components/Regions';
+import { SelectChip } from '@/components/ui/select-chip';
 import { fmtCost, fmtPartialCost, relativeTime } from '@/lib/format';
 import { setPanel } from '@/lib/panel';
 import { routeToHash } from '@/lib/route';
@@ -63,14 +65,15 @@ export function StatsView() {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 text-sm">
-        <Activity className="size-3.5 text-muted-foreground" />
-        <span className="text-[13px] font-medium">Usage</span>
-      </header>
+      <MainHeader>
+        <SidebarOpener />
+        <Activity className="size-[15px] shrink-0 text-muted-foreground" />
+        <span className="text-sm font-semibold">Usage</span>
+      </MainHeader>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-6">
+        <div className="mx-auto flex max-w-[1040px] flex-col gap-8 px-5 pt-5 pb-6">
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filters">
-            <div role="radiogroup" aria-label="Range" className="flex rounded-md border p-0.5">
+            <div role="radiogroup" aria-label="Range" className="flex rounded-md bg-muted p-0.5">
               {RANGES.map((r) => (
                 <button
                   key={r.id}
@@ -79,38 +82,33 @@ export function StatsView() {
                   aria-checked={range === r.id}
                   onClick={() => setRange(r.id)}
                   className={cn(
-                    'rounded px-2 py-0.5 text-xs transition-colors',
-                    range === r.id ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
+                    'rounded-[3px] px-2.5 py-[3px] text-xs transition-colors',
+                    range === r.id ? 'bg-background font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
                   {r.label}
                 </button>
               ))}
             </div>
-            <select
-              aria-label="Project"
-              value={workspaceId}
-              onChange={(e) => setWorkspaceId(e.target.value)}
-              className="h-7 rounded-md border bg-card px-2 text-xs shadow-xs focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-            >
+            <SelectChip label="Project" value={workspaceId} onChange={setWorkspaceId}>
               <option value="">All projects</option>
               {workspaces.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}
                 </option>
               ))}
-            </select>
+            </SelectChip>
           </div>
           {error && <p className="text-xs text-destructive">{error}</p>}
           {!data ? (
             <p className="text-xs text-muted-foreground">Reading the traces…</p>
           ) : data.rollup.sessions === 0 ? (
-            <p className="py-16 text-center font-serif text-sm text-muted-foreground italic">
+            <p className="py-16 text-center text-[13px] text-muted-foreground">
               No traced sessions in this range — usage is recorded as sessions run (unless telemetry is off).
             </p>
           ) : (
             // A refetch keeps the last render, faded, rather than flashing empty.
-            <div className={cn('flex flex-col gap-6 transition-opacity', loading && 'opacity-60')}>
+            <div className={cn('flex flex-col gap-8 transition-opacity', loading && 'opacity-60')}>
               <Figures data={data} />
               <PerDay sessions={data.sessions} days={days} />
               <ByModel data={data} />
@@ -135,47 +133,45 @@ function Figures({ data }: { data: StatsSummary }) {
   const priced = r.totalCostUSD > 0;
   const tokens = r.totalInputTokens + r.totalOutputTokens;
   const unpriced = r.sessionsWithPartialCost;
-  const tile = (label: string, value: string, note?: string) => (
-    <div className="flex min-w-0 flex-col gap-0.5 rounded-lg border bg-card px-3 py-2 shadow-xs">
-      <span className="text-[11px] text-muted-foreground">{label}</span>
-      <span className="truncate text-lg font-semibold">{value}</span>
-      {note && <span className="truncate text-[11px] text-muted-foreground">{note}</span>}
+  const stat = (label: string, value: string, note?: string) => (
+    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="text-[11px] font-medium tracking-[0.02em] text-muted-foreground">{label}</span>
+      <span className="truncate text-xl leading-[26px] font-semibold">{value}</span>
+      <span className="truncate text-[11px] text-faint">{note ?? '\u00a0'}</span>
     </div>
   );
   return (
-    <section aria-label="Totals" className="flex flex-wrap items-end gap-x-8 gap-y-4">
-      <div className="flex flex-col">
-        <span className="text-[11px] text-muted-foreground">{priced ? 'Cost' : 'Tokens'}</span>
-        <span className="text-5xl font-semibold tracking-tight">
+    <section aria-label="Totals" className="flex flex-wrap items-end gap-x-12 gap-y-5 rounded-lg bg-subtle px-6 py-5">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[11px] font-medium tracking-[0.02em] text-muted-foreground">{priced ? 'Cost' : 'Tokens'}</span>
+        <span className="text-4xl leading-[1.1] font-semibold tracking-[-0.02em]">
           {priced ? fmtPartialCost(r.totalCostUSD, unpriced > 0) : fmtTokens(tokens)}
         </span>
-        {unpriced > 0 && (
-          <span className="text-[11px] text-muted-foreground">
-            {priced
+        <span className="text-[11px] text-faint">
+          {unpriced > 0
+            ? priced
               ? `${unpriced} ${unpriced === 1 ? 'session' : 'sessions'} on unpriced models`
-              : 'No prices for these models'}
-          </span>
-        )}
+              : 'No prices for these models'
+            : '\u00a0'}
+        </span>
       </div>
-      <div className="@container min-w-64 flex-1">
-        <div className="grid grid-cols-2 gap-3 @xl:grid-cols-4">
-          {tile(
-            'Sessions',
-            r.sessions.toLocaleString(),
-            priced ? `${fmtCost(r.avgCostPerSession)} each, on average` : `${fmtTokens(tokens / r.sessions)} tokens each`,
-          )}
-          {tile('Model calls', r.totalTurns.toLocaleString(), `${r.avgTurnsPerSession.toFixed(1)} a session`)}
-          {tile(
-            'Tool calls',
-            r.totalToolCalls.toLocaleString(),
-            r.totalDeniedToolCalls > 0 ? `${r.totalDeniedToolCalls.toLocaleString()} denied` : undefined,
-          )}
-          {tile(
-            'Tokens',
-            `↑${fmtTokens(r.totalInputTokens)} ↓${fmtTokens(r.totalOutputTokens)}`,
-            `${Math.round(r.overallCacheHitRate * 100)}% of input cached`,
-          )}
-        </div>
+      <div className="flex min-w-80 flex-1 gap-6">
+        {stat(
+          'Sessions',
+          r.sessions.toLocaleString(),
+          priced ? `${fmtCost(r.avgCostPerSession)} each, on average` : `${fmtTokens(tokens / r.sessions)} tokens each`,
+        )}
+        {stat('Model calls', r.totalTurns.toLocaleString(), `${r.avgTurnsPerSession.toFixed(1)} a session`)}
+        {stat(
+          'Tool calls',
+          r.totalToolCalls.toLocaleString(),
+          r.totalDeniedToolCalls > 0 ? `${r.totalDeniedToolCalls.toLocaleString()} denied` : undefined,
+        )}
+        {stat(
+          'Tokens',
+          `↑${fmtTokens(r.totalInputTokens)} ↓${fmtTokens(r.totalOutputTokens)}`,
+          `${Math.round(r.overallCacheHitRate * 100)}% of input cached`,
+        )}
       </div>
     </section>
   );
@@ -202,7 +198,7 @@ function buckets(sessions: readonly SessionStats[], days: number): Bucket[] {
     const d = new Date(start);
     return {
       start,
-      label: d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + (width > 1 ? ' (week)' : ''),
+      label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + (width > 1 ? ' (week)' : ''),
       costUSD: 0,
       tokens: 0,
       sessions: 0,
@@ -243,41 +239,41 @@ function PerDay({ sessions, days }: { sessions: readonly SessionStats[]; days: n
   const top = niceMax(Math.max(...data.map(value)));
   const shown = hover !== null ? data[hover] : undefined;
   return (
-    <section aria-label={priced ? 'Cost per day' : 'Tokens per day'} className="rounded-lg border bg-card p-4 shadow-xs">
-      <div className="mb-3 flex items-center gap-2">
-        <h2 className="text-sm font-medium">{priced ? 'Cost per day' : 'Tokens per day'}</h2>
+    <section aria-label={priced ? 'Cost per day' : 'Tokens per day'} className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-semibold">{priced ? 'Cost per day' : 'Tokens per day'}</h2>
         <span className="flex-1" />
         <button
           type="button"
           onClick={() => setAsTable(!asTable)}
           aria-pressed={asTable}
           title={asTable ? 'Show as a chart' : 'Show as a table'}
-          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="-mr-1.5 flex items-center gap-[5px] rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          {asTable ? <ChartColumn className="size-3.5" /> : <Table2 className="size-3.5" />}
+          {asTable ? <ChartColumn className="size-[13px]" /> : <Table2 className="size-[13px]" />}
           {asTable ? 'Chart' : 'Table'}
         </button>
       </div>
       {asTable ? (
         <div className="max-h-72 overflow-y-auto">
-          <table className="w-full text-xs">
-            <thead className="text-muted-foreground">
-              <tr className="text-left">
-                <th className="py-1 font-medium">Day</th>
-                <th className="py-1 text-right font-medium">Sessions</th>
-                <th className="py-1 text-right font-medium">Tokens</th>
-                <th className="py-1 text-right font-medium">Cost</th>
+          <table className={tableClass}>
+            <thead>
+              <tr>
+                <th className={thClass}>Day</th>
+                <th className={cn(thClass, 'w-24 text-right')}>Sessions</th>
+                <th className={cn(thClass, 'w-24 text-right')}>Tokens</th>
+                <th className={cn(thClass, 'w-24 text-right')}>Cost</th>
               </tr>
             </thead>
-            <tbody className="font-mono tabular-nums">
+            <tbody>
               {data
                 .filter((b) => b.sessions > 0)
                 .map((b) => (
-                  <tr key={b.start} className="border-t">
-                    <td className="py-1 font-sans">{b.label}</td>
-                    <td className="py-1 text-right">{b.sessions}</td>
-                    <td className="py-1 text-right">{fmtTokens(b.tokens)}</td>
-                    <td className="py-1 text-right">{fmtCost(b.costUSD)}</td>
+                  <tr key={b.start}>
+                    <td className={cn(tdClass, 'text-[13px]')}>{b.label}</td>
+                    <td className={numClass}>{b.sessions}</td>
+                    <td className={numClass}>{fmtTokens(b.tokens)}</td>
+                    <td className={costClass}>{fmtCost(b.costUSD)}</td>
                   </tr>
                 ))}
             </tbody>
@@ -286,7 +282,7 @@ function PerDay({ sessions, days }: { sessions: readonly SessionStats[]; days: n
       ) : (
         <div className="flex gap-2">
           {/* The y axis: three clean ticks, the values in muted text. */}
-          <div className="flex h-40 flex-col justify-between py-0 text-right font-mono text-[10px] text-muted-foreground tabular-nums">
+          <div className="-mt-[7px] flex h-[174px] w-9 shrink-0 flex-col justify-between text-right font-mono text-[11px] text-faint tabular-nums">
             <span>{fmt(top)}</span>
             <span>{fmt(top / 2)}</span>
             <span>{fmt(0)}</span>
@@ -294,10 +290,10 @@ function PerDay({ sessions, days }: { sessions: readonly SessionStats[]; days: n
           <div className="relative min-w-0 flex-1">
             <div className="pointer-events-none absolute inset-x-0 top-0 h-40">
               {[0, 0.5, 1].map((f) => (
-                <div key={f} className="absolute inset-x-0 border-t border-border" style={{ top: `${f * 100}%` }} />
+                <div key={f} className="absolute inset-x-0 h-px bg-border" style={{ top: `calc(${f * 100}% - ${f}px)` }} />
               ))}
             </div>
-            <div className="relative flex h-40 items-end gap-[2px]" onPointerLeave={() => setHover(null)}>
+            <div className="relative flex h-40 items-end gap-[2px] px-[3px]" onPointerLeave={() => setHover(null)}>
               {data.map((b, i) => (
                 <button
                   key={b.start}
@@ -311,7 +307,8 @@ function PerDay({ sessions, days }: { sessions: readonly SessionStats[]; days: n
                 >
                   <span
                     className={cn(
-                      'w-full max-w-6 rounded-t bg-chart-1 transition-opacity group-hover/col:opacity-80 group-focus-visible/col:ring-2 group-focus-visible/col:ring-ring/40',
+                      'w-full max-w-6 rounded-t-[2px] bg-chart-1 transition-colors group-focus-visible/col:ring-2 group-focus-visible/col:ring-ring/40',
+                      hover === i && 'bg-ink',
                       value(b) === 0 && 'opacity-0',
                     )}
                     style={{ height: `${Math.max(value(b) > 0 ? 2 : 0, (value(b) / top) * 100)}%` }}
@@ -322,17 +319,17 @@ function PerDay({ sessions, days }: { sessions: readonly SessionStats[]; days: n
             {shown && hover !== null && (
               <div
                 role="tooltip"
-                className="pointer-events-none absolute -top-2 z-10 -translate-y-full rounded-md border bg-popover px-2 py-1 text-xs whitespace-nowrap shadow-md"
+                className="pointer-events-none absolute -top-1.5 z-10 flex -translate-y-full gap-1.5 rounded-md bg-ink px-2 py-1 text-xs whitespace-nowrap text-on-ink"
                 // Centred on its column, but kept inside the card at either end.
                 style={tooltipAt((hover + 0.5) / data.length)}
               >
-                <span className="font-semibold">{fmt(value(shown))}</span>{' '}
-                <span className="text-muted-foreground">
+                <span className="font-medium">{fmt(value(shown))}</span>
+                <span className="text-faint">
                   {shown.label} · {shown.sessions} {shown.sessions === 1 ? 'session' : 'sessions'}
                 </span>
               </div>
             )}
-            <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+            <div className="mt-1.5 flex justify-between text-[11px] text-faint">
               <span>{data[0]?.label}</span>
               {data.length > 2 && <span>{data[Math.floor(data.length / 2)]?.label}</span>}
               <span>{data.at(-1)?.label}</span>
@@ -346,38 +343,51 @@ function PerDay({ sessions, days }: { sessions: readonly SessionStats[]; days: n
 
 function ByModel({ data }: { data: StatsSummary }) {
   return (
-    <section aria-label="By model" className="rounded-lg border bg-card p-4 shadow-xs">
-      <h2 className="mb-2 text-sm font-medium">By model</h2>
-      <table className="w-full text-xs">
-        <thead className="text-muted-foreground">
-          <tr className="text-left">
-            <th className="py-1 font-medium">Model</th>
-            <th className="py-1 text-right font-medium">Sessions</th>
-            <th className="py-1 text-right font-medium">Calls</th>
-            <th className="py-1 text-right font-medium">Input</th>
-            <th className="py-1 text-right font-medium">Output</th>
-            <th className="py-1 text-right font-medium">Cached</th>
-            <th className="py-1 text-right font-medium">Cost</th>
+    <section aria-label="By model" className="flex flex-col gap-2">
+      <h2 className="text-sm font-semibold">By model</h2>
+      <table className={tableClass}>
+        <thead>
+          <tr>
+            <th className={thClass}>Model</th>
+            {['Sessions', 'Calls', 'Input', 'Output', 'Cached', 'Cost'].map((h) => (
+              <th key={h} className={cn(thClass, 'w-24 text-right')}>
+                {h}
+              </th>
+            ))}
           </tr>
         </thead>
-        <tbody className="font-mono tabular-nums">
+        <tbody>
           {data.rollup.byModel.map((m) => (
-            <tr key={m.model} className="border-t">
-              <td className="max-w-64 truncate py-1">{m.model}</td>
-              <td className="py-1 text-right">{m.sessions}</td>
-              <td className="py-1 text-right">{m.turns.toLocaleString()}</td>
-              <td className="py-1 text-right">{fmtTokens(m.inputTokens)}</td>
-              <td className="py-1 text-right">{fmtTokens(m.outputTokens)}</td>
-              <td className="py-1 text-right">
+            <tr key={m.model}>
+              <td className={cn(tdClass, 'max-w-64 truncate font-mono text-xs')}>{m.model}</td>
+              <td className={numClass}>{m.sessions}</td>
+              <td className={numClass}>{m.turns.toLocaleString()}</td>
+              <td className={numClass}>{fmtTokens(m.inputTokens)}</td>
+              <td className={numClass}>{fmtTokens(m.outputTokens)}</td>
+              <td className={cn(numClass, m.inputTokens === 0 && 'text-faint')}>
                 {m.inputTokens > 0 ? `${Math.round((m.cachedInputTokens / m.inputTokens) * 100)}%` : '—'}
               </td>
-              <td className="py-1 text-right">{fmtPartialCost(m.costUSD, m.costPartial)}</td>
+              <CostCell usd={m.costUSD} partial={m.costPartial} />
             </tr>
           ))}
         </tbody>
       </table>
     </section>
   );
+}
+
+/** Tables on the page: a grey head row, then rows with no rules between them. */
+const tableClass = 'w-full table-fixed border-separate border-spacing-0 text-xs';
+const thClass =
+  'bg-subtle px-3 py-1.5 text-left text-[11px] font-medium tracking-[0.02em] text-muted-foreground first:rounded-l-md last:rounded-r-md';
+const tdClass = 'px-3 py-[7px]';
+const numClass = 'px-3 py-[7px] text-right font-mono text-muted-foreground tabular-nums';
+const costClass = 'px-3 py-[7px] text-right font-mono font-medium tabular-nums';
+
+/** A cost; an unknown one (no price) is a faint dash. */
+function CostCell({ usd, partial }: { usd: number; partial: boolean }) {
+  const text = fmtPartialCost(usd, partial);
+  return <td className={cn(costClass, text === '—' && 'font-normal text-faint')}>{text}</td>;
 }
 
 /** The sessions in range, the costliest first (the newest, unpriced), each opening to its trace. */
@@ -393,24 +403,25 @@ function Sessions({ sessions }: { sessions: readonly SessionStats[] }) {
   );
   const shown = all ? sorted : sorted.slice(0, SESSIONS_SHOWN);
   return (
-    <section aria-label="Sessions" className="rounded-lg border bg-card p-4 shadow-xs">
-      <h2 className="mb-2 text-sm font-medium">Sessions</h2>
-      <table className="w-full table-fixed text-xs">
-        <thead className="text-muted-foreground">
-          <tr className="text-left">
-            <th className="w-[40%] py-1 font-medium">Session</th>
-            <th className="py-1 font-medium">Project</th>
-            <th className="py-1 font-medium">Started</th>
-            <th className="py-1 text-right font-medium">Calls</th>
-            <th className="py-1 text-right font-medium">Tools</th>
-            <th className="py-1 text-right font-medium">Tokens</th>
-            <th className="py-1 text-right font-medium">Cost</th>
+    <section aria-label="Sessions" className="flex flex-col gap-2">
+      <h2 className="text-sm font-semibold">Sessions</h2>
+      <table className={tableClass}>
+        <thead>
+          <tr>
+            <th className={thClass}>Session</th>
+            <th className={cn(thClass, 'w-24')}>Project</th>
+            <th className={cn(thClass, 'w-24')}>Started</th>
+            {['Calls', 'Tools', 'Tokens', 'Cost'].map((h) => (
+              <th key={h} className={cn(thClass, 'w-24 text-right')}>
+                {h}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {shown.map((s) => (
-            <tr key={s.id} className="border-t">
-              <td className="truncate py-1">
+            <tr key={s.id}>
+              <td className={cn(tdClass, 'truncate text-[13px] font-medium')}>
                 <a
                   href={routeToHash({ kind: 'session', id: s.id })}
                   onClick={() => setPanel('trace')}
@@ -420,12 +431,12 @@ function Sessions({ sessions }: { sessions: readonly SessionStats[] }) {
                   {titles.get(s.id) ?? s.id.slice(0, 8)}
                 </a>
               </td>
-              <td className="truncate py-1 text-muted-foreground">{names.get(s.workspaceId) ?? ''}</td>
-              <td className="py-1 text-muted-foreground">{relativeTime(s.startedAt)}</td>
-              <td className="py-1 text-right font-mono tabular-nums">{s.turns}</td>
-              <td className="py-1 text-right font-mono tabular-nums">{s.toolCalls}</td>
-              <td className="py-1 text-right font-mono tabular-nums">{fmtTokens(s.inputTokens + s.outputTokens)}</td>
-              <td className="py-1 text-right font-mono tabular-nums">{fmtPartialCost(s.costUSD, s.costPartial)}</td>
+              <td className={cn(tdClass, 'truncate text-muted-foreground')}>{names.get(s.workspaceId) ?? ''}</td>
+              <td className={cn(tdClass, 'text-faint')}>{relativeTime(s.startedAt)}</td>
+              <td className={numClass}>{s.turns}</td>
+              <td className={numClass}>{s.toolCalls}</td>
+              <td className={numClass}>{fmtTokens(s.inputTokens + s.outputTokens)}</td>
+              <CostCell usd={s.costUSD} partial={s.costPartial} />
             </tr>
           ))}
         </tbody>
@@ -434,7 +445,7 @@ function Sessions({ sessions }: { sessions: readonly SessionStats[] }) {
         <button
           type="button"
           onClick={() => setAll(!all)}
-          className="mt-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className="self-start px-3 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
           {all ? 'Show fewer' : `Show all ${sorted.length}`}
         </button>
