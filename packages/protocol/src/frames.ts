@@ -36,4 +36,5 @@ export type ServerFrame =
   | { t: 'term'; id: string; data: string }
   | { t: 'term'; id: string; exitCode: number };
 
-export type ErrorCode = 'unauthorized' | 'not_found' | 'busy' | 'bad_request' | 'internal';
+/** `conflict`: the request would lose work, and goes through only when confirmed (`session.update {force}`). */
+export type ErrorCode = 'unauthorized' | 'not_found' | 'busy' | 'bad_request' | 'conflict' | 'internal';

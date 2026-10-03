@@ -38,7 +38,7 @@ import type {
   Usage,
 } from '@harness-code/core';
 import { AttachmentError, alwaysAllowFor, loadTranscript, sessionTitleFrom, updateSessionMeta } from '@harness-code/core';
-import type { AlwaysAllow, SessionMetaPatch } from '@harness-code/core';
+import type { AlwaysAllow, SessionMetaPatch, SessionWorktreeMeta } from '@harness-code/core';
 import type {
   QueuedMessage,
   SendResult,
@@ -100,6 +100,14 @@ export class InvalidRequestError extends Error {
   }
 }
 
+/** Thrown for a request that would lose work and wasn't confirmed. The WS layer maps it to `conflict`. */
+export class ConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConflictError';
+  }
+}
+
 /** Thrown when an RPC names a session that has no live host. The WS layer maps it to `not_found`. */
 export class SessionNotFoundError extends Error {
   constructor(id: string) {
@@ -143,6 +151,8 @@ export class SessionHost {
 
   readonly #agentDir: string;
   readonly #cwd: string | undefined;
+  /** The worktree the session works in (`#cwd` is in it); absent in the project's checkout. */
+  readonly worktree: SessionWorktreeMeta | undefined;
   readonly #workspaceId: string | undefined;
   readonly #onSummaryChange: (() => void) | undefined;
   readonly #onFilesChanged: (() => void) | undefined;
@@ -207,6 +217,7 @@ export class SessionHost {
   constructor(opts: {
     agentDir: string;
     cwd?: string;
+    worktree?: SessionWorktreeMeta;
     workspaceId?: string;
     hasMeta?: boolean;
     onSummaryChange?: () => void;
@@ -214,6 +225,7 @@ export class SessionHost {
   }) {
     this.#agentDir = opts.agentDir;
     this.#cwd = opts.cwd;
+    this.worktree = opts.worktree;
     this.#workspaceId = opts.workspaceId;
     this.#metaExists = opts.hasMeta === true;
     this.#onSummaryChange = opts.onSummaryChange;
@@ -272,6 +284,11 @@ export class SessionHost {
     return now - this.#lastActive;
   }
 
+  /** Where the session works: the workspace's root, or a place in its worktree. */
+  get cwd(): string | undefined {
+    return this.#cwd;
+  }
+
   /** A title from the first message sent here, for a session whose log has none yet. */
   get title(): string | undefined {
     return this.#firstInput === undefined ? undefined : sessionTitleFrom(this.#firstInput) || undefined;
@@ -324,6 +341,7 @@ export class SessionHost {
     const patch: SessionMetaPatch = { model: this.#modelRef, mode: session.mode };
     if (session.effort) patch.effort = session.effort;
     if (this.#cwd) patch.cwd = this.#cwd;
+    if (this.worktree) patch.worktree = this.worktree;
     this.#trackMeta(updateSessionMeta(this.#agentDir, this.id, patch, { createdAt: Date.now() }));
   }
 
@@ -699,6 +717,7 @@ export class SessionHost {
       effortLevels: [...session.effortLevels],
     };
     if (this.#workspaceId) snapshot.workspaceId = this.#workspaceId;
+    if (this.worktree) snapshot.worktree = { ...this.worktree };
     if (session.effort) snapshot.effort = session.effort;
     if (session.sessionUsage) snapshot.usage = session.sessionUsage;
     if (session.contextSnapshot) snapshot.context = session.contextSnapshot;

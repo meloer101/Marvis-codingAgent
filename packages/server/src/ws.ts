@@ -30,7 +30,7 @@ import type {
 import { methods } from '@harness-code/protocol';
 import { WebSocket, WebSocketServer } from 'ws';
 
-import { BusyError, InvalidRequestError, SessionNotFoundError } from './host.js';
+import { BusyError, ConflictError, InvalidRequestError, SessionNotFoundError } from './host.js';
 import {
   GitCommandError,
   createPullRequest,
@@ -243,14 +243,14 @@ class Connection {
       case 'model.list':
         return hub.models((params as MethodParams<'model.list'>).workspaceId);
       case 'fs.search': {
-        const { workspaceId, query, limit } = params as MethodParams<'fs.search'>;
-        return hub.searchFiles(workspaceId, query, limit);
+        const { workspaceId, sessionId, query, limit } = params as MethodParams<'fs.search'>;
+        return hub.searchFiles(workspaceId, query, limit, sessionId);
       }
       case 'terminal.list':
         return hub.terminals.list((params as MethodParams<'terminal.list'>).workspaceId);
       case 'terminal.create': {
-        const { workspaceId, cols, rows } = params as MethodParams<'terminal.create'>;
-        return hub.createTerminal(workspaceId, cols, rows);
+        const { workspaceId, sessionId, cols, rows } = params as MethodParams<'terminal.create'>;
+        return hub.createTerminal(workspaceId, cols, rows, sessionId);
       }
       case 'terminal.attach': {
         const { id } = params as MethodParams<'terminal.attach'>;
@@ -283,45 +283,59 @@ class Connection {
         return undefined;
       }
       case 'fs.list': {
-        const { workspaceId, dir } = params as MethodParams<'fs.list'>;
-        return hub.listDir(workspaceId, dir);
+        const { workspaceId, sessionId, dir } = params as MethodParams<'fs.list'>;
+        return hub.listDir(workspaceId, dir, sessionId);
       }
       case 'fs.read': {
-        const { workspaceId, path } = params as MethodParams<'fs.read'>;
-        return hub.readFile(workspaceId, path);
+        const { workspaceId, sessionId, path } = params as MethodParams<'fs.read'>;
+        return hub.readFile(workspaceId, path, sessionId);
       }
       case 'editor.open': {
-        const { workspaceId, path, line, editor } = params as MethodParams<'editor.open'>;
-        return hub.openInEditor(workspaceId, path, editor, line);
+        const { workspaceId, sessionId, path, line, editor } = params as MethodParams<'editor.open'>;
+        return hub.openInEditor(workspaceId, path, editor, line, sessionId);
       }
-      case 'git.status':
-        return hub.gitStatus((params as MethodParams<'git.status'>).workspaceId);
+      case 'git.status': {
+        const { workspaceId, sessionId } = params as MethodParams<'git.status'>;
+        return hub.gitStatus(workspaceId, sessionId);
+      }
       case 'git.diff': {
-        const { workspaceId, path } = params as MethodParams<'git.diff'>;
-        return hub.gitDiff(workspaceId, path);
+        const { workspaceId, sessionId, path } = params as MethodParams<'git.diff'>;
+        return hub.gitDiff(workspaceId, path, sessionId);
       }
+      case 'git.branches':
+        return hub.gitBranches((params as MethodParams<'git.branches'>).workspaceId);
       case 'git.stage': {
-        const { workspaceId, paths } = params as MethodParams<'git.stage'>;
-        return hub.gitChange(workspaceId, (root) => gitStage(root, paths));
+        const { workspaceId, sessionId, paths } = params as MethodParams<'git.stage'>;
+        return hub.gitChange(workspaceId, (root) => gitStage(root, paths), sessionId);
       }
       case 'git.unstage': {
-        const { workspaceId, paths } = params as MethodParams<'git.unstage'>;
-        return hub.gitChange(workspaceId, (root) => gitUnstage(root, paths));
+        const { workspaceId, sessionId, paths } = params as MethodParams<'git.unstage'>;
+        return hub.gitChange(workspaceId, (root) => gitUnstage(root, paths), sessionId);
       }
       case 'git.revert': {
-        const { workspaceId, paths } = params as MethodParams<'git.revert'>;
-        return hub.gitChange(workspaceId, (root) => gitRevert(root, paths));
+        const { workspaceId, sessionId, paths } = params as MethodParams<'git.revert'>;
+        return hub.gitChange(workspaceId, (root) => gitRevert(root, paths), sessionId);
       }
       case 'git.commit': {
-        const { workspaceId, message, paths } = params as MethodParams<'git.commit'>;
-        return hub.gitChange(workspaceId, (root) => gitCommit(root, message, paths ? { paths } : {}));
+        const { workspaceId, sessionId, message, paths } = params as MethodParams<'git.commit'>;
+        return hub.gitChange(workspaceId, (root) => gitCommit(root, message, paths ? { paths } : {}), sessionId);
       }
-      case 'git.push':
-        return hub.gitChange((params as MethodParams<'git.push'>).workspaceId, (root) => gitPush(root));
+      case 'git.push': {
+        const { workspaceId, sessionId } = params as MethodParams<'git.push'>;
+        return hub.gitChange(workspaceId, (root) => gitPush(root), sessionId);
+      }
       case 'git.createPr': {
-        const { workspaceId, title, body, draft } = params as MethodParams<'git.createPr'>;
-        return hub.gitChange(workspaceId, (root) =>
-          createPullRequest(root, { title, ...(body !== undefined ? { body } : {}), ...(draft !== undefined ? { draft } : {}) }),
+        const { workspaceId, sessionId, title, body, draft } = params as MethodParams<'git.createPr'>;
+        return hub.gitChange(
+          workspaceId,
+          (root, checkout) =>
+            createPullRequest(root, {
+              title,
+              ...(body !== undefined ? { body } : {}),
+              ...(draft !== undefined ? { draft } : {}),
+              ...(checkout.worktree ? { base: checkout.worktree.base } : {}),
+            }),
+          sessionId,
         );
       }
       case 'fs.suggestDirs':
@@ -504,6 +518,7 @@ function isClientFrame(value: unknown): value is ClientFrame {
 /** Map a thrown value to a wire error code. */
 function mapError(err: unknown): { code: ErrorCode; message: string } {
   if (err instanceof BusyError) return { code: 'busy', message: err.message };
+  if (err instanceof ConflictError) return { code: 'conflict', message: err.message };
   if (err instanceof InvalidRequestError) return { code: 'bad_request', message: err.message };
   if (err instanceof SessionNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof SessionPreviewNotFoundError) return { code: 'not_found', message: err.message };

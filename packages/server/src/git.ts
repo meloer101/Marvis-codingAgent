@@ -46,17 +46,19 @@ interface Run {
   code: number;
 }
 
-interface RunOptions {
+export interface RunOptions {
   maxBuffer?: number;
   okCodes?: number[];
   /** Commits run hooks and pushes talk to a remote: give them longer. */
   timeout?: number;
+  /** Written to the command's stdin. */
+  input?: string;
 }
 
 /** Never prompts: no terminal, no credentials asked for — a command that needs them fails. */
 function run(command: string, cwd: string, args: string[], opts: RunOptions = {}): Promise<Run> {
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       command,
       args,
       {
@@ -83,15 +85,16 @@ function run(command: string, cwd: string, args: string[], opts: RunOptions = {}
         }
       },
     );
+    if (opts.input !== undefined) child.stdin?.end(opts.input);
   });
 }
 
-function git(cwd: string, args: string[], opts: RunOptions = {}): Promise<Run> {
+export function git(cwd: string, args: string[], opts: RunOptions = {}): Promise<Run> {
   return run('git', cwd, ['-c', 'core.quotepath=off', '-c', 'color.ui=false', ...args], opts);
 }
 
 /** The workspace's path inside its repository (`''` at the root, else `sub/dir/`); null outside one. */
-async function prefixOf(root: string): Promise<string | null> {
+export async function prefixOf(root: string): Promise<string | null> {
   try {
     return (await git(root, ['rev-parse', '--show-prefix'])).stdout.trim();
   } catch {
@@ -336,13 +339,20 @@ export async function gitPush(root: string): Promise<void> {
   await git(root, ['push', '-u', remote, status.branch], { timeout: SLOW_TIMEOUT_MS });
 }
 
-/** Open a pull request for the branch with the GitHub CLI; resolves with its URL. */
+/**
+ * Open a pull request for the branch with the GitHub CLI; resolves with its
+ * URL. `base` (a worktree's) is the branch to merge into, when it is a local
+ * branch; else the repository's default.
+ */
 export async function createPullRequest(
   root: string,
-  pr: { title: string; body?: string; draft?: boolean },
+  pr: { title: string; body?: string; draft?: boolean; base?: string },
 ): Promise<{ url: string }> {
   const args = ['pr', 'create', '--title', pr.title, '--body', pr.body ?? ''];
   if (pr.draft) args.push('--draft');
+  if (pr.base && (await git(root, ['show-ref', '--verify', '--quiet', `refs/heads/${pr.base}`], { okCodes: [1] })).code === 0) {
+    args.push('--base', pr.base);
+  }
   try {
     const { stdout } = await run('gh', root, args, { timeout: SLOW_TIMEOUT_MS });
     const url = stdout.trim().split('\n').filter(Boolean).at(-1) ?? '';

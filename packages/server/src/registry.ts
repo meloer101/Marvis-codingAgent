@@ -28,10 +28,20 @@ import type {
   PermissionMode,
   ReasoningEffort,
   SessionMeta,
+  SessionWorktreeMeta,
 } from '@harness-code/core';
-import type { PushEvent, SessionSnapshot, SessionSummary } from '@harness-code/protocol';
+import type { PushEvent, SessionSnapshot, SessionSummary, SessionWorktree } from '@harness-code/protocol';
 
-import { BusyError, InvalidRequestError, SessionHost } from './host.js';
+import { GitCommandError } from './git.js';
+import { BusyError, ConflictError, InvalidRequestError, SessionHost } from './host.js';
+import {
+  createWorktree,
+  removeWorktree,
+  restoreWorktree,
+  workspacePrefix,
+  worktreeChanges,
+  worktreeCwd,
+} from './worktrees.js';
 
 /** Builds an `AgentSessionConfig` for a new or resumed session. */
 export type SessionConfigFactory = (opts: {
@@ -39,6 +49,8 @@ export type SessionConfigFactory = (opts: {
   mode?: PermissionMode;
   effort?: ReasoningEffort;
   resumeId?: string;
+  /** Where the session works, when not the workspace's root: a place in its worktree. */
+  cwd?: string;
 }) => Promise<AgentSessionConfig>;
 
 /**
@@ -75,6 +87,21 @@ export interface SessionRegistryOptions {
   idleMs?: number;
   /** How often to look for idle hosts; `0` turns the sweep off (tests call `sweep()`). Default 1 minute. */
   sweepMs?: number;
+  /** The home directory sessions' worktrees go under (`~/.agent/worktrees`); `os.homedir()` by default. */
+  home?: string;
+  /**
+   * Remove every session's worktree (and merged branch) on shutdown: for
+   * `--mock`, whose sessions vanish with its temp dir.
+   */
+  dropWorktrees?: boolean;
+}
+
+/** Where a session works (`checkoutOf`). */
+export interface SessionCheckout {
+  cwd: string;
+  worktree?: SessionWorktreeMeta;
+  /** Its worktree was removed; it comes back with the session's next run. */
+  missing?: boolean;
 }
 
 const DEFAULT_IDLE_MS = 10 * 60_000;
@@ -114,6 +141,10 @@ export class SessionRegistry {
   #rev = 0;
   readonly #idleMs: number;
   readonly #sweepTimer: ReturnType<typeof setInterval> | undefined;
+  readonly #home: string | undefined;
+  readonly #dropWorktrees: boolean;
+  /** The workspace's place in its repository, for finding it in a worktree. */
+  #prefix: Promise<string> | undefined;
 
   constructor(opts: SessionRegistryOptions) {
     this.#cwd = opts.cwd;
@@ -124,6 +155,8 @@ export class SessionRegistry {
     this.#previewDefaults = opts.previewDefaults;
     this.#effortFor = opts.effortFor ?? (() => ({ levels: [], initial: undefined }));
     this.#idleMs = opts.idleMs ?? DEFAULT_IDLE_MS;
+    this.#home = opts.home;
+    this.#dropWorktrees = opts.dropWorktrees === true;
     const sweepMs = opts.sweepMs ?? DEFAULT_SWEEP_MS;
     if (sweepMs > 0) {
       this.#sweepTimer = setInterval(() => this.sweep(), sweepMs);
@@ -191,6 +224,7 @@ export class SessionRegistry {
     if (!disk && !host) return null;
     const title =
       disk && disk.title !== UNTITLED_SESSION ? disk.title : (host?.title ?? disk?.title ?? NEW_SESSION_TITLE);
+    const worktree = host?.worktree ?? disk?.meta?.worktree;
     return {
       id,
       workspaceId: this.#workspaceId,
@@ -201,6 +235,7 @@ export class SessionRegistry {
       pending: host?.pending ?? false,
       pinned: disk?.meta?.pinned === true,
       archived: disk?.meta?.archived === true,
+      ...(worktree ? { worktree: { branch: worktree.branch } } : {}),
       rev,
     };
   }
@@ -241,23 +276,29 @@ export class SessionRegistry {
     return host.snapshot();
   }
 
-  /** Create a session and send `text` as its first message (`session.start`). */
+  /**
+   * Create a session and send `text` as its first message (`session.start`) —
+   * with `worktree`, in a git worktree of its own on a new branch off `base`,
+   * named after the message.
+   */
   async start(opts: {
     text: string;
     attachments?: readonly string[];
     model?: string;
     mode?: PermissionMode;
     effort?: ReasoningEffort;
+    worktree?: { base: string };
   }): Promise<{ snapshot: SessionSnapshot; runId: string }> {
-    const { text, attachments = [], ...spawnOpts } = opts;
+    const { text, attachments = [], worktree, ...spawnOpts } = opts;
     await this.#checkEffort(spawnOpts.model, spawnOpts.effort);
-    const host = await this.#spawn(spawnOpts);
+    const host = await this.#spawn(spawnOpts, worktree ? { base: worktree.base, hint: text } : undefined);
     try {
       await host.checkAttachments(attachments);
     } catch (err) {
       // Nothing was said yet: the session leaves nothing behind.
       this.#hosts.delete(host.id);
       await host.close();
+      if (host.worktree) await this.#dropWorktree(host.worktree);
       throw err;
     }
     this.#announce(host.id);
@@ -294,6 +335,17 @@ export class SessionRegistry {
   async #resume(id: string): Promise<SessionHost> {
     const meta = await readSessionMeta(this.#agentDir, id);
     const mode = restoredMode(meta);
+    // A session archived since has no worktree: check its branch out again.
+    const worktree = meta?.worktree;
+    if (worktree) {
+      try {
+        await restoreWorktree(this.#cwd, worktree);
+      } catch (err) {
+        const why = err instanceof Error ? err.message : String(err);
+        throw new InvalidRequestError(`couldn't check out this session's worktree (${worktree.branch}) again: ${why}`);
+      }
+    }
+    const cwd = worktree ? worktreeCwd(worktree, await this.#workspacePrefix()) : undefined;
     // The recorded effort only carries over to a model that offers it (a
     // fallback model may not have DeepSeek's `ultra`, say).
     const configFor = async (model: string | undefined): Promise<AgentSessionConfig> => {
@@ -305,6 +357,7 @@ export class SessionRegistry {
         ...(model ? { model } : {}),
         ...(mode ? { mode } : {}),
         ...(effort ? { effort } : {}),
+        ...(cwd ? { cwd } : {}),
       });
     };
     let config: AgentSessionConfig;
@@ -314,9 +367,31 @@ export class SessionRegistry {
       if (!meta?.model) throw err;
       config = await configFor(undefined);
     }
-    const host = await this.#start(config, { hasMeta: meta !== null });
+    const host = await this.#start(config, {
+      hasMeta: meta !== null,
+      ...(cwd && worktree ? { cwd, worktree } : {}),
+    });
     this.#announce(host.id);
     return host;
+  }
+
+  /**
+   * Where session `id` works: its worktree, if it has one (`missing` once
+   * removed), else the workspace's root — also for an id this workspace
+   * doesn't know, so a request can't reach any other directory.
+   */
+  async checkoutOf(id: string): Promise<SessionCheckout> {
+    const host = this.#hosts.get(id);
+    if (host) return host.worktree && host.cwd ? { cwd: host.cwd, worktree: host.worktree } : { cwd: this.#cwd };
+    const worktree = (await readSessionMeta(this.#agentDir, id))?.worktree;
+    if (!worktree) return { cwd: this.#cwd };
+    const cwd = worktreeCwd(worktree, await this.#workspacePrefix());
+    return { cwd, worktree, ...((await exists(worktree.path)) ? {} : { missing: true }) };
+  }
+
+  #workspacePrefix(): Promise<string> {
+    this.#prefix ??= workspacePrefix(this.#cwd);
+    return this.#prefix;
   }
 
   /**
@@ -359,6 +434,7 @@ export class SessionRegistry {
         lastSeq: 0,
         effortLevels: [...levels],
         ...(effort ? { effort } : {}),
+        ...(meta?.worktree ? { worktree: await describeWorktree(meta.worktree) } : {}),
       };
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
@@ -372,8 +448,12 @@ export class SessionRegistry {
    * row, which is also pushed. An empty title clears it, so the list goes
    * back to the first message.
    */
-  async update(id: string, patch: { title?: string; pinned?: boolean; archived?: boolean }): Promise<SessionSummary> {
+  async update(
+    id: string,
+    patch: { title?: string; pinned?: boolean; archived?: boolean; force?: boolean },
+  ): Promise<SessionSummary> {
     if (!(await this.has(id))) throw new SessionPreviewNotFoundError(id);
+    if (patch.archived === true) await this.#putAwayWorktree(id, patch.force === true);
     const title = patch.title?.replace(/\s+/g, ' ').trim();
     await updateSessionMeta(this.#agentDir, id, {
       ...(patch.title !== undefined ? { title: title || undefined } : {}),
@@ -387,15 +467,48 @@ export class SessionRegistry {
   }
 
   /**
-   * Delete `id` for good: log, metadata, offloaded tool output, trace. Not
-   * while it runs; a live, idle session is closed first — its writers would
-   * otherwise recreate what was just removed.
+   * Archiving removes the session's worktree — its branch stays, for the next
+   * run to check out again. Not while it runs; not over uncommitted changes
+   * unless `force`. A live host working there is closed first.
+   */
+  async #putAwayWorktree(id: string, force: boolean): Promise<void> {
+    const host = this.#hosts.get(id);
+    const worktree = host?.worktree ?? (await readSessionMeta(this.#agentDir, id))?.worktree;
+    if (!worktree || !(await exists(worktree.path))) return;
+    if (host?.running || host?.pending) throw new BusyError('the session is running; stop it first');
+    if (!force) {
+      const changes = await worktreeChanges(worktree);
+      if (changes > 0) {
+        throw new ConflictError(
+          `its worktree has ${changes} uncommitted change${changes === 1 ? '' : 's'}, which archiving would throw away`,
+        );
+      }
+    }
+    if (host) await this.close(id);
+    await removeWorktree(this.#cwd, worktree, this.#home ? { home: this.#home } : {});
+    this.#filesChanged();
+  }
+
+  /** Remove a worktree and its branch (if merged): the session it was made for is gone. */
+  async #dropWorktree(worktree: SessionWorktreeMeta): Promise<void> {
+    await removeWorktree(this.#cwd, worktree, { deleteBranch: true, ...(this.#home ? { home: this.#home } : {}) }).catch(
+      () => {
+        // Left for `git worktree prune` and `git branch -d` by hand.
+      },
+    );
+  }
+
+  /**
+   * Delete `id` for good: log, metadata, offloaded tool output, trace, and its
+   * worktree. Not while it runs; a live, idle session is closed first — its
+   * writers would otherwise recreate what was just removed.
    */
   async delete(id: string): Promise<void> {
     await this.#resuming.get(id)?.catch(() => {});
     if (!(await this.has(id))) throw new SessionPreviewNotFoundError(id);
     const host = this.#hosts.get(id);
     if (host?.running) throw new BusyError('the session is running; stop it first');
+    const worktree = host?.worktree ?? (await readSessionMeta(this.#agentDir, id))?.worktree;
     if (host) {
       this.#hosts.delete(id);
       await host.close();
@@ -410,6 +523,7 @@ export class SessionRegistry {
       ),
     );
     await rm(sessionArtifactsDir(this.#agentDir, id), { recursive: true, force: true });
+    if (worktree) await this.#dropWorktree(worktree);
     this.#announce(id);
   }
 
@@ -426,10 +540,40 @@ export class SessionRegistry {
     const hosts = [...this.#hosts.values()];
     this.#hosts.clear();
     await Promise.all(hosts.map((h) => h.close()));
+    if (this.#dropWorktrees) {
+      const ids = new Set([...(await listSessionIds(this.#agentDir)).map((s) => s.id)]);
+      const worktrees = hosts.flatMap((h) => (h.worktree ? [h.worktree] : []));
+      for (const id of ids) {
+        const worktree = (await readSessionMeta(this.#agentDir, id))?.worktree;
+        if (worktree && !worktrees.some((w) => w.path === worktree.path)) worktrees.push(worktree);
+      }
+      for (const worktree of worktrees) await this.#dropWorktree(worktree);
+    }
   }
 
-  async #spawn(opts: { model?: string; mode?: PermissionMode; effort?: ReasoningEffort }): Promise<SessionHost> {
-    return this.#start(await this.#buildConfig(opts), { hasMeta: false });
+  /** A new session: in the workspace's root, or in a worktree made for it (removed again if the session fails to start). */
+  async #spawn(
+    opts: { model?: string; mode?: PermissionMode; effort?: ReasoningEffort },
+    worktree?: { base: string; hint: string },
+  ): Promise<SessionHost> {
+    if (!worktree) return this.#start(await this.#buildConfig(opts), { hasMeta: false });
+    let made: Awaited<ReturnType<typeof createWorktree>>;
+    try {
+      made = await createWorktree(this.#cwd, { ...worktree, ...(this.#home ? { home: this.#home } : {}) });
+    } catch (err) {
+      if (err instanceof GitCommandError) throw new InvalidRequestError(`couldn't make a worktree: ${err.message}`);
+      throw err;
+    }
+    try {
+      if (!(await exists(made.cwd))) {
+        throw new InvalidRequestError(`${worktree.base} has no ${made.cwd.slice(made.meta.path.length + 1)} to work in`);
+      }
+      const config = await this.#buildConfig({ ...opts, cwd: made.cwd });
+      return await this.#start(config, { hasMeta: false, cwd: made.cwd, worktree: made.meta });
+    } catch (err) {
+      await this.#dropWorktree(made.meta);
+      throw err;
+    }
   }
 
   /** Refuse an effort the new session's model (`model`, else the default) doesn't offer. */
@@ -443,10 +587,14 @@ export class SessionRegistry {
     }
   }
 
-  async #start(config: AgentSessionConfig, opts: { hasMeta: boolean }): Promise<SessionHost> {
+  async #start(
+    config: AgentSessionConfig,
+    opts: { hasMeta: boolean; cwd?: string; worktree?: SessionWorktreeMeta },
+  ): Promise<SessionHost> {
     const host: SessionHost = new SessionHost({
       agentDir: this.#agentDir,
-      cwd: this.#cwd,
+      cwd: opts.cwd ?? this.#cwd,
+      ...(opts.worktree ? { worktree: opts.worktree } : {}),
       ...(this.#workspaceId ? { workspaceId: this.#workspaceId } : {}),
       hasMeta: opts.hasMeta,
       onSummaryChange: () => this.#announce(host.id),
@@ -454,6 +602,8 @@ export class SessionRegistry {
     });
     const session = await AgentSession.create({
       ...config,
+      // Logged where this registry lists them, wherever the session works.
+      agentDir: config.agentDir ?? this.#agentDir,
       askHandler: host.ask,
       confirm: host.confirm,
       onEvent: host.onAgentEvent,
@@ -463,4 +613,16 @@ export class SessionRegistry {
     this.#hosts.set(host.id, host);
     return host;
   }
+}
+
+async function exists(path: string): Promise<boolean> {
+  return access(path).then(
+    () => true,
+    () => false,
+  );
+}
+
+/** A session's worktree as the UI sees it: `missing` once it was removed. */
+async function describeWorktree(worktree: SessionWorktreeMeta): Promise<SessionWorktree> {
+  return { ...worktree, ...((await exists(worktree.path)) ? {} : { missing: true }) };
 }

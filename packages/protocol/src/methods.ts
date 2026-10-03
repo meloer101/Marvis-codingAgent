@@ -166,6 +166,8 @@ export interface SessionSummary {
   pinned: boolean;
   /** Put away: listed only on request. */
   archived: boolean;
+  /** The session works in a git worktree of its own, on this branch. */
+  worktree?: { branch: string };
   /**
    * Server-wide, increasing with every row the server computes (per boot):
    * of two rows for one session, the higher `rev` is the newer state.
@@ -240,6 +242,29 @@ export interface GitCommitResult {
   summary: string;
 }
 
+/** A repository's local branches, for picking what a worktree starts from (`git.branches`). */
+export type GitBranches =
+  | { repo: false }
+  | {
+      repo: true;
+      /** The branch the project's checkout is on; null when HEAD is detached. */
+      current: string | null;
+      /** Most recently committed first; empty in a repository without commits. */
+      branches: string[];
+    };
+
+/** The git worktree a session works in, apart from the project's checkout (`session.start {worktree}`). */
+export interface SessionWorktree {
+  /** The branch made for it. */
+  branch: string;
+  /** What the branch started from. */
+  base: string;
+  /** The worktree's top directory. */
+  path: string;
+  /** It was removed (archiving does that); the session's next run checks the branch out again. */
+  missing?: boolean;
+}
+
 /** What `session.send` did: started a run, or queued the message behind the one going. */
 export type SendResult = { runId: string } | { queued: QueuedMessage };
 
@@ -269,6 +294,8 @@ export interface SessionSnapshot {
   effort?: ReasoningEffort;
   /** Levels the model offers, Faster→Smarter; empty (or absent) without reasoning. */
   effortLevels?: ReasoningEffort[];
+  /** The worktree the session works in; absent for one in the project's checkout. */
+  worktree?: SessionWorktree;
   lastSeq: number;
   /**
    * Identifies the live host behind this snapshot; absent from a disk-only
@@ -331,6 +358,8 @@ const gitPathsSchema = z.object({
 });
 /** Files attached to a message (`@path`): workspace-relative paths. */
 const attachmentsSchema = z.array(pathSchema).max(20);
+/** A worktree of its own for a new session, branched off `base` (a branch or commit). */
+const worktreeSchema = z.object({ base: z.string().min(1).max(256).regex(/^[^-\s][^\s]*$/, 'not a branch name') });
 
 interface MethodSpec<P = unknown, R = unknown> {
   /** Validates `ClientFrame.params` for this method — same schema on client and server. */
@@ -368,12 +397,17 @@ export const methods = {
    * mentions. Ignored files (`.gitignore`) and secrets (`.env`, keys) are left
    * out.
    */
-  'fs.search': method<{ workspaceId: string; query: string; limit?: number }, FileMatch[]>(
-    z.object({ workspaceId: workspaceIdSchema, query: z.string().max(512), limit: z.number().int().min(1).max(200).optional() }),
+  'fs.search': method<{ workspaceId: string; sessionId?: string; query: string; limit?: number }, FileMatch[]>(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      sessionId: sessionIdSchema.optional(),
+      query: z.string().max(512),
+      limit: z.number().int().min(1).max(200).optional(),
+    }),
   ),
   /** The terminals open in a workspace, oldest first. */
   'terminal.list': method<{ workspaceId: string }, TerminalInfo[]>(z.object({ workspaceId: workspaceIdSchema })),
-  /** Start the user's shell in the workspace's root, sized `cols` × `rows`. */
+  /** Start the user's shell in the workspace's root (or the session's worktree), sized `cols` × `rows`. */
   'terminal.create': method<{ workspaceId: string; sessionId?: string; cols: number; rows: number }, TerminalInfo>(
     z.object({
       workspaceId: workspaceIdSchema,
@@ -411,18 +445,19 @@ export const methods = {
     z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional(), path: pathSchema }),
   ),
   /** Open a workspace file in an editor on this machine, at a line. */
-  'editor.open': method<{ workspaceId: string; path: string; line?: number; editor: EditorId }, void>(
+  'editor.open': method<{ workspaceId: string; sessionId?: string; path: string; line?: number; editor: EditorId }, void>(
     z.object({
       workspaceId: workspaceIdSchema,
+      sessionId: sessionIdSchema.optional(),
       path: pathSchema,
       line: z.number().int().min(1).optional(),
       editor: z.enum(['vscode', 'cursor', 'zed']),
     }),
   ),
   /**
-   * The workspace's changes against HEAD. `sessionId` is accepted for when a
-   * session can have a work tree of its own; today every session shares the
-   * workspace's.
+   * The workspace's changes against HEAD — with `sessionId`, those of the
+   * checkout that session works in: its worktree, if it has one. Every `git.*`
+   * and `fs.*` call takes `sessionId` the same way.
    */
   'git.status': method<{ workspaceId: string; sessionId?: string }, GitStatus>(
     z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional() }),
@@ -453,7 +488,9 @@ export const methods = {
   'git.push': method<{ workspaceId: string; sessionId?: string }, void>(
     z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional() }),
   ),
-  /** Open a pull request for the branch with `gh`; answers its URL. */
+  /** The repository's local branches, for picking what a new session's worktree starts from. */
+  'git.branches': method<{ workspaceId: string }, GitBranches>(z.object({ workspaceId: workspaceIdSchema })),
+  /** Open a pull request for the branch with `gh` (into a worktree's base, for a session with one); answers its URL. */
   'git.createPr': method<
     { workspaceId: string; sessionId?: string; title: string; body?: string; draft?: boolean },
     { url: string }
@@ -484,7 +521,8 @@ export const methods = {
    * Create a session and send its first message in one step — how a draft
    * becomes a session, so nothing is created until there is something to say.
    * The snapshot is taken before the message is sent: subscribing from seq 0
-   * replays the startup notices and then the run.
+   * replays the startup notices and then the run. With `worktree`, the session
+   * works in a git worktree of its own, on a new branch off `base`.
    */
   'session.start': method<
     {
@@ -494,6 +532,7 @@ export const methods = {
       model?: string;
       mode?: PermissionMode;
       effort?: ReasoningEffort;
+      worktree?: { base: string };
     },
     { snapshot: SessionSnapshot; runId: string }
   >(
@@ -504,6 +543,7 @@ export const methods = {
       model: z.string().optional(),
       mode: permissionModeSchema.optional(),
       effort: reasoningEffortSchema.optional(),
+      worktree: worktreeSchema.optional(),
     }),
   ),
   'session.open': method<{ id: string }, SessionSnapshot>(z.object({ id: sessionIdSchema })),
@@ -563,9 +603,11 @@ export const methods = {
   /**
    * Rename, pin or archive a session; answers with its new row (also pushed).
    * An empty title goes back to the one taken from its first message.
+   * Archiving removes the session's worktree, keeping its branch: `conflict`
+   * when it has uncommitted changes, unless `force` (they are lost).
    */
   'session.update': method<
-    { id: string; title?: string; pinned?: boolean; archived?: boolean },
+    { id: string; title?: string; pinned?: boolean; archived?: boolean; force?: boolean },
     SessionSummary
   >(
     z.object({
@@ -573,11 +615,13 @@ export const methods = {
       title: z.string().max(200).optional(),
       pinned: z.boolean().optional(),
       archived: z.boolean().optional(),
+      force: z.boolean().optional(),
     }),
   ),
   /**
-   * Delete a session for good: its log, metadata, offloaded output and trace.
-   * `busy` while it runs; a live, idle one is closed first.
+   * Delete a session for good: its log, metadata, offloaded output and trace,
+   * and its worktree (the branch too, if merged). `busy` while it runs; a
+   * live, idle one is closed first.
    */
   'session.delete': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
   'ask.answer': method<

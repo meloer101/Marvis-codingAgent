@@ -183,7 +183,7 @@ export function mockConfigFactory(cwd: string, agentDir?: string): SessionConfig
   return (opts) => {
     const provider = new ScriptedProvider(mockScript(), 'mock');
     const config: AgentSessionConfig = {
-      cwd,
+      cwd: opts.cwd ?? cwd,
       model: mockModel(provider, opts.model && MOCK_MODELS[opts.model] ? opts.model : MOCK_MODEL_REF),
       resolveModel: (ref) => mockModel(provider, ref),
       // A real project's defaults: lookups run without asking.

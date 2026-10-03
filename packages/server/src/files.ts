@@ -104,6 +104,11 @@ export class FileIndex {
     this.#cache.delete(root);
   }
 
+  /** Forget every listing. */
+  clear(): void {
+    this.#cache.clear();
+  }
+
   #files(root: string): Promise<string[]> {
     const hit = this.#cache.get(root);
     if (hit && this.#now() - hit.at < TTL_MS) return hit.files;

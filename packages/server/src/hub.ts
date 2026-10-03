@@ -28,6 +28,7 @@ import type {
   EditorInfo,
   FileContent,
   FileMatch,
+  GitBranches,
   GitDiff,
   GitStatus,
   ModelInfo,
@@ -48,11 +49,12 @@ import { BusyError, InvalidRequestError } from './host.js';
 import type { SessionHost } from './host.js';
 import { inspectDirectory } from './inspect.js';
 import { SessionPreviewNotFoundError, SessionRegistry } from './registry.js';
-import type { RegistryListener, SessionConfigFactory } from './registry.js';
+import type { RegistryListener, SessionCheckout, SessionConfigFactory } from './registry.js';
 import { workspacePath } from './paths.js';
 import { TerminalManager, loadPty } from './terminals.js';
 import type { SpawnPty } from './terminals.js';
 import { workspaceId } from './workspaces.js';
+import { gitBranches } from './worktrees.js';
 import type { WorkspaceRecord, WorkspaceStore } from './workspaces.js';
 
 /** Everything a workspace's registry needs, and what `workspace.list` says about it. */
@@ -69,6 +71,8 @@ export interface WorkspaceSetup {
   models: () => Promise<ModelInfo[]>;
   /** Release what the setup made (a `--mock` temp dir). */
   dispose?: () => Promise<void>;
+  /** Its sessions' worktrees go away with the server (`--mock`: their sessions do). */
+  dropWorktrees?: boolean;
 }
 
 export type WorkspaceSetupFactory = (root: string) => Promise<WorkspaceSetup>;
@@ -174,24 +178,25 @@ export class WorkspaceHub {
     return this.#target(id).setup.models();
   }
 
-  /** Files in workspace `id` matching `query`, for `@` mentions. */
-  async searchFiles(id: string, query: string, limit?: number): Promise<FileMatch[]> {
-    const entry = this.#entries.get(id);
-    if (!entry) throw new WorkspaceNotFoundError(id);
-    if (entry.missing) return [];
-    return this.#files.search(entry.record.root, query, limit);
+  /**
+   * Files in workspace `id` matching `query`, for `@` mentions — in session
+   * `sessionId`'s worktree when it has one, as every file and git call below.
+   */
+  async searchFiles(id: string, query: string, limit?: number, sessionId?: string): Promise<FileMatch[]> {
+    const checkout = await this.#checkout(id, sessionId);
+    return checkout ? this.#files.search(checkout.cwd, query, limit) : [];
   }
 
   /** The entries of a folder in workspace `id` (`''` for its root). */
-  async listDir(id: string, dir: string): Promise<DirEntry[]> {
-    const entry = this.#present(id);
-    return entry ? this.#files.list(entry.record.root, dir) : [];
+  async listDir(id: string, dir: string, sessionId?: string): Promise<DirEntry[]> {
+    const checkout = await this.#checkout(id, sessionId);
+    return checkout ? this.#files.list(checkout.cwd, dir) : [];
   }
 
   /** A file of workspace `id`, for the Files tab. */
-  async readFile(id: string, path: string): Promise<FileContent> {
-    const entry = this.#present(id);
-    return entry ? readWorkspaceFile(entry.record.root, path) : { kind: 'withheld', reason: 'The project folder is missing.' };
+  async readFile(id: string, path: string, sessionId?: string): Promise<FileContent> {
+    const checkout = await this.#checkout(id, sessionId);
+    return checkout ? readWorkspaceFile(checkout.cwd, path) : { kind: 'withheld', reason: this.#goneReason(id) };
   }
 
   /** The editors on this machine, looked for once. */
@@ -200,12 +205,11 @@ export class WorkspaceHub {
   }
 
   /** Open a file of workspace `id` in `editorId`, at `line`. */
-  async openInEditor(id: string, path: string, editorId: EditorId, line?: number): Promise<void> {
-    const entry = this.#present(id);
-    if (!entry) throw new WorkspaceNotFoundError(id);
+  async openInEditor(id: string, path: string, editorId: EditorId, line?: number, sessionId?: string): Promise<void> {
+    const checkout = await this.#requireCheckout(id, sessionId);
     const editor = (await this.#editorList()).find((e) => e.id === editorId);
     if (!editor) throw new InvalidRequestError(`${editorId} isn't installed here`);
-    openInEditor(editor, join(entry.record.root, workspacePath(path)), line);
+    openInEditor(editor, join(checkout.cwd, workspacePath(path)), line);
   }
 
   #editorList(): Promise<Editor[]> {
@@ -213,34 +217,42 @@ export class WorkspaceHub {
     return this.#editors;
   }
 
-  /** Start a terminal in workspace `id`'s root. */
-  async createTerminal(id: string, cols: number, rows: number): Promise<TerminalInfo> {
-    const entry = this.#present(id);
-    if (!entry) throw new InvalidRequestError('the project folder is missing');
-    return this.terminals.create(id, entry.record.root, cols, rows);
+  /** Start a terminal in workspace `id`'s root (or session `sessionId`'s worktree). */
+  async createTerminal(id: string, cols: number, rows: number, sessionId?: string): Promise<TerminalInfo> {
+    const checkout = await this.#requireCheckout(id, sessionId);
+    return this.terminals.create(id, checkout.cwd, cols, rows);
   }
 
   /** Workspace `id`'s changes against HEAD. */
-  async gitStatus(id: string): Promise<GitStatus> {
-    const entry = this.#present(id);
-    return entry ? gitStatus(entry.record.root) : { repo: false };
+  async gitStatus(id: string, sessionId?: string): Promise<GitStatus> {
+    const checkout = await this.#checkout(id, sessionId);
+    return checkout ? gitStatus(checkout.cwd) : { repo: false };
   }
 
   /** One file's changes in workspace `id`. */
-  async gitDiff(id: string, path: string): Promise<GitDiff> {
+  async gitDiff(id: string, path: string, sessionId?: string): Promise<GitDiff> {
+    const checkout = await this.#checkout(id, sessionId);
+    return checkout ? gitDiff(checkout.cwd, path) : { kind: 'withheld', reason: this.#goneReason(id) };
+  }
+
+  /** The local branches of workspace `id`'s repository, for a worktree to start from. */
+  async gitBranches(id: string): Promise<GitBranches> {
     const entry = this.#present(id);
-    return entry ? gitDiff(entry.record.root, path) : { kind: 'withheld', reason: 'The project folder is missing.' };
+    return entry ? gitBranches(entry.record.root) : { repo: false };
   }
 
   /**
    * Change workspace `id`'s git state — stage, commit, push… — then tell every
    * tab its status changed.
    */
-  async gitChange<T>(id: string, change: (root: string) => Promise<T>): Promise<T> {
-    const entry = this.#present(id);
-    if (!entry) throw new WorkspaceNotFoundError(id);
+  async gitChange<T>(
+    id: string,
+    change: (root: string, checkout: SessionCheckout) => Promise<T>,
+    sessionId?: string,
+  ): Promise<T> {
+    const checkout = await this.#requireCheckout(id, sessionId);
     try {
-      return await change(entry.record.root);
+      return await change(checkout.cwd, checkout);
     } finally {
       this.#forward(id, { type: 'git_changed', workspaceId: id });
     }
@@ -251,6 +263,31 @@ export class WorkspaceHub {
     const entry = this.#entries.get(id);
     if (!entry) throw new WorkspaceNotFoundError(id);
     return entry.missing ? undefined : entry;
+  }
+
+  /**
+   * Where a request about workspace `id` looks: session `sessionId`'s
+   * checkout (its worktree, if it has one) or the workspace's root; undefined
+   * when that directory is gone. Throws for an unknown workspace.
+   */
+  async #checkout(id: string, sessionId?: string): Promise<SessionCheckout | undefined> {
+    const entry = this.#present(id);
+    if (!entry) return undefined;
+    if (sessionId === undefined) return { cwd: entry.record.root };
+    const checkout = await entry.registry.checkoutOf(sessionId);
+    return checkout.missing ? undefined : checkout;
+  }
+
+  async #requireCheckout(id: string, sessionId?: string): Promise<SessionCheckout> {
+    const checkout = await this.#checkout(id, sessionId);
+    if (!checkout) throw new InvalidRequestError(this.#goneReason(id).replace(/\.$/, ''));
+    return checkout;
+  }
+
+  #goneReason(id: string): string {
+    return this.#entries.get(id)?.missing
+      ? 'The project folder is missing.'
+      : "This session's worktree was removed when it was archived; it comes back when the session runs again.";
   }
 
   /** What adding `path` as a workspace would mean (nothing is changed). */
@@ -357,7 +394,7 @@ export class WorkspaceHub {
 
   async update(
     id: string,
-    patch: { title?: string; pinned?: boolean; archived?: boolean },
+    patch: { title?: string; pinned?: boolean; archived?: boolean; force?: boolean },
   ): Promise<SessionSummary> {
     return (await this.#registryOf(id)).update(id, patch);
   }
@@ -454,6 +491,8 @@ export class WorkspaceHub {
       previewDefaults: setup.previewDefaults,
       effortFor: setup.effortFor,
       ...(this.#idleMs !== undefined ? { idleMs: this.#idleMs } : {}),
+      ...(this.#home !== undefined ? { home: this.#home } : {}),
+      ...(setup.dropWorktrees ? { dropWorktrees: true } : {}),
       sweepMs: 0, // the hub sweeps every registry on one timer
     });
     registry.onChange((event) => this.#forward(record.id, event));
@@ -477,11 +516,9 @@ export class WorkspaceHub {
 
   #forward(workspace: string, event: PushEvent): void {
     if (event.type === 'session_upsert') this.#sessionIndex.set(event.summary.id, workspace);
-    // Files came or went: the listing behind the Files tab and `@` is stale.
-    if (event.type === 'git_changed') {
-      const root = this.#entries.get(workspace)?.record.root;
-      if (root) this.#files.invalidate(root);
-    }
+    // Files came or went — in the workspace or one of its worktrees: the
+    // listings behind the Files tab and `@` are stale.
+    if (event.type === 'git_changed') this.#files.clear();
     for (const listener of this.#listeners) listener(event);
   }
 

@@ -222,7 +222,7 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
         ? mockConfigFactory(root, mockDir)
         : (o) =>
             buildSessionConfig({
-              cwd: root,
+              cwd: o.cwd ?? root,
               env,
               ...(o.model ?? opts.model ? { modelRef: o.model ?? opts.model } : {}),
               ...(o.mode ? { mode: o.mode } : {}),
@@ -241,7 +241,7 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
         return { modelRef: d.model, mode: d.mode };
       },
       effortFor: mock ? (ref) => mockEffortOptions(ref) : async (ref) => modelEffort(ref, (await loadSettings(root)).settings),
-      ...(mockDir ? { dispose: () => rm(mockDir, { recursive: true, force: true }) } : {}),
+      ...(mockDir ? { dispose: () => rm(mockDir, { recursive: true, force: true }), dropWorktrees: true } : {}),
     };
   };
 }
