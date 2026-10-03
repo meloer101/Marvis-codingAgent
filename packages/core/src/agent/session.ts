@@ -75,7 +75,7 @@ export interface SessionEvent {
   type: 'message' | 'tool_call' | 'compaction';
   ts: number;
   message?: Message;
-  toolCall?: { id: string; name: string; input: unknown; result: ToolResult };
+  toolCall?: RecordedToolCall;
   /** The full post-compaction message list plus what it saved. Replayed by `loadSession`. */
   compaction?: CompactionMeta & { messages: Message[] };
 }
@@ -89,6 +89,47 @@ export function sessionPath(agentDir: string, id: string): string {
 /** Per-session artifact directory (pruned tool outputs, etc.), sibling of the jsonl. */
 export function sessionArtifactsDir(agentDir: string, id: string): string {
   return join(agentDir, SESSIONS_DIR, id);
+}
+
+/**
+ * A tool call as the log keeps it, for showing it again: what it got and
+ * returned, how long it ran (none for a denied call), and — for a `task` — the
+ * calls its sub-agent made. None of it is the model's history.
+ */
+export interface RecordedToolCall {
+  id: string;
+  name: string;
+  input: unknown;
+  result: ToolResult;
+  durationMs?: number;
+  subagent?: SubagentCallRecord[];
+}
+
+/**
+ * A call a `task`'s sub-agent made, kept with the task's: long strings in its
+ * input and its result cut to `SUBAGENT_RECORD_CHARS`.
+ */
+export interface SubagentCallRecord {
+  id: string;
+  name: string;
+  input: unknown;
+  result?: ToolResult;
+  durationMs?: number;
+}
+
+/** How much of each string a recorded sub-agent call keeps. */
+export const SUBAGENT_RECORD_CHARS = 4000;
+
+/** `value` with every string longer than `max` cut, saying how much was left out. */
+export function capStrings(value: unknown, max = SUBAGENT_RECORD_CHARS): unknown {
+  if (typeof value === 'string') {
+    return value.length > max ? `${value.slice(0, max)}\n… (${value.length - max} more characters)` : value;
+  }
+  if (Array.isArray(value)) return value.map((v) => capStrings(v, max));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, capStrings(v, max)]));
+  }
+  return value;
 }
 
 /** Appends session events as they happen. One instance per run. */
@@ -105,12 +146,7 @@ export class SessionRecorder {
     await this.append({ type: 'message', ts: Date.now(), message });
   }
 
-  async recordToolCall(toolCall: {
-    id: string;
-    name: string;
-    input: unknown;
-    result: ToolResult;
-  }): Promise<void> {
+  async recordToolCall(toolCall: RecordedToolCall): Promise<void> {
     await this.append({ type: 'tool_call', ts: Date.now(), toolCall });
   }
 
@@ -144,8 +180,18 @@ export class SessionRecorder {
 export type TranscriptItem =
   | { type: 'message'; ts: number; message: Message }
   | { type: 'compaction'; ts: number; tokensBefore: number; tokensAfter: number }
-  /** What a call's result carried for display (`ToolResult.display`) — not in the messages. */
-  | { type: 'tool_display'; ts: number; toolUseId: string; display: ToolDisplay };
+  /**
+   * What a call carried for showing it, beyond the messages: its result's
+   * `display`, how long it ran, and a `task`'s sub-agent calls.
+   */
+  | {
+      type: 'tool_display';
+      ts: number;
+      toolUseId: string;
+      display?: ToolDisplay;
+      durationMs?: number;
+      subagent?: SubagentCallRecord[];
+    };
 
 async function readSessionEvents(agentDir: string, id: string): Promise<SessionEvent[]> {
   const raw = await readFile(sessionPath(agentDir, id), 'utf8');
@@ -205,8 +251,17 @@ export async function loadTranscript(agentDir: string, id: string): Promise<Tran
         tokensBefore: event.compaction.tokensBefore,
         tokensAfter: event.compaction.tokensAfter,
       });
-    } else if (event.type === 'tool_call' && event.toolCall?.result.display) {
-      out.push({ type: 'tool_display', ts: event.ts, toolUseId: event.toolCall.id, display: event.toolCall.result.display });
+    } else if (event.type === 'tool_call' && event.toolCall) {
+      const { id, result, durationMs, subagent } = event.toolCall;
+      if (!result.display && durationMs === undefined && !subagent?.length) continue;
+      out.push({
+        type: 'tool_display',
+        ts: event.ts,
+        toolUseId: id,
+        ...(result.display ? { display: result.display } : {}),
+        ...(durationMs !== undefined ? { durationMs } : {}),
+        ...(subagent?.length ? { subagent } : {}),
+      });
     }
   }
   return out;

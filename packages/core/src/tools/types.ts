@@ -43,7 +43,15 @@ export interface ToolDisplay {
    * line before and after it, since nothing above it changed.
    */
   startLine?: number;
+  /**
+   * The file a `write` replaced, as it was — text up to `MAX_DISPLAY_BEFORE_BYTES`
+   * — so a frontend can show what changed rather than the whole file as new.
+   */
+  before?: string;
 }
+
+/** Past this, a `write` doesn't keep the file it replaced for display. */
+export const MAX_DISPLAY_BEFORE_BYTES = 128 * 1024;
 
 export interface ToolResult {
   content: string;

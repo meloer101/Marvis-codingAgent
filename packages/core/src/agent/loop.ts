@@ -49,8 +49,8 @@ import type { ContextBreakdown } from '../context/budget.js';
 import { allowAllHooks } from './hooks.js';
 import type { AgentHooks, CompactionResult, PermissionDecision, TurnContext } from './hooks.js';
 import type { AgentControl } from './control.js';
-import { SessionState } from './session.js';
-import type { SessionRecorder } from './session.js';
+import { SessionState, capStrings } from './session.js';
+import type { SessionRecorder, SubagentCallRecord } from './session.js';
 
 export type AgentStopReason =
   | 'end_turn'
@@ -340,6 +340,8 @@ interface Decision {
 }
 
 export class AgentLoop {
+  /** The calls each running `task`'s sub-agent made, for the log (`RecordedToolCall.subagent`). */
+  private readonly subagentCalls = new Map<string, SubagentCallRecord[]>();
   private readonly hooks: AgentHooks;
   private readonly session: SessionState;
   private readonly maxTurns: number;
@@ -929,6 +931,10 @@ export class AgentLoop {
     return last;
   }
 
+  private trackSubagentCall(id: string, event: ToolCallStartEvent | ToolCallEndEvent): void {
+    this.subagentCalls.set(id, trackedSubagentCalls(this.subagentCalls.get(id) ?? [], event));
+  }
+
   private async runToolCalls(
     calls: ToolUseBlock[],
     turnCtx: TurnContext,
@@ -975,11 +981,15 @@ export class AgentLoop {
         // A denied call never ran: no duration to show.
         ...(decision.decision !== 'deny' ? { durationMs: outcome.durationMs } : {}),
       });
+      const subagent = this.subagentCalls.get(call.id);
+      this.subagentCalls.delete(call.id);
       await this.opts.recorder?.recordToolCall({
         id: call.id,
         name: call.name,
         input: call.input,
         result: outcome.result,
+        ...(decision.decision !== 'deny' ? { durationMs: outcome.durationMs } : {}),
+        ...(subagent?.length ? { subagent } : {}),
       });
       await this.opts.trace?.toolCall({
         turn: turnCtx.turn,
@@ -1189,12 +1199,34 @@ export class AgentLoop {
         ...(this.opts.signal ? { signal: this.opts.signal } : {}),
         ...(this.opts.control ? { control: this.opts.control } : {}),
         onOutput: (text) => this.emit({ type: 'tool_call_output', id: call.id, text }),
-        onSubagentEvent: (event) => this.emit({ type: 'subagent_event', id: call.id, event }),
+        onSubagentEvent: (event) => {
+          this.trackSubagentCall(call.id, event);
+          this.emit({ type: 'subagent_event', id: call.id, event });
+        },
       });
     } catch (err) {
       return { content: `Tool ${call.name} threw: ${errorMessage(err)}`, isError: true };
     }
   }
+}
+
+/** `calls` with a sub-agent call started or ended, its strings cut for the log. */
+function trackedSubagentCalls(
+  calls: SubagentCallRecord[],
+  event: ToolCallStartEvent | ToolCallEndEvent,
+): SubagentCallRecord[] {
+  if (event.type === 'tool_call_start') {
+    return [...calls, { id: event.id, name: event.name, input: capStrings(event.input) }];
+  }
+  return calls.map((c) =>
+    c.id === event.id
+      ? {
+          ...c,
+          result: capStrings(event.result) as ToolResult,
+          ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+        }
+      : c,
+  );
 }
 
 async function runWithConcurrency<T>(

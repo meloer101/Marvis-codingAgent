@@ -13,9 +13,9 @@ import type { Entry, ToolItem } from './reducer.js';
 /**
  * Rebuild display entries from the persisted transcript: one `assistant` entry
  * per assistant message, tool results (which ride in the next `user` message)
- * attached back onto their tool cards (with what they carried for display),
- * files attached to a user message as its `attachments`, compactions as a
- * divider notice.
+ * attached back onto their tool cards — with what they carried for display,
+ * how long they ran and a `task`'s sub-agent calls — files attached to a user
+ * message as its `attachments`, compactions as a divider notice.
  */
 export function entriesFromTranscript(items: TranscriptItem[]): Entry[] {
   const entries: Entry[] = [];
@@ -25,9 +25,22 @@ export function entriesFromTranscript(items: TranscriptItem[]): Entry[] {
 
   for (const item of items) {
     if (item.type === 'tool_display') {
-      const result = tools.get(item.toolUseId)?.result;
-      if (result) result.display = item.display;
-      else displays.set(item.toolUseId, item.display);
+      const tool = tools.get(item.toolUseId);
+      if (item.display) {
+        if (tool?.result) tool.result.display = item.display;
+        else displays.set(item.toolUseId, item.display);
+      }
+      if (tool && item.durationMs !== undefined) tool.durationMs = item.durationMs;
+      if (tool && item.subagent?.length) {
+        tool.children = item.subagent.map((c) => ({
+          id: c.id,
+          name: c.name,
+          input: c.input,
+          running: false,
+          ...(c.result ? { result: c.result } : {}),
+          ...(c.durationMs !== undefined ? { durationMs: c.durationMs } : {}),
+        }));
+      }
       continue;
     }
     if (item.type === 'compaction') {

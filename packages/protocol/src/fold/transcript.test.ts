@@ -5,6 +5,52 @@ import { attachedFileBlock, attachedFilePath } from '@harness-code/core/browser'
 import { entriesFromTranscript } from './transcript.js';
 
 describe('entriesFromTranscript', () => {
+  it("puts back how long a call ran, a task's sub-agent calls and a write's replaced file", () => {
+    const entries = entriesFromTranscript([
+      {
+        type: 'message',
+        ts: 1,
+        message: {
+          role: 'assistant',
+          content: [
+            { type: 'tool_use', id: 't1', name: 'task', input: { prompt: 'look' } },
+            { type: 'tool_use', id: 'w1', name: 'write', input: { path: 'a', content: 'new' } },
+          ],
+        },
+      },
+      {
+        type: 'tool_display',
+        ts: 2,
+        toolUseId: 't1',
+        durationMs: 1200,
+        subagent: [{ id: 's1', name: 'read', input: { path: 'a' }, result: { content: 'old' }, durationMs: 3 }],
+      },
+      { type: 'tool_display', ts: 3, toolUseId: 'w1', display: { before: 'old' }, durationMs: 4 },
+      {
+        type: 'message',
+        ts: 4,
+        message: {
+          role: 'user',
+          content: [
+            { type: 'tool_result', toolUseId: 't1', content: 'report' },
+            { type: 'tool_result', toolUseId: 'w1', content: 'Wrote 3 bytes' },
+          ],
+        },
+      },
+    ]);
+    expect(entries[0]).toMatchObject({
+      tools: [
+        {
+          id: 't1',
+          durationMs: 1200,
+          children: [{ id: 's1', name: 'read', running: false, result: { content: 'old' }, durationMs: 3 }],
+          result: { content: 'report' },
+        },
+        { id: 'w1', durationMs: 4, result: { content: 'Wrote 3 bytes', display: { before: 'old' } } },
+      ],
+    });
+  });
+
   it('rebuilds entries and attaches tool results to their cards', () => {
     const entries = entriesFromTranscript([
       { type: 'message', ts: 1, message: { role: 'user', content: [{ type: 'text', text: 'fix it' }] } },

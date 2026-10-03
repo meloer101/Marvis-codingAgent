@@ -1,9 +1,10 @@
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 import { z } from 'zod';
 
 import { PathEscapeError, assertInsideWorkspace } from '../permissions/paths.js';
+import { MAX_DISPLAY_BEFORE_BYTES } from './types.js';
 import type { ToolSpec } from './types.js';
 import { errorMessage } from './util.js';
 
@@ -28,9 +29,8 @@ export const writeTool: ToolSpec<z.infer<typeof schema>> = {
       const message = err instanceof PathEscapeError ? err.message : errorMessage(err);
       return { content: message, isError: true };
     }
-    const existingMtimeMs = await stat(path)
-      .then((s) => s.mtimeMs)
-      .catch(() => undefined);
+    const existing = await stat(path).catch(() => undefined);
+    const existingMtimeMs = existing?.mtimeMs;
     if (existingMtimeMs !== undefined && !ctx.session.hasRead(path)) {
       return {
         content: `Refusing to overwrite ${input.path}: read it first so you know what you are replacing.`,
@@ -46,6 +46,15 @@ export const writeTool: ToolSpec<z.infer<typeof schema>> = {
       };
     }
 
+    // What it replaces, for a frontend to diff against (never the model's to see).
+    const before =
+      existing?.isFile() && existing.size <= MAX_DISPLAY_BEFORE_BYTES
+        ? await readFile(path).then(
+            (buf) => (buf.subarray(0, 8192).includes(0) ? undefined : buf.toString('utf8')),
+            () => undefined,
+          )
+        : undefined;
+
     try {
       await mkdir(dirname(path), { recursive: true });
       await writeFile(path, input.content, 'utf8');
@@ -55,6 +64,9 @@ export const writeTool: ToolSpec<z.infer<typeof schema>> = {
 
     const stats = await stat(path);
     ctx.session.markRead(path, stats.mtimeMs);
-    return { content: `Wrote ${input.content.length} bytes to ${input.path}` };
+    return {
+      content: `Wrote ${input.content.length} bytes to ${input.path}`,
+      ...(before !== undefined ? { display: { before } } : {}),
+    };
   },
 };

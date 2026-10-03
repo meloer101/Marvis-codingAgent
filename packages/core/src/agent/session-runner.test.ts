@@ -353,6 +353,40 @@ describe('AgentSession auto mode', () => {
     expect(end.type === 'tool_call_end' && end.result.content).toContain('X marks the spot');
   });
 
+  it("logs how long calls ran and a task's sub-agent calls, for the transcript read back", async () => {
+    const cwd = await tempDir();
+    const agentDir = join(cwd, '.agent');
+    await mkdir(join(agentDir, 'agents'), { recursive: true });
+    await writeFile(join(agentDir, 'agents', 'explore.md'), '---\nname: explore\ndescription: search\n---\nsearch\n', 'utf8');
+    await writeFile(join(cwd, 'a.txt'), `X marks the spot\n${'filler line\n'.repeat(600)}`, 'utf8');
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'task', input: { subagent_type: 'explore', prompt: 'find X' } }] },
+      { toolCalls: [{ name: 'read', input: { path: 'a.txt' } }] },
+      { text: 'X is in a.txt' },
+      { text: 'got the report' },
+    ]);
+    const { session } = await createSession({
+      cwd,
+      agentDir,
+      recorder: true,
+      model: sessionModel(provider),
+      mode: 'yolo',
+      subagents: true,
+    });
+
+    await session.runTurn('explore then report');
+    const meta = (await loadTranscript(agentDir, session.id)).filter((t) => t.type === 'tool_display');
+    expect(meta).toHaveLength(1);
+    const [task] = meta;
+    if (task?.type !== 'tool_display') throw new Error('expected the task call');
+    expect(task.durationMs).toEqual(expect.any(Number));
+    expect(task.subagent).toMatchObject([
+      { name: 'read', input: { path: 'a.txt' }, durationMs: expect.any(Number), result: { content: expect.stringContaining('X marks the spot') } },
+    ]);
+    // A long result is kept cut, saying so.
+    expect(task.subagent![0]!.result!.content).toMatch(/… \(\d+ more characters\)$/);
+  });
+
   it('prepends a security warning when the return review blocks a sub-agent report', async () => {
     const cwd = await tempDir();
     await mkdir(join(cwd, '.agent', 'agents'), { recursive: true });

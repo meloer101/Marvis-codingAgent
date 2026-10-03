@@ -45,6 +45,16 @@ describe('writeTool', () => {
     expect(await readFile(join(cwd, 'existing.txt'), 'utf8')).toBe('updated');
   });
 
+  it('keeps the file it replaced for display, and nothing for a new one', async () => {
+    await writeFile(join(cwd, 'existing.txt'), 'original\n', 'utf8');
+    await readTool.execute({ path: 'existing.txt' }, ctx);
+    const overwrite = await writeTool.execute({ path: 'existing.txt', content: 'updated\n' }, ctx);
+    expect(overwrite.display).toEqual({ before: 'original\n' });
+    expect(overwrite.content).not.toContain('original'); // the model sees only what it always did
+    const created = await writeTool.execute({ path: 'fresh.txt', content: 'x' }, ctx);
+    expect(created.display).toBeUndefined();
+  });
+
   it('rejects overwriting a file that changed on disk since it was read', async () => {
     await writeFile(join(cwd, 'existing.txt'), 'original', 'utf8');
     await readTool.execute({ path: 'existing.txt' }, ctx);
