@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 import {
+  Activity,
   Archive,
   ArchiveRestore,
+  ChartColumn,
   ChartPie,
   Columns2,
   Cpu,
@@ -281,6 +283,24 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       items.push({ id: 'split-close', group: 'App', label: 'Close the other pane', keywords: 'split view unsplit', icon: Columns2, run: () => closePane(other) });
     }
 
+    items.push({
+      id: 'stats',
+      group: 'App',
+      label: 'Usage and stats',
+      keywords: 'cost tokens trace telemetry spend',
+      icon: ChartColumn,
+      run: go(routeToHash({ kind: 'stats' })),
+    });
+    if (view && activeId) {
+      items.push({
+        id: 'trace',
+        group: 'App',
+        label: 'Show the trace',
+        keywords: 'timeline calls latency tokens',
+        icon: Activity,
+        run: () => setPanel('trace'),
+      });
+    }
     for (const t of ['system', 'light', 'dark'] as const) {
       if (t === theme) continue;
       items.push({ id: `theme-${t}`, group: 'App', label: `Theme: ${THEMES[t].label}`, keywords: 'appearance', icon: THEMES[t].icon, run: () => setTheme(t) });

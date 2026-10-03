@@ -3,6 +3,7 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import {
   Archive,
   ArchiveRestore,
+  ChartColumn,
   ChevronRight,
   Columns2,
   Copy,
@@ -202,6 +203,14 @@ export function SessionSidebar({
         <div className="flex items-center gap-0.5">
           <ThemeToggle />
           <NotifyToggle />
+          <a
+            href={routeToHash({ kind: 'stats' })}
+            title="Usage — tokens, cost and calls across sessions"
+            aria-label="Usage"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          >
+            <ChartColumn className="size-3.5" />
+          </a>
         </div>
         <span
           className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground"

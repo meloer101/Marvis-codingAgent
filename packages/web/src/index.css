@@ -45,6 +45,9 @@
 
   --destructive: oklch(0.55 0.19 25);
   --success: oklch(0.56 0.12 155);
+  /* Chart marks (dataviz-validated: CVD ΔE ≥ 8 on the card surface): model calls / a lone series, then tool calls. */
+  --chart-1: oklch(0.51 0.16 280);
+  --chart-2: oklch(0.62 0.11 195);
 
   /* Brass: the warm counterpoint. Text-safe on light surfaces. */
   --brass: oklch(0.55 0.1 78);
@@ -96,6 +99,8 @@
 
   --destructive: oklch(0.66 0.17 25);
   --success: oklch(0.7 0.12 160);
+  --chart-1: oklch(0.64 0.15 280);
+  --chart-2: oklch(0.65 0.11 195);
 
   --brass: oklch(0.78 0.11 84);
   --brass-strong: oklch(0.83 0.11 84);
@@ -150,6 +155,8 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-success: var(--success);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
   --color-brass: var(--brass);
   --color-brass-strong: var(--brass-strong);
   --color-brass-subtle: var(--brass-subtle);

@@ -7,10 +7,10 @@ import { platform } from '@/platform';
  * when it's closed — kept across reloads; ⌥⌘B (Ctrl+Alt+B) toggles it — and
  * the file the Files tab has open.
  */
-export type PanelTab = 'changes' | 'files' | 'tasks';
+export type PanelTab = 'changes' | 'files' | 'tasks' | 'trace';
 
 const KEY = 'hc.panel';
-const TABS: readonly PanelTab[] = ['changes', 'files', 'tasks'];
+const TABS: readonly PanelTab[] = ['changes', 'files', 'tasks', 'trace'];
 
 const read = (): PanelTab | null => {
   const v = platform.storage.get(KEY);

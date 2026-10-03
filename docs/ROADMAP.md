@@ -253,8 +253,8 @@
 - **MVP（M0–M5）10-03 已完成**：转录可读性、审查闭环（Changes / Files / Tasks 面板、行评论）和终端都已上线，现状见
   [`web.md`](./web.md)。
 - **P1 10-03 已完成**：每会话 git worktree、运行中插话（steering）、分屏、块级暂存/还原，见 [`web.md`](./web.md)。
-- **MVP 之后**：P2 后台进程、
-  统计与 trace 视图、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）；P3 桌面壳。
+- **P2 进行中**：已完成 write 覆盖文件的真实 diff、子 agent 调用与工具耗时写入会话日志、图片附件、回退/编辑/分叉、
+  统计与 trace 视图；剩余后台进程、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）。之后 P3 桌面壳。
 
 ## Other
 

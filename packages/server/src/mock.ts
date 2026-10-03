@@ -197,7 +197,8 @@ export function mockConfigFactory(cwd: string, agentDir?: string): SessionConfig
       memory: false,
       recorder: agentDir !== undefined,
       ...(agentDir !== undefined ? { agentDir } : {}),
-      trace: false,
+      // Traced alongside the log, so the Trace tab and the usage page have something to show.
+      trace: agentDir !== undefined,
       projectMemory: null,
       ...(opts.effort ? { reasoningEffort: opts.effort } : {}),
       ...(opts.resumeId ? { resumeId: opts.resumeId } : {}),

@@ -53,3 +53,10 @@ describe('split view', () => {
     expect(routeShowing({ kind: 'home' }, 'c', 1)).toEqual({ kind: 'session', id: 'c' });
   });
 });
+
+describe('the usage page', () => {
+  it('parses and builds #/stats', () => {
+    expect(parseRoute('#/stats')).toEqual({ kind: 'stats' });
+    expect(routeToHash({ kind: 'stats' })).toBe('#/stats');
+  });
+});

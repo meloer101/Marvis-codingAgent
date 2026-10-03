@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
-import { FolderTree, GitCompareArrows, ListChecks, X } from 'lucide-react';
+import { Activity, FolderTree, GitCompareArrows, ListChecks, X } from 'lucide-react';
 
 import { ChangesPanel } from '@/components/ChangesPanel';
 import { FilesPanel } from '@/components/FilesPanel';
 import { TodoList } from '@/components/TodoList';
+import { TracePanel } from '@/components/TracePanel';
 import type { Checkout } from '@/lib/checkout';
 import { setPanel, usePanel } from '@/lib/panel';
 import type { PanelTab } from '@/lib/panel';
@@ -16,6 +17,7 @@ const TABS: Array<{ tab: PanelTab; label: string; icon: typeof X }> = [
   { tab: 'changes', label: 'Changes', icon: GitCompareArrows },
   { tab: 'files', label: 'Files', icon: FolderTree },
   { tab: 'tasks', label: 'Tasks', icon: ListChecks },
+  { tab: 'trace', label: 'Trace', icon: Activity },
 ];
 
 /**
@@ -70,6 +72,7 @@ export function SidePanel({ view, checkout }: { view: SessionViewState; checkout
         )}
         {tab === 'files' && checkout && !checkout.missing && <FilesPanel checkout={checkout} />}
         {tab === 'tasks' && <TasksTab view={view} />}
+        {tab === 'trace' && <TracePanel sessionId={view.id} running={view.running} />}
       </div>
     </aside>
   );

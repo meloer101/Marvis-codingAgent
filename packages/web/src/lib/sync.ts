@@ -35,6 +35,8 @@ import type {
   QueuedMessage,
   SessionSnapshot,
   SessionSummary,
+  SessionTrace,
+  StatsSummary,
   TerminalInfo,
   WireEvent,
   Workspace,
@@ -305,6 +307,16 @@ export class SessionSync {
       this.#fail(err);
       return null;
     }
+  }
+
+  /** A session's trace; rejects when it can't be asked (the caller shows why). */
+  loadTrace(id: string): Promise<SessionTrace> {
+    return this.rpc.call('session.trace', { id });
+  }
+
+  /** What the traces add up to — one workspace's or every one's — from `since` on; rejects when it can't be asked. */
+  loadStats(opts: { workspaceId?: string; since?: number } = {}): Promise<StatsSummary> {
+    return this.rpc.call('stats.summary', opts);
   }
 
   /** Put a message in a session's composer, ahead of its draft (to edit and send it again). */

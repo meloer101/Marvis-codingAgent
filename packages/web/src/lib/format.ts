@@ -30,6 +30,20 @@ export function fmtRate(perMTok: number): string {
   return `$${perMTok < 0.1 ? +perMTok.toFixed(3) : perMTok.toFixed(2)}`;
 }
 
+/** A sum of money spent: `$0`, `$0.0042`, `$0.512`, `$12.40`, `$1,204.00` — more places the smaller it is. */
+export function fmtCost(usd: number): string {
+  if (usd === 0) return '$0';
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  if (usd < 1) return `$${usd.toFixed(3)}`;
+  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** A cost some calls had no price for: `≥$1.20`, or `—` when none had one. */
+export function fmtPartialCost(usd: number, partial: boolean): string {
+  if (!partial) return fmtCost(usd);
+  return usd > 0 ? `≥${fmtCost(usd)}` : '—';
+}
+
 /** How long a tool ran: `340ms`, `2.4s`, `1m 05s`. */
 export function fmtDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;

@@ -134,6 +134,8 @@ the server with the same schemas the client is typed from.
 | `session.rewind {id, userMessage}` | take the conversation back to just before that user message (counted from 0 as the transcript shows them); a `rewound` event carries the transcript as it stands; files stay as they are (`busy` while a run goes) |
 | `session.fork {id, userMessage?}` | a new session with the conversation, whole or as far as before that message, its model, mode and effort, titled "… · fork"; a worktree session forks into a worktree of its own, branched from the other's branch → `{id}` |
 | `session.compact {id}` | compact the history now (`busy` while a run is going) |
+| `session.trace {id}` | the session's trace (`.agent/traces/<id>.jsonl`): its events and what they add up to — runs, model and tool calls, tokens, cache hits, cost |
+| `stats.summary {workspaceId?, since?}` | every traced session started since then, in one project or all: each one's figures and the rollup across them — totals, averages, per model |
 | `session.slashCommands {id}` | the session's MCP prompt commands |
 | `session.skills {id}` | the session's skills (`/name [task]` loads one) |
 | `session.close {id}` | close its live host (the log stays on disk) |
@@ -373,8 +375,9 @@ The token is as powerful as the user's shell — a client can switch a session t
 
 - **Routes** are the URL hash: `#/` is the draft for a new session in the most
   recently used project, `#/new/<workspace>` one in a given project, `#/s/<id>`
-  a session, `#/s/<id>/<id>` two side by side (`lib/route.ts`). The draft picks
-  the project, where the session works, mode, model and effort.
+  a session, `#/s/<id>/<id>` two side by side, `#/stats` the usage page
+  (`lib/route.ts`). The draft picks the project, where the session works, mode,
+  model and effort.
 - **Split view** (`components/SessionArea.tsx`, `lib/split.ts`): two sessions
   side by side, each with its header, transcript and composer. ⌥-click a
   sidebar row, "Open beside" in its menu, or ⌥Enter on a session in the
@@ -522,7 +525,23 @@ The token is as powerful as the user's shell — a client can switch a session t
   file by file and line by line, each line quoted (queued if a run is going).
   **Tasks** shows the
   agent's task list whole; while it does, the task dock above the composer
-  steps aside.
+  steps aside. **Trace** (`components/TracePanel.tsx`, `lib/trace.ts`) is the
+  session's trace (`session.trace`), read again when a run ends: what it added
+  up to — runs, model and tool calls, wall time, tokens, the share served from
+  cache, cost — then each run as a waterfall, a row per model call and tool
+  call placed on the run's span by when it started and how long it took, a
+  failed or denied tool marked, compactions and provider errors between them.
+  The last run is open, the rest fold to a line. With telemetry off
+  (`telemetry.enabled: false`) there is nothing to show, and the tab says so.
+- **Usage** (`components/StatsView.tsx`, `#/stats`, from the chart icon in the
+  sidebar's footer or the palette): `stats.summary` over the last 7, 30 or 90
+  days or all time, in one project or all. The cost leads — the tokens, when no
+  session in range has a price — then sessions, model and tool calls and
+  tokens; cost per day as columns (tokens when nothing is priced; weeks past
+  120 days), each with a tooltip on hover or focus and a table view; each
+  model's share; and the sessions, the costliest first, each opening to its
+  Trace tab. A session on a model without a price counts as `≥` what the rest
+  cost, or `—` when nothing had one.
 - **Terminal** (`components/TerminalPanel.tsx`, `components/XTermView.tsx`):
   under the session, Ctrl+` (or the header button) shows and hides it, and its
   top edge drags to resize (both kept). A tab per shell of the project, + for

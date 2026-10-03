@@ -1,8 +1,8 @@
 /**
  * Routing is just the URL hash (docs/web.md, "The web app"): `#/` is the draft
  * for a new session in the most recently used project, `#/new/<workspace>` one
- * in a given project, `#/s/<id>` a session, and `#/s/<id>/<id>` two side by
- * side (split view). No router library — this also works unchanged under a
+ * in a given project, `#/s/<id>` a session, `#/s/<id>/<id>` two side by
+ * side (split view), and `#/stats` the usage page. No router library — this also works unchanged under a
  * `file://` desktop shell later.
  *
  * The server hands the token over as `#token=…` on first load; `token.ts`
@@ -14,6 +14,8 @@ import { useEffect, useState } from 'react';
 export type Route =
   | { kind: 'home' }
   | { kind: 'new'; workspaceId: string }
+  /** Usage across the recorded sessions. */
+  | { kind: 'stats' }
   /** `split`: a second session, shown to the right. */
   | { kind: 'session'; id: string; split?: string };
 
@@ -26,6 +28,7 @@ export function parseRoute(hash: string): Route {
   }
   const draft = /^#\/new\/([^/?#]+)\/?$/.exec(hash);
   if (draft?.[1]) return { kind: 'new', workspaceId: decodeURIComponent(draft[1]) };
+  if (/^#\/stats\/?$/.test(hash)) return { kind: 'stats' };
   return { kind: 'home' };
 }
 
@@ -37,6 +40,8 @@ export function routeToHash(route: Route): string {
         : `#/s/${encodeURIComponent(route.id)}`;
     case 'new':
       return `#/new/${encodeURIComponent(route.workspaceId)}`;
+    case 'stats':
+      return '#/stats';
     case 'home':
       return '#/';
   }

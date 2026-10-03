@@ -9,6 +9,7 @@ import { DraftView } from '@/components/DraftView';
 import { HelpDialog } from '@/components/HelpDialog';
 import { SessionSidebar } from '@/components/SessionSidebar';
 import { SessionArea } from '@/components/SessionArea';
+import { StatsView } from '@/components/StatsView';
 import { attentionChanges, documentTitle, notificationsOn } from '@/lib/attention';
 import { panesOf, routeToHash, useRoute } from '@/lib/route';
 import { useFocusedPane } from '@/lib/split';
@@ -115,6 +116,8 @@ export function App() {
         <ErrorBanner />
         {panes.length > 0 ? (
           <SessionArea panes={panes} focused={focused} onNewSession={newSession} />
+        ) : route.kind === 'stats' ? (
+          <StatsView />
         ) : (
           <DraftView {...(route.kind === 'new' ? { workspaceId: route.workspaceId } : {})} />
         )}
