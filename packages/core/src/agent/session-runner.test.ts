@@ -290,6 +290,37 @@ describe('AgentSession auto mode', () => {
     expect(session.recentDenials[0]?.label).toBe('Git Destructive');
   });
 
+  it('offers background commands only when settings turn them on, and stops them as it closes', async () => {
+    const plain = new ScriptedProvider([{ text: 'ok' }]);
+    await (await createSession({ model: sessionModel(plain) })).session.runTurn('hi');
+    const names = (p: ScriptedProvider) => p.requests[0]!.tools!.map((t) => t.name);
+    expect(names(plain)).not.toContain('bash_output');
+    const bashProps = (p: ScriptedProvider) =>
+      Object.keys((p.requests[0]!.tools!.find((t) => t.name === 'bash')!.inputSchema as { properties: object }).properties);
+    expect(bashProps(plain)).toEqual(['command', 'timeoutMs', 'cwd']);
+
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'bash', input: { command: 'echo serving; sleep 30', run_in_background: true } }] },
+      { text: 'started' },
+    ]);
+    const processEvents: string[] = [];
+    const { session, events } = await createSession({
+      model: sessionModel(provider),
+      settings: { backgroundProcesses: true },
+      onProcessEvent: (e) => processEvents.push(e.type),
+    });
+    await session.runTurn('start the server');
+    expect(names(provider)).toEqual(expect.arrayContaining(['bash', 'bash_output', 'bash_kill']));
+    expect(bashProps(provider)).toContain('run_in_background');
+    expect(findToolEnd(events, 'bash')?.result.content).toMatch(/^Started in the background as bg1/);
+    expect(session.processes).toEqual([expect.objectContaining({ id: 'bg1', status: 'running' })]);
+
+    await session.close();
+    expect(session.processes[0]?.status).toBe('killed');
+    expect(processEvents[0]).toBe('process_start');
+    expect(processEvents.at(-1)).toBe('process_end');
+  });
+
   it('reloadSettings takes up changed permission rules, keeping what was always-allowed', async () => {
     const cwd = await tempDir();
     const homeDir = await tempDir();

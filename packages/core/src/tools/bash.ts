@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 
 import { z } from 'zod';
 
@@ -7,7 +7,8 @@ import { truncateHeadTail } from '../context/truncate.js';
 import { wrapCommand } from '../permissions/macos-sandbox.js';
 import { PathEscapeError, assertInsideWorkspace } from '../permissions/paths.js';
 import { guardSecretSearch, sandboxedEnv } from '../permissions/sandbox.js';
-import type { ToolResult, ToolSpec } from './types.js';
+import type { BackgroundProcesses } from './background.js';
+import type { ToolContext, ToolResult, ToolSpec } from './types.js';
 import { errorMessage } from './util.js';
 
 const schema = z.object({
@@ -21,7 +22,16 @@ const schema = z.object({
   cwd: z.string().optional().describe('Directory to run in, relative to the workspace root.'),
 });
 
-type Input = z.infer<typeof schema>;
+const backgroundSchema = schema.extend({
+  run_in_background: z
+    .boolean()
+    .optional()
+    .describe(
+      'Start it and return at once, for a server, watcher or long build: read its output with bash_output, stop it with bash_kill.',
+    ),
+});
+
+type Input = z.infer<typeof backgroundSchema>;
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_CHARS = 30_000;
@@ -36,79 +46,100 @@ const KILL_GRACE_MS = 2_000;
  * `grep` / `rg` + timeout + output cap: the layer that runs whatever command
  * was already approved, as confined as this machine allows.
  */
-export const bashTool: ToolSpec<Input> = {
-  name: 'bash',
-  description: 'Run a shell command in the workspace and return its combined stdout/stderr.',
-  schema,
-  readOnly: false,
-  concurrencySafe: false,
-  async execute(input, ctx) {
-    const requestedCwd = input.cwd ? resolve(ctx.cwd, input.cwd) : ctx.cwd;
-    let cwd: string;
+export const bashTool: ToolSpec<Input> = createBashTool();
+
+/**
+ * `bash`, and with `background` (`settings.backgroundProcesses`) its
+ * `run_in_background` parameter. Without it the tool is exactly as it always
+ * was: what the model is shown must not change by default.
+ */
+export function createBashTool(background?: BackgroundProcesses): ToolSpec<Input> {
+  return {
+    name: 'bash',
+    description: 'Run a shell command in the workspace and return its combined stdout/stderr.',
+    schema: background ? backgroundSchema : schema,
+    readOnly: false,
+    concurrencySafe: false,
+    execute: (input, ctx) => runBash(input, ctx, background),
+  };
+}
+
+async function runBash(input: Input, ctx: ToolContext, background: BackgroundProcesses | undefined): Promise<ToolResult> {
+  const requestedCwd = input.cwd ? resolve(ctx.cwd, input.cwd) : ctx.cwd;
+  let cwd: string;
+  try {
+    cwd = await assertInsideWorkspace(ctx.cwd, requestedCwd);
+  } catch (err) {
+    const message = err instanceof PathEscapeError ? err.message : errorMessage(err);
+    return { content: message, isError: true };
+  }
+  if (background && input.run_in_background === true) {
     try {
-      cwd = await assertInsideWorkspace(ctx.cwd, requestedCwd);
+      const started = background.start(input.command, cwd, relative(ctx.cwd, cwd));
+      return {
+        content: `Started in the background as ${started.id}${started.pid !== undefined ? ` (pid ${started.pid})` : ''}. Read what it prints with bash_output, stop it with bash_kill.`,
+      };
     } catch (err) {
-      const message = err instanceof PathEscapeError ? err.message : errorMessage(err);
-      return { content: message, isError: true };
+      return { content: errorMessage(err), isError: true };
     }
-    const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    // The writable region is the whole workspace (ctx.cwd), not just the possibly
-    // narrower execution directory — a command run from a subdirectory can still
-    // legitimately write to a sibling path within the same workspace.
-    const { cmd: spawnCmd, args: spawnArgs } = wrapCommand(['-c', guardSecretSearch(input.command)], ctx.cwd);
+  }
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  // The writable region is the whole workspace (ctx.cwd), not just the possibly
+  // narrower execution directory — a command run from a subdirectory can still
+  // legitimately write to a sibling path within the same workspace.
+  const { cmd: spawnCmd, args: spawnArgs } = wrapCommand(['-c', guardSecretSearch(input.command)], ctx.cwd);
 
-    return new Promise<ToolResult>((resolvePromise) => {
-      const child = spawn(spawnCmd, spawnArgs, {
-        cwd,
-        env: sandboxedEnv(),
-        ...(ctx.signal ? { signal: ctx.signal } : {}),
-      });
-      let output = '';
-      let timedOut = false;
-      let settled = false;
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        child.kill('SIGTERM');
-        setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS);
-      }, timeoutMs);
-
-      const finish = (result: ToolResult): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolvePromise(result);
-      };
-
-      // Decoded per stream, so a character split across two chunks stays whole.
-      const onData = (text: string): void => {
-        output += text;
-        ctx.onOutput?.(text);
-      };
-      child.stdout?.setEncoding('utf8').on('data', onData);
-      child.stderr?.setEncoding('utf8').on('data', onData);
-
-      child.on('close', (code) => {
-        const truncated = truncateHeadTail(output, {
-          maxChars: MAX_OUTPUT_CHARS,
-          headChars: HEAD_CHARS,
-          tailChars: TAIL_CHARS,
-        }).text;
-        if (timedOut) {
-          finish({
-            content: `${truncated}\n[command timed out after ${timeoutMs}ms]`,
-            isError: true,
-          });
-        } else if (code !== 0) {
-          finish({ content: `${truncated}\n[exit code ${code}]`, isError: true });
-        } else {
-          finish({ content: truncated || '(no output)' });
-        }
-      });
-
-      child.on('error', (err) => {
-        finish({ content: `Could not run command: ${err.message}`, isError: true });
-      });
+  return new Promise<ToolResult>((resolvePromise) => {
+    const child = spawn(spawnCmd, spawnArgs, {
+      cwd,
+      env: sandboxedEnv(),
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
     });
-  },
-};
+    let output = '';
+    let timedOut = false;
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS);
+    }, timeoutMs);
+
+    const finish = (result: ToolResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolvePromise(result);
+    };
+
+    // Decoded per stream, so a character split across two chunks stays whole.
+    const onData = (text: string): void => {
+      output += text;
+      ctx.onOutput?.(text);
+    };
+    child.stdout?.setEncoding('utf8').on('data', onData);
+    child.stderr?.setEncoding('utf8').on('data', onData);
+
+    child.on('close', (code) => {
+      const truncated = truncateHeadTail(output, {
+        maxChars: MAX_OUTPUT_CHARS,
+        headChars: HEAD_CHARS,
+        tailChars: TAIL_CHARS,
+      }).text;
+      if (timedOut) {
+        finish({
+          content: `${truncated}\n[command timed out after ${timeoutMs}ms]`,
+          isError: true,
+        });
+      } else if (code !== 0) {
+        finish({ content: `${truncated}\n[exit code ${code}]`, isError: true });
+      } else {
+        finish({ content: truncated || '(no output)' });
+      }
+    });
+
+    child.on('error', (err) => {
+      finish({ content: `Could not run command: ${err.message}`, isError: true });
+    });
+  });
+}

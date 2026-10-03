@@ -7,6 +7,7 @@ export * from './edit.js';
 export * from './glob.js';
 export * from './grep.js';
 export * from './bash.js';
+export * from './background.js';
 export * from './todo.js';
 export * from './webfetch.js';
 export * from './exit-plan-mode.js';

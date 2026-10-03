@@ -12,6 +12,9 @@ export const KNOWN_TOOLS = new Set([
   'memory',
   'webfetch',
   'exit_plan_mode',
+  // Only with `settings.backgroundProcesses`: reading and stopping what `bash` started in the background.
+  'bash_output',
+  'bash_kill',
 ]);
 
 /** Relative-path prefix (posix, workspace-rooted) that plan mode lets write/edit through. */

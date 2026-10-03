@@ -87,6 +87,13 @@ export interface Settings extends RouterSettings {
    */
   useAutoModeDuringPlan?: boolean;
   autoMode?: AutoModeConfig;
+  /**
+   * Let `bash` start commands in the background (`run_in_background`), read
+   * with `bash_output` and stopped with `bash_kill`. Off by default: it
+   * changes the tools the model is shown. Sessions started after it changes
+   * take it up.
+   */
+  backgroundProcesses?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

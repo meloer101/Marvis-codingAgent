@@ -134,6 +134,14 @@ export class PermissionEngine {
       return this.evaluateExitPlanMode();
     }
 
+    if (tool === 'bash_output' || tool === 'bash_kill') {
+      // Reading or stopping a command that was approved when it started: nothing
+      // new to approve, in any mode. A deny rule still holds.
+      const denied = this.deny.find((r) => r.tool === tool);
+      if (denied) return { decision: 'deny', reason: `Blocked by deny rule ${denied.raw}` };
+      return { decision: 'allow' };
+    }
+
     return this.evaluatePathTool(tool, req);
   }
 

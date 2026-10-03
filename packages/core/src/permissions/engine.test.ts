@@ -254,6 +254,16 @@ describe('PermissionEngine', () => {
     );
   });
 
+  it('lets the agent read and stop its background commands in any mode, unless a rule denies it', async () => {
+    for (const mode of ['ask', 'plan', 'readOnly'] as const) {
+      const e = engine({ mode });
+      expect((await e.evaluate({ toolName: 'bash_output', input: { id: 'bg1' }, readOnly: true })).decision).toBe('allow');
+      expect((await e.evaluate({ toolName: 'bash_kill', input: { id: 'bg1' }, readOnly: true })).decision).toBe('allow');
+    }
+    const denied = engine({ mode: 'yolo', deny: ['bash_kill'] });
+    expect((await denied.evaluate({ toolName: 'bash_kill', input: { id: 'bg1' }, readOnly: true })).decision).toBe('deny');
+  });
+
   it('setRules replaces the configured rules, keeping what addAllowRule granted', async () => {
     const e = engine({ mode: 'ask', allow: ['Edit'] });
     e.addAllowRule('Bash');

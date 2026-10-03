@@ -58,7 +58,8 @@ import type {
   PermissionEngine,
   PermissionMode,
 } from '../permissions/index.js';
-import { builtinTools, exitPlanModeTool, readTool } from '../tools/index.js';
+import { BackgroundProcesses, builtinTools, createBackgroundTools, createBashTool, exitPlanModeTool, readTool } from '../tools/index.js';
+import type { BackgroundProcessEvent, BackgroundProcessInfo } from '../tools/index.js';
 import { PathEscapeError, assertInsideWorkspace } from '../permissions/paths.js';
 import { attachedFileBlock } from './attachments.js';
 import { ToolRegistry } from '../tools/registry.js';
@@ -271,6 +272,8 @@ export interface AgentSessionConfig {
   onEvent?: (e: AgentEvent) => void;
   /** Cold path: structured status lines. */
   onNotice?: (n: Notice) => void;
+  /** Background commands (`settings.backgroundProcesses`) starting, printing and ending — outside any run, too. */
+  onProcessEvent?: (e: BackgroundProcessEvent) => void;
 }
 
 interface SessionInit {
@@ -325,6 +328,8 @@ export class AgentSession {
   readonly #skillCatalog: SkillCatalog;
   readonly #memoryCatalog: MemoryCatalog;
   readonly #memoryBuffer: MemoryWriteBuffer;
+  /** Commands `bash` started in the background; only with `settings.backgroundProcesses`. */
+  readonly #background: BackgroundProcesses | undefined;
   readonly #recorder: SessionRecorder | undefined;
   readonly #trace: TraceRecorder | undefined;
   readonly #hooks: AgentHooks;
@@ -371,6 +376,13 @@ export class AgentSession {
     this.#skillCatalog = init.skillCatalog;
     this.#memoryCatalog = init.memoryCatalog;
     this.#memoryBuffer = init.memoryBuffer;
+    this.#background =
+      config.settings.backgroundProcesses === true
+        ? new BackgroundProcesses({
+            root: config.cwd,
+            ...(config.onProcessEvent ? { onEvent: config.onProcessEvent } : {}),
+          })
+        : undefined;
     this.#recorder = init.recorder;
     this.#trace = init.trace;
     this.#session = init.session;
@@ -669,6 +681,13 @@ export class AgentSession {
       ? createToolGuardrailHooks({
           isReadOnly: readOnlyLookup([
             ...builtinTools(),
+            // Polling a background command that printed nothing new is a same-result read like any other.
+            ...(settings.backgroundProcesses === true
+              ? ([
+                  { name: 'bash_output', readOnly: true },
+                  { name: 'bash_kill', readOnly: true },
+                ] as AnyToolSpec[])
+              : []),
             ...(skillCatalog.size > 0
               ? [{ name: 'skill', readOnly: true } as AnyToolSpec]
               : []),
@@ -1265,10 +1284,26 @@ export class AgentSession {
     return body ?? null;
   }
 
-  /** Idempotent teardown: flush staged memories, close MCP connections. */
+  /** The commands `bash` started in the background, oldest first; empty unless `settings.backgroundProcesses`. */
+  get processes(): BackgroundProcessInfo[] {
+    return this.#background?.list() ?? [];
+  }
+
+  /** What background command `id` printed (what's kept of it), for a frontend; the agent's reads stay as they are. */
+  processOutput(id: string): { process: BackgroundProcessInfo; text: string } | undefined {
+    return this.#background?.output(id);
+  }
+
+  /** Stop background command `id` and what it started; resolves once it ended, undefined for an unknown id. */
+  killProcess(id: string): Promise<BackgroundProcessInfo | undefined> {
+    return this.#background?.kill(id) ?? Promise.resolve(undefined);
+  }
+
+  /** Idempotent teardown: stop background commands, flush staged memories, close MCP connections. */
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
+    await this.#background?.killAll();
     try {
       if (this.#config.memory !== false) {
         const { written, forgotten } = await this.#memoryBuffer.flush();
@@ -1289,8 +1324,16 @@ export class AgentSession {
 
   #buildLoop(signal: AbortSignal, takeInput?: () => Promise<ContentBlock[] | undefined>): AgentLoop {
     const activeMode = this.#engine.getMode();
+    const background = this.#background;
     const specs: AnyToolSpec[] = [
-      ...builtinTools(),
+      // With background commands on, `bash` takes `run_in_background` and two
+      // tools follow it; off (the default), the list is as it always was.
+      ...(background
+        ? [
+            ...builtinTools().map((t) => (t.name === 'bash' ? (createBashTool(background) as AnyToolSpec) : t)),
+            ...createBackgroundTools(background),
+          ]
+        : builtinTools()),
       // Registered in every mode on purpose: the tool list is part of the
       // cached prefix, so adding and removing a tool on each mode switch
       // invalidates it. The permission engine refuses the call outside plan
