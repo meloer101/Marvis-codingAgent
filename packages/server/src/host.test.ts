@@ -672,6 +672,37 @@ describe('SessionHost queue', () => {
     expect(events().filter((e) => e.type === 'run_start')).toHaveLength(1);
   });
 
+  it('a steering message is read at the next step, in the same run; a queued one waits for the end', async () => {
+    const { host, events } = await makeHost(
+      [{ toolCalls: [{ name: 'write', input: { path: 'a.txt', content: 'x' } }] }, { text: 'done' }, { text: 'after' }],
+      { mode: 'ask' },
+    );
+    const asked = firstEvent(host, 'ask');
+    const settled = runsSettled(host, 3);
+    void host.send('go');
+    await asked;
+    const steered = await host.send('use b.txt instead', [], { steer: true });
+    expect(steered).toMatchObject({ queued: { text: 'use b.txt instead', steer: true } });
+    await host.send('then tidy up');
+    // A command never steers: it waits for the run to end.
+    expect(await host.send('/compact', [], { steer: true })).toMatchObject({ queued: { text: '/compact' } });
+    host.answerAsk((await host.snapshot()).pendingAsk!.askId, 'once');
+    await settled;
+
+    const ev = events();
+    const input = ev.findIndex((e) => e.type === 'user_input');
+    expect(ev[input]).toEqual({ type: 'user_input', text: 'use b.txt instead' });
+    // After the step's result, before the next model call's text.
+    const writeEnd = ev.findIndex((e) => e.type === 'tool_call_end' && e.name === 'write');
+    const done = ev.findIndex((e) => e.type === 'text_delta' && e.text.includes('done'));
+    expect(writeEnd).toBeLessThan(input);
+    expect(input).toBeLessThan(done);
+    // Taken out of the queue as it was read; the queued message went after the run.
+    const queues = ev.flatMap((e) => (e.type === 'queue' ? [e.queue.map((q) => q.text)] : []));
+    expect(queues).toContainEqual(['then tidy up', '/compact']);
+    expect(ev.flatMap((e) => (e.type === 'run_start' ? [e.input] : []))).toEqual(['go', 'then tidy up', '/compact']);
+  });
+
   it('close sends nothing that was queued', async () => {
     const { host, events, registry } = await makeHost(
       [{ toolCalls: [{ name: 'write', input: { path: 'a.txt', content: 'x' } }] }, { text: 'b' }],

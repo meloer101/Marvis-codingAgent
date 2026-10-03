@@ -355,8 +355,8 @@ class Connection {
         // Handled before dispatch; unreachable.
         throw new Error('unreachable');
       case 'session.send': {
-        const { id, text, attachments } = params as MethodParams<'session.send'>;
-        return this.#host(id).send(text, attachments);
+        const { id, text, attachments, steer } = params as MethodParams<'session.send'>;
+        return this.#host(id).send(text, attachments, steer !== undefined ? { steer } : {});
       }
       case 'session.abort': {
         const { id } = params as MethodParams<'session.abort'>;

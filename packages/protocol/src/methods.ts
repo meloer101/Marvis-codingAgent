@@ -175,12 +175,17 @@ export interface SessionSummary {
   rev: number;
 }
 
-/** A message sent while a run was going, waiting to be sent when it ends. */
+/**
+ * A message sent while a run was going, waiting: to be sent when the run
+ * ends, or — `steer` — to be read by the agent at its next step.
+ */
 export interface QueuedMessage {
   id: string;
   text: string;
   /** Workspace files to read into it (`@path`). */
   attachments?: string[];
+  /** Read at the run's next step, not after it (sent as a message if the run ends first). */
+  steer?: boolean;
 }
 
 /** An installed skill, for the `/` menu (`/name` loads it). */
@@ -558,12 +563,14 @@ export const methods = {
   'session.unsubscribe': method<{ id: string }, void>(z.object({ id: sessionIdSchema })),
   /**
    * Send a message: it starts a run, or — while one is going — waits in the
-   * session's queue and is sent when the run ends (every client sees the
-   * queue, as `queue` events). `attachments` are workspace files read into
-   * it; one the session may not read is `bad_request`, before anything is sent.
+   * session's queue (every client sees the queue, as `queue` events) and is
+   * sent when the run ends; with `steer`, the agent reads it at the run's next
+   * step instead (a `user_input` event marks where). A `/command` always waits
+   * for the run to end. `attachments` are workspace files read into it; one
+   * the session may not read is `bad_request`, before anything is sent.
    */
-  'session.send': method<{ id: string; text: string; attachments?: string[] }, SendResult>(
-    z.object({ id: sessionIdSchema, text: z.string(), attachments: attachmentsSchema.optional() }),
+  'session.send': method<{ id: string; text: string; attachments?: string[]; steer?: boolean }, SendResult>(
+    z.object({ id: sessionIdSchema, text: z.string(), attachments: attachmentsSchema.optional(), steer: z.boolean().optional() }),
   ),
   /**
    * Stop the run; a pending prompt settles as a deny. The queue is emptied too:

@@ -40,7 +40,7 @@ export type WireEvent =
   | { type: 'plan'; planId: string; title: string; body: string; yesMode?: PermissionMode }
   | { type: 'resolved'; requestId: string; by: 'user' | 'abort' }
   // state changes not otherwise visible
-  /** The messages waiting for the run to end — the whole queue, after every change. */
+  /** The messages waiting — for the run to end, or (`steer`) its next step — the whole queue, after every change. */
   | { type: 'queue'; queue: QueuedMessage[] }
   | { type: 'mode'; mode: PermissionMode }
   | { type: 'effort'; effort: ReasoningEffort }

@@ -38,7 +38,7 @@ import type {
   Usage,
 } from '@harness-code/core';
 import { AttachmentError, alwaysAllowFor, loadTranscript, sessionTitleFrom, updateSessionMeta } from '@harness-code/core';
-import type { AlwaysAllow, SessionMetaPatch, SessionWorktreeMeta } from '@harness-code/core';
+import type { AlwaysAllow, SessionMetaPatch, SessionWorktreeMeta, SteeringInput } from '@harness-code/core';
 import type {
   QueuedMessage,
   SendResult,
@@ -467,16 +467,37 @@ export class SessionHost {
 
   /**
    * Send a message: start a run for it, or — while one is going — queue it to
-   * be sent when that run ends. Attachments the session may not read are
-   * refused (`InvalidRequestError`) before either.
+   * be sent when that run ends; with `steer`, for the run to read at its next
+   * step (`#takeSteering`) — a `/command` is never steered, it waits for the
+   * run to end. Attachments the session may not read are refused
+   * (`InvalidRequestError`) before either.
    */
-  async send(text: string, attachments: readonly string[] = []): Promise<SendResult> {
+  async send(text: string, attachments: readonly string[] = [], opts: { steer?: boolean } = {}): Promise<SendResult> {
     if (attachments.length > 0) await this.checkAttachments(attachments);
     if (!this.#busy) return this.run(text, attachments);
-    const queued: QueuedMessage = { id: randomUUID(), text, ...(attachments.length > 0 ? { attachments: [...attachments] } : {}) };
+    const steer = opts.steer === true && !text.trim().startsWith('/');
+    const queued: QueuedMessage = {
+      id: randomUUID(),
+      text,
+      ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
+      ...(steer ? { steer: true } : {}),
+    };
     this.#queue.push(queued);
     this.#emitQueue();
     return { queued };
+  }
+
+  /**
+   * The steering messages, handed to the run as it asks (after a step, or as
+   * it would end) and so out of the queue; the rest wait for the run to end.
+   * None once the host is closing, or the run was stopped (Stop gives them back).
+   */
+  #takeSteering(signal: AbortSignal): SteeringInput[] {
+    if (this.#closing || signal.aborted || !this.#queue.some((q) => q.steer)) return [];
+    const taken = this.#queue.filter((q) => q.steer);
+    this.#queue.splice(0, this.#queue.length, ...this.#queue.filter((q) => !q.steer));
+    this.#emitQueue();
+    return taken.map((q) => ({ text: q.text, ...(q.attachments ? { attachments: q.attachments } : {}) }));
   }
 
   /** Refuse attachments the session may not read, as a bad request. */
@@ -558,6 +579,7 @@ export class SessionHost {
       const result = await session.runTurn(effective, {
         signal,
         ...(attachments.length > 0 ? { attachments } : {}),
+        takeInput: () => this.#takeSteering(signal),
       });
       this.#endRun(runId, {
         stopReason: result.stopReason,
