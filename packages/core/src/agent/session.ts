@@ -406,6 +406,17 @@ export interface SessionMeta {
   createdAt?: number;
   /** The working directory the session ran in. */
   cwd?: string;
+  /** The git worktree a frontend gave the session to work in (`hc web`), apart from the project's checkout. */
+  worktree?: SessionWorktreeMeta;
+}
+
+export interface SessionWorktreeMeta {
+  /** The worktree's top directory. */
+  path: string;
+  /** The branch made for it. */
+  branch: string;
+  /** What it was branched from. */
+  base: string;
 }
 
 export type SessionMetaPatch = Partial<Omit<SessionMeta, 'v'>>;

@@ -15,8 +15,9 @@
  * that's always been there.
  */
 
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 
 const SANDBOX_EXEC_PATH = '/usr/bin/sandbox-exec';
 
@@ -84,7 +85,8 @@ export function wrapCommand(
  */
 export function writableRoots(workspaceRoot: string): string[] {
   const roots = new Set<string>();
-  for (const p of [workspaceRoot, tmpdir(), '/tmp']) {
+  const gitDir = linkedWorktreeGitDir(workspaceRoot);
+  for (const p of [workspaceRoot, tmpdir(), '/tmp', ...(gitDir ? [gitDir] : [])]) {
     roots.add(p);
     try {
       roots.add(realpathSync(p));
@@ -93,4 +95,32 @@ export function writableRoots(workspaceRoot: string): string[] {
     }
   }
   return [...roots];
+}
+
+/**
+ * The repository's `.git` when `workspaceRoot` is in a linked worktree: git
+ * keeps a worktree's index, refs and objects there, outside the worktree, so
+ * without it `git add` and `git commit` in the worktree were refused — where
+ * the same commands in the main checkout write its `.git`, inside the workspace.
+ */
+export function linkedWorktreeGitDir(workspaceRoot: string): string | undefined {
+  for (let dir = resolve(workspaceRoot); ; dir = dirname(dir)) {
+    let gitFile: string;
+    try {
+      gitFile = readFileSync(join(dir, '.git'), 'utf8');
+    } catch (err) {
+      // A `.git` directory: an ordinary checkout, whose `.git` is in the workspace already.
+      if ((err as NodeJS.ErrnoException).code === 'EISDIR') return undefined;
+      if (dirname(dir) === dir) return undefined;
+      continue;
+    }
+    const match = /^gitdir:\s*(.+?)\s*$/m.exec(gitFile);
+    if (!match) return undefined;
+    const gitDir = resolve(dir, match[1]!);
+    try {
+      return resolve(gitDir, readFileSync(join(gitDir, 'commondir'), 'utf8').trim());
+    } catch {
+      return undefined; // a submodule: its gitdir has no commondir
+    }
+  }
 }

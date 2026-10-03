@@ -17,8 +17,8 @@
 
 import { randomUUID } from 'node:crypto';
 import { open, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { resolveBudgets } from '../config/budgets.js';
 import type { ResolvedBudgets } from '../config/budgets.js';
@@ -616,7 +616,7 @@ export class AgentSession {
     // One store per session for full tool outputs: the loop's output cap and the
     // compactor's pruning both write here, numbered from one counter.
     const toolOutputStore = recorder
-      ? new ToolOutputStore(sessionArtifactsDir(agentDir, recorder.id), cwd)
+      ? new ToolOutputStore(toolOutputDir(sessionArtifactsDir(agentDir, recorder.id), cwd, recorder.id), cwd)
       : undefined;
     const compactorFor = (sessionModel: ResolvedModel): NonNullable<AgentHooks['onCompact']> => {
       const summarizer = dedicatedSummarizer ?? sessionModel;
@@ -1436,6 +1436,18 @@ async function looksBinary(path: string): Promise<boolean> {
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * Where a session's full tool outputs go: its artifact directory, when the
+ * file tools can open it there — inside the workspace — else the system temp
+ * directory, which they also accept. A state dir outside the workspace (a
+ * project subdirectory as cwd, a linked worktree, `$HC_STATE_DIR`) would
+ * otherwise hand the model paths it can't read.
+ */
+function toolOutputDir(artifactsDir: string, cwd: string, sessionId: string): string {
+  const rel = relative(resolve(cwd), artifactsDir);
+  return rel.startsWith('..') || isAbsolute(rel) ? join(tmpdir(), 'hc-toolout', sessionId) : artifactsDir;
 }
 
 /** Build an `isReadOnly(name)` lookup from the specs a session or sub-agent will run. */

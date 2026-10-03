@@ -14,7 +14,7 @@
  */
 
 import { mkdir, readdir, writeFile as writeFileNative } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 
 import { heuristicTokenCount } from './tokenizer.js';
 import { truncateHeadTail } from './truncate.js';
@@ -33,7 +33,7 @@ export class ToolOutputStore {
   constructor(
     /** Absolute directory the files are written to. */
     readonly dir: string,
-    /** Workspace root; returned paths are relative to it so `read` can open them. */
+    /** Workspace root; returned paths are relative to it so `read` can open them (absolute outside it). */
     private readonly cwd: string,
     private readonly write: (path: string, data: string) => Promise<void> = writeFileNative,
   ) {}
@@ -50,7 +50,8 @@ export class ToolOutputStore {
       const n = (await this.#firstFree) + this.#taken++;
       const abs = join(this.dir, `toolout-${n}.txt`);
       await this.write(abs, content);
-      return relative(this.cwd, abs).split(sep).join('/');
+      const rel = relative(this.cwd, abs);
+      return rel.startsWith('..') || isAbsolute(rel) ? abs : rel.split(sep).join('/');
     } catch {
       return undefined;
     }

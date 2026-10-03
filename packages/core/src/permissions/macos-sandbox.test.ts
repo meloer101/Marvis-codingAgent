@@ -71,5 +71,34 @@ describe('wrapCommand', () => {
     expect(roots).toContain(tmpdir());
     expect(roots).toContain(realpathSync(tmpdir()));
   });
-});
 
+  it("lets git in a linked worktree write the repository's .git", async () => {
+    const { linkedWorktreeGitDir, writableRoots } = await import('./macos-sandbox.js');
+    const { execFileSync } = await import('node:child_process');
+    const { mkdtemp, realpath, rm, writeFile, mkdir } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const base = await realpath(await mkdtemp(join(tmpdir(), 'hc-sbx-')));
+    try {
+      const git = (cwd: string, ...args: string[]): string =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
+          cwd,
+          encoding: 'utf8',
+        });
+      const repo = join(base, 'repo');
+      await mkdir(join(repo, 'src'), { recursive: true });
+      await writeFile(join(repo, 'src', 'a.txt'), 'a\n');
+      git(repo, 'init', '-q', '-b', 'main');
+      git(repo, 'add', '.');
+      git(repo, 'commit', '-q', '-m', 'init');
+      const wt = join(base, 'wt');
+      git(repo, 'worktree', 'add', '-q', '-b', 'feature', wt);
+      expect(linkedWorktreeGitDir(join(wt, 'src'))).toBe(join(repo, '.git'));
+      expect(writableRoots(join(wt, 'src'))).toContain(join(repo, '.git'));
+      // The main checkout's .git is inside its workspace already.
+      expect(linkedWorktreeGitDir(join(repo, 'src'))).toBeUndefined();
+    } finally {
+      await rm(base, { recursive: true, force: true });
+    }
+  });
+});

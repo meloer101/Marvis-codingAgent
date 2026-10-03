@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,6 +9,9 @@ import {
   STATE_DIR_ENV,
   findMarkedProjectRoot,
   findProjectRoot,
+  findStateRoot,
+  linkedWorktreeMain,
+  loadSettings,
   looseDirHome,
   resolveProjectMemoryDir,
   resolveStateDir,
@@ -60,5 +64,65 @@ describe('state directory', () => {
     const env = { [STATE_DIR_ENV]: '/logs/agent/hc-state' };
     expect(await resolveStateDir(repo, { env, homeDir: home })).toBe('/logs/agent/hc-state');
     expect(await resolveStateDir(repo, { env: { [STATE_DIR_ENV]: 'state' } })).toBe(join(repo, 'state'));
+  });
+
+  describe('in a linked worktree', () => {
+    const git = (cwd: string, ...args: string[]): string =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], {
+        cwd,
+        encoding: 'utf8',
+      });
+
+    /** A repository with a commit, a sub-directory, and a worktree of it outside (under `home`, as `hc web` puts them). */
+    async function repoWithWorktree(): Promise<{ repo: string; wt: string }> {
+      const repo = join(base, 'repo');
+      await mkdir(join(repo, 'pkg'), { recursive: true });
+      await writeFile(join(repo, 'pkg', 'a.txt'), 'a\n');
+      git(repo, 'init', '-q', '-b', 'main');
+      git(repo, 'add', '.');
+      git(repo, 'commit', '-q', '-m', 'init');
+      const wt = join(home, '.agent', 'worktrees', 'repo-x', 'wt');
+      await mkdir(join(home, '.agent', 'worktrees', 'repo-x'), { recursive: true });
+      git(repo, 'worktree', 'add', '-q', '-b', 'hc/wt', wt);
+      return { repo, wt };
+    }
+
+    it("is a project root of its own, sharing its main checkout's state", async () => {
+      const { repo, wt } = await repoWithWorktree();
+      expect(await linkedWorktreeMain(wt)).toBe(repo);
+      expect(await linkedWorktreeMain(repo)).toBeUndefined();
+      // Before: its `.git` is a file, so the search went on up — to the home directory's `.agent`.
+      expect(await findMarkedProjectRoot(join(wt, 'pkg'))).toBe(wt);
+      expect(await findProjectRoot(wt)).toBe(wt);
+      expect(await findStateRoot(join(wt, 'pkg'))).toBe(repo);
+      expect(await resolveStateDir(wt, { env: {}, homeDir: home })).toBe(join(repo, '.agent'));
+      expect(await resolveProjectMemoryDir(join(wt, 'pkg'), home)).toBe(join(repo, '.agent', 'memory'));
+    });
+
+    it('reads the project settings of the main checkout', async () => {
+      const { repo, wt } = await repoWithWorktree();
+      await mkdir(join(repo, '.agent'), { recursive: true });
+      await writeFile(join(repo, '.agent', 'settings.json'), JSON.stringify({ model: 'x/main-model' }));
+      const { settings, sources } = await loadSettings(wt);
+      expect(settings.model).toBe('x/main-model');
+      expect(sources).toContain(join(repo, '.agent', 'settings.json'));
+    });
+
+    it('maps a marked sub-directory to the same one in the main checkout', async () => {
+      const { repo, wt } = await repoWithWorktree();
+      await mkdir(join(wt, 'pkg', '.agent'), { recursive: true });
+      expect(await findProjectRoot(join(wt, 'pkg'))).toBe(join(wt, 'pkg'));
+      expect(await findStateRoot(join(wt, 'pkg'))).toBe(join(repo, 'pkg'));
+    });
+
+    it('leaves a submodule-style .git file alone', async () => {
+      const outer = join(base, 'outer');
+      await mkdir(join(outer, '.git', 'modules', 'sub'), { recursive: true });
+      await mkdir(join(outer, 'sub'));
+      await writeFile(join(outer, 'sub', '.git'), 'gitdir: ../.git/modules/sub\n');
+      expect(await linkedWorktreeMain(join(outer, 'sub'))).toBeUndefined();
+      expect(await findMarkedProjectRoot(join(outer, 'sub'))).toBe(outer);
+      expect(await findStateRoot(join(outer, 'sub'))).toBe(outer);
+    });
   });
 });

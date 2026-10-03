@@ -26,9 +26,9 @@
 
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
-import { AGENT_DIR, findProjectRoot } from '../config/settings.js';
+import { AGENT_DIR, findStateRoot } from '../config/settings.js';
 
 export interface McpStdioServerConfig {
   name: string;
@@ -76,7 +76,8 @@ export async function loadMcpConfig(
 ): Promise<LoadedMcpConfig> {
   const candidates = [
     join(homedir(), AGENT_DIR, MCP_CONFIG_FILE),
-    join(await findProjectRoot(cwd), MCP_CONFIG_FILE),
+    // A linked worktree runs its main checkout's servers: the ones trusted with the project.
+    join((await findStateRoot(cwd)) ?? resolve(cwd), MCP_CONFIG_FILE),
   ];
 
   const byName = new Map<string, McpServerConfig>();

@@ -35,6 +35,16 @@ describe('ToolOutputStore', () => {
     expect(await readFile(join(cwd, 'out/toolout-0.txt'), 'utf8')).toBe('a');
   });
 
+  it('returns the absolute path of a file outside the workspace', async () => {
+    const outside = await realpath(await mkdtemp(join(tmpdir(), 'hc-toolout-out-')));
+    try {
+      const store = new ToolOutputStore(outside, cwd);
+      expect(await store.save('x')).toBe(join(outside, 'toolout-0.txt'));
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   it('returns undefined instead of throwing when the write fails', async () => {
     const store = new ToolOutputStore(cwd, cwd, async () => {
       throw new Error('ENOSPC');

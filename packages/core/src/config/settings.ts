@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 
 import { DEFAULT_ALLOW_RULES } from '../permissions/defaults.js';
 import type { PermissionConfig } from '../permissions/types.js';
@@ -113,7 +113,7 @@ export interface LoadedSettings {
 
 export async function loadSettings(cwd = process.cwd()): Promise<LoadedSettings> {
   const userPath = join(homedir(), AGENT_DIR, SETTINGS_FILE);
-  const projectPath = join(await findProjectRoot(cwd), AGENT_DIR, SETTINGS_FILE);
+  const projectPath = join((await findStateRoot(cwd)) ?? resolve(cwd), AGENT_DIR, SETTINGS_FILE);
   const candidates = [userPath, projectPath];
 
   let settings: Settings = { ...DEFAULT_SETTINGS };
@@ -284,22 +284,70 @@ export async function findProjectRoot(cwd = process.cwd()): Promise<string> {
   return (await findMarkedProjectRoot(cwd)) ?? resolve(cwd);
 }
 
-/** Nearest ancestor holding a `.agent` or `.git` directory, or `undefined` when there is none. */
+/**
+ * Nearest ancestor holding a `.agent` or `.git` directory, or the top of a
+ * linked worktree (whose `.git` is a file); `undefined` when there is none.
+ */
 export async function findMarkedProjectRoot(cwd = process.cwd()): Promise<string | undefined> {
   const { stat } = await import('node:fs/promises');
   let dir = resolve(cwd);
 
   for (;;) {
-    for (const marker of [AGENT_DIR, '.git']) {
-      try {
-        const s = await stat(join(dir, marker));
-        if (s.isDirectory()) return dir;
-      } catch {
-        // keep looking
-      }
-    }
+    const agent = await stat(join(dir, AGENT_DIR)).catch(() => undefined);
+    if (agent?.isDirectory()) return dir;
+    const git = await stat(join(dir, '.git')).catch(() => undefined);
+    if (git?.isDirectory()) return dir;
+    if (git?.isFile() && (await linkedWorktreeMain(dir)) !== undefined) return dir;
     const parent = dirname(dir);
     if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/**
+ * The main checkout of the repository `dir` is a linked worktree of (`git
+ * worktree add`), when `dir` is the top of one: its `.git` is a file naming a
+ * gitdir whose `commondir` leads back to the repository's `.git`. Undefined for
+ * anything else — a plain checkout, a submodule (its gitdir has no
+ * `commondir`), a worktree of a bare repository (there is no main checkout).
+ */
+export async function linkedWorktreeMain(dir: string): Promise<string | undefined> {
+  let gitFile: string;
+  try {
+    gitFile = await readFile(join(dir, '.git'), 'utf8');
+  } catch {
+    return undefined; // none, or a directory
+  }
+  const match = /^gitdir:\s*(.+?)\s*$/m.exec(gitFile);
+  if (!match) return undefined;
+  const gitDir = resolve(dir, match[1]!);
+  let common: string;
+  try {
+    common = resolve(gitDir, (await readFile(join(gitDir, 'commondir'), 'utf8')).trim());
+  } catch {
+    return undefined;
+  }
+  return basename(common) === '.git' ? dirname(common) : undefined;
+}
+
+/**
+ * Where a project's own state lives — its settings, memory, MCP servers,
+ * session logs: the marked project root, except inside a linked worktree,
+ * which shares its main checkout's (the same directory there). A worktree is
+ * the same project on another branch; what it checks out — instructions,
+ * skills, agents, plans — still comes from `findProjectRoot`.
+ */
+export async function findStateRoot(cwd = process.cwd()): Promise<string | undefined> {
+  const { stat } = await import('node:fs/promises');
+  const root = await findMarkedProjectRoot(cwd);
+  if (root === undefined) return undefined;
+  // The checkout `root` is in: the first directory up from it with a `.git`.
+  for (let dir = root; ; ) {
+    const main = await linkedWorktreeMain(dir);
+    if (main !== undefined) return join(main, relative(dir, root));
+    if (await stat(join(dir, '.git')).then(() => true, () => false)) return root;
+    const parent = dirname(dir);
+    if (parent === dir) return root;
     dir = parent;
   }
 }
@@ -327,7 +375,8 @@ export async function looseDirHome(cwd: string, homeDir = homedir()): Promise<st
 
 /**
  * The directory session logs and traces are written under: `$HC_STATE_DIR` when
- * set; `<projectRoot>/.agent` inside a project; otherwise `looseDirHome`.
+ * set; `<projectRoot>/.agent` inside a project (in a linked worktree, its main
+ * checkout's — `findStateRoot`); otherwise `looseDirHome`.
  */
 export async function resolveStateDir(
   cwd = process.cwd(),
@@ -335,16 +384,16 @@ export async function resolveStateDir(
 ): Promise<string> {
   const override = (opts.env ?? process.env)[STATE_DIR_ENV];
   if (override) return resolve(cwd, override);
-  const root = await findMarkedProjectRoot(cwd);
+  const root = await findStateRoot(cwd);
   return root ? join(root, AGENT_DIR) : looseDirHome(cwd, opts.homeDir);
 }
 
 /**
  * Where project-scoped memory lives: `<projectRoot>/.agent/memory` inside a
- * project, otherwise under `looseDirHome` — never a fresh `.agent/` in a
- * directory that is not a project.
+ * project (shared by its linked worktrees, `findStateRoot`), otherwise under
+ * `looseDirHome` — never a fresh `.agent/` in a directory that is not a project.
  */
 export async function resolveProjectMemoryDir(cwd = process.cwd(), homeDir?: string): Promise<string> {
-  const root = await findMarkedProjectRoot(cwd);
+  const root = await findStateRoot(cwd);
   return join(root ? join(root, AGENT_DIR) : await looseDirHome(cwd, homeDir), 'memory');
 }
