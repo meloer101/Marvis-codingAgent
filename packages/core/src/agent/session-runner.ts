@@ -99,7 +99,7 @@ import {
 import { TraceRecorder } from '../telemetry/trace.js';
 import { ToolOutputStore } from '../context/tool-output.js';
 import { addUsage } from '../provider/types.js';
-import type { Message, SystemSegment, Usage } from '../provider/types.js';
+import type { ContentBlock, Message, SystemSegment, Usage } from '../provider/types.js';
 import { ProviderRegistry } from '../provider/router.js';
 import type { ResolvedModel } from '../provider/router.js';
 import { effortOptions, estimateCostUSD, mapEffort } from '../provider/capabilities.js';
@@ -176,6 +176,13 @@ export function skillInvocation(name: string, args = ''): string {
 
 /** Past this, a file is for the agent to read in parts, not to attach whole. */
 export const MAX_ATTACHMENT_BYTES = 256 * 1024;
+
+/** A message the user sent while a run was going, for the run to take in (`runTurn`'s `takeInput`). */
+export interface SteeringInput {
+  text: string;
+  /** Workspace files read into it, as for a message's (checked when it was sent). */
+  attachments?: readonly string[];
+}
 
 // ---------------------------------------------------------------------------
 // Config
@@ -1009,10 +1016,16 @@ export class AgentSession {
   /**
    * Run one turn with `input`, then stop. Returns the full accumulated history.
    * `attachments` are workspace files read into the message ahead of its text.
+   * `takeInput` hands over what the user said since (steering) whenever the
+   * loop can take it in — after a step's tool results, or as the run would end.
    */
   async runTurn(
     input: string,
-    opts?: { signal?: AbortSignal; attachments?: readonly string[] },
+    opts?: {
+      signal?: AbortSignal;
+      attachments?: readonly string[];
+      takeInput?: () => readonly SteeringInput[];
+    },
   ): Promise<AgentRunResult> {
     if (this.#closed) throw new Error('AgentSession is closed');
     const attached = opts?.attachments?.length ? await this.#readAttachments(opts.attachments) : [];
@@ -1057,10 +1070,11 @@ export class AgentSession {
     }
 
     try {
-      const result = await this.#buildLoop(controller.signal).run([
-        ...this.#messages,
-        userMessage,
-      ]);
+      const takeInput = opts?.takeInput;
+      const result = await this.#buildLoop(
+        controller.signal,
+        takeInput ? () => this.#steeringBlocks(takeInput()) : undefined,
+      ).run([...this.#messages, userMessage]);
 
       await this.#trace?.append({
         type: 'run_end',
@@ -1083,6 +1097,28 @@ export class AgentSession {
       opts?.signal?.removeEventListener('abort', onExternalAbort);
       this.#abortController = undefined;
     }
+  }
+
+  /**
+   * What the user said mid-run, as blocks for the loop — the files first, then
+   * the messages' text as one, as a message would carry them — announced as one
+   * `user_input`. An attachment that can't be read any more becomes a note
+   * rather than failing the run.
+   */
+  async #steeringBlocks(items: readonly SteeringInput[]): Promise<ContentBlock[] | undefined> {
+    if (items.length === 0) return undefined;
+    const files = items.flatMap((i) => i.attachments ?? []);
+    let attached: string[] = [];
+    if (files.length > 0) {
+      try {
+        attached = await this.#readAttachments(files);
+      } catch (err) {
+        attached = [`[${err instanceof Error ? err.message : String(err)}]`];
+      }
+    }
+    const text = items.map((i) => i.text).join('\n\n');
+    this.#onEvent({ type: 'user_input', text, ...(files.length > 0 ? { attachments: files } : {}) });
+    return [...attached.map((t) => ({ type: 'text' as const, text: t })), { type: 'text', text }];
   }
 
   /** Manually compact history now. Returns the token savings, or null when nothing compacted. */
@@ -1158,7 +1194,7 @@ export class AgentSession {
 
   // -- internals ------------------------------------------------------------
 
-  #buildLoop(signal: AbortSignal): AgentLoop {
+  #buildLoop(signal: AbortSignal, takeInput?: () => Promise<ContentBlock[] | undefined>): AgentLoop {
     const activeMode = this.#engine.getMode();
     const specs: AnyToolSpec[] = [
       ...builtinTools(),
@@ -1215,6 +1251,7 @@ export class AgentSession {
       signal,
       ...this.#budgetOverrides,
       ...(this.effort ? { reasoningEffort: this.effort } : {}),
+      ...(takeInput ? { takeInput } : {}),
       onEvent: this.#onEvent,
       ...this.#config.loopOverrides,
     });

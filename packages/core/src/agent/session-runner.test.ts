@@ -11,7 +11,7 @@ import { ProviderError } from '../provider/types.js';
 import type { Provider } from '../provider/types.js';
 import type { ResolvedModel } from '../provider/router.js';
 import type { AgentEvent } from './loop.js';
-import { readSessionSummary } from './session.js';
+import { loadTranscript, readSessionSummary } from './session.js';
 import { AgentSession, AttachmentError, skillInvocation } from './session-runner.js';
 import type { AgentSessionConfig, Notice } from './session-runner.js';
 
@@ -430,6 +430,42 @@ describe('AgentSession', () => {
     ]);
     // No `read` call was needed before the edit.
     expect(findToolEnd(events, 'edit')!.result.isError).toBeUndefined();
+  });
+
+  it('takes in what the user said mid-run: announced, recorded, read with its files', async () => {
+    const cwd = await tempDir();
+    const agentDir = join(cwd, '.agent');
+    await writeFile(join(cwd, 'b.txt'), 'bee\n', 'utf8');
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'glob', input: { pattern: '*.txt' } }] },
+      { text: 'done' },
+    ]);
+    const { session, events } = await createSession({ cwd, agentDir, recorder: true, model: sessionModel(provider) });
+    const pending = [
+      [
+        { text: 'also look at @b.txt', attachments: ['b.txt'] },
+        { text: 'and be brief' },
+      ],
+    ];
+
+    await session.runTurn('list the files', { takeInput: () => pending.shift() ?? [] });
+
+    expect(events.filter((e) => e.type === 'user_input')).toEqual([
+      { type: 'user_input', text: 'also look at @b.txt\n\nand be brief', attachments: ['b.txt'] },
+    ]);
+    const results = provider.requests[1]!.messages[2]!.content;
+    expect(results.slice(1)).toEqual([
+      { type: 'text', text: '<attached_file path="b.txt">\n     1\tbee\n     2\t\n</attached_file>' },
+      { type: 'text', text: 'also look at @b.txt\n\nand be brief' },
+    ]);
+    // Read back from disk, it is the user's message after the step it joined.
+    const transcript = await loadTranscript(agentDir, session.id);
+    const texts = transcript.flatMap((t) =>
+      t.type === 'message' && t.message.role === 'user'
+        ? t.message.content.flatMap((b) => (b.type === 'text' ? [b.text] : []))
+        : [],
+    );
+    expect(texts.at(-1)).toBe('also look at @b.txt\n\nand be brief');
   });
 
   it('a resumed session remembers what was attached', async () => {

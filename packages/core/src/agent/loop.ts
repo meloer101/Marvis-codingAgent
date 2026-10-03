@@ -20,6 +20,7 @@ import {
   toolUsesOf,
 } from '../provider/types.js';
 import type {
+  ContentBlock,
   Message,
   ModelRequest,
   ModelResponse,
@@ -113,6 +114,12 @@ export type AgentEvent =
       breakdown: ContextBreakdown;
     }
   | { type: 'compaction'; tokensBefore: number; tokensAfter: number; keptTurns: number }
+  /**
+   * A message the user sent while the run was going joined the history
+   * (`AgentLoopOptions.takeInput`): after a step's tool results, or in place of
+   * the run ending. For display: frontends show it where it was read.
+   */
+  | { type: 'user_input'; text: string; attachments?: string[] }
   | { type: 'stop'; reason: AgentStopReason };
 
 /**
@@ -277,6 +284,14 @@ export interface AgentLoopOptions {
   signal?: AbortSignal;
   /** Passed through to every tool's `ctx.control`. */
   control?: AgentControl;
+  /**
+   * What the user said while the run was going (steering): asked for after a
+   * step's tool results, which the blocks it returns join — so the model reads
+   * them before its next request — and when the model ends its turn, where
+   * they make a new message that keeps the run going. Nothing to add:
+   * undefined or empty.
+   */
+  takeInput?: () => Promise<ContentBlock[] | undefined>;
   onEvent?(event: AgentEvent): void;
 }
 
@@ -625,6 +640,16 @@ export class AgentLoop {
           response.stopReason === 'max_tokens' && calls.length > 0;
         if (!truncatedTools) {
           const reason = agentStopFrom(response.stopReason);
+          // The user spoke while the answer was being written: the run goes on with it.
+          const input = reason === 'end_turn' ? await this.opts.takeInput?.() : undefined;
+          if (input?.length) {
+            const inputMsg: Message = { role: 'user', content: input };
+            messages.push(inputMsg);
+            await this.opts.recorder?.recordMessage(inputMsg);
+            prevUsage = response.usage;
+            appendedTokens = estimateMessageTokens([inputMsg], this.calibrator.count);
+            continue;
+          }
           if (
             reason === 'end_turn' &&
             this.hooks.onBeforeStop &&
@@ -651,7 +676,9 @@ export class AgentLoop {
       const { blocks, endsRun } = await this.runToolCalls(calls, turnCtx, {
         truncated: response.stopReason === 'max_tokens',
       });
-      const userMessage: Message = { role: 'user', content: blocks };
+      // What the user said meanwhile rides with the results, read before the next request.
+      const input = endsRun || this.opts.signal?.aborted ? undefined : await this.opts.takeInput?.();
+      const userMessage: Message = { role: 'user', content: input?.length ? [...blocks, ...input] : blocks };
       messages.push(userMessage);
       await this.opts.recorder?.recordMessage(userMessage);
 

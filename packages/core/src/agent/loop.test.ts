@@ -60,6 +60,62 @@ function trackingTool(opts: {
   };
 }
 
+describe('AgentLoop steering (takeInput)', () => {
+  it("puts what the user said during a step after that step's tool results", async () => {
+    const provider = new ScriptedProvider([
+      { toolCalls: [{ name: 'echo', input: {} }] },
+      { text: 'done' },
+    ]);
+    const tools = new ToolRegistry([trackingTool({ name: 'echo', readOnly: true, concurrencySafe: true })]);
+    const pending = [[{ type: 'text' as const, text: 'use tabs, not spaces' }]];
+    let asked = 0;
+    const loop = new AgentLoop({
+      model: resolvedModel(provider),
+      tools,
+      cwd: '/tmp',
+      takeInput: async () => {
+        asked++;
+        return pending.shift();
+      },
+    });
+
+    const result = await loop.run([userText('hi')]);
+
+    expect(result.stopReason).toBe('end_turn');
+    // After the step's results, and again as the run was about to end.
+    expect(asked).toBe(2);
+    expect(result.messages).toHaveLength(4);
+    expect(result.messages[2]?.content).toMatchObject([
+      { type: 'tool_result', content: 'echo ran' },
+      { type: 'text', text: 'use tabs, not spaces' },
+    ]);
+    // The second request carried it.
+    expect(provider.requests[1]?.messages[2]?.content.at(-1)).toMatchObject({ text: 'use tabs, not spaces' });
+  });
+
+  it('keeps the run going with what the user said while the answer was written', async () => {
+    const provider = new ScriptedProvider([{ text: 'first answer' }, { text: 'second answer' }]);
+    const pending = [[{ type: 'text' as const, text: 'actually, also do X' }]];
+    const loop = new AgentLoop({
+      model: resolvedModel(provider),
+      tools: new ToolRegistry([]),
+      cwd: '/tmp',
+      takeInput: async () => pending.shift(),
+    });
+
+    const result = await loop.run([userText('hi')]);
+
+    expect(result.stopReason).toBe('end_turn');
+    expect(provider.callCount).toBe(2);
+    expect(result.messages.map((m) => [m.role, m.content[0]?.type === 'text' ? m.content[0].text : ''])).toEqual([
+      ['user', 'hi'],
+      ['assistant', 'first answer'],
+      ['user', 'actually, also do X'],
+      ['assistant', 'second answer'],
+    ]);
+  });
+});
+
 describe('AgentLoop', () => {
   it('runs a tool call and finishes on the following text-only turn', async () => {
     const provider = new ScriptedProvider([
