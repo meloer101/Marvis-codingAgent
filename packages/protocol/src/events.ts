@@ -8,6 +8,7 @@
 import type {
   AgentEvent,
   AgentStopReason,
+  BackgroundProcessEvent,
   ContextSnapshot,
   ImageInput,
   Notice,
@@ -22,6 +23,8 @@ import type { QueuedMessage } from './methods.js';
 export type WireEvent =
   // AgentEvent, forwarded verbatim (deltas coalesced by EventBuffer)
   | AgentEvent
+  /** A background command (`settings.backgroundProcesses`) starting, printing (coalesced, like tool output) or ending — runs or not. */
+  | BackgroundProcessEvent
   // Notice, forwarded verbatim
   | { type: 'notice'; notice: Notice }
   // run lifecycle — brackets one runTurn()

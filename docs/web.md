@@ -133,6 +133,7 @@ the server with the same schemas the client is typed from.
 | `session.delete {id}` | delete for good: log, metadata, offloaded output, trace, worktree (`busy` while it runs) |
 | `session.rewind {id, userMessage}` | take the conversation back to just before that user message (counted from 0 as the transcript shows them); a `rewound` event carries the transcript as it stands; files stay as they are (`busy` while a run goes) |
 | `session.fork {id, userMessage?}` | a new session with the conversation, whole or as far as before that message, its model, mode and effort, titled "… · fork"; a worktree session forks into a worktree of its own, branched from the other's branch → `{id}` |
+| `session.killProcess {id, processId}` | stop a command the session started in the background, and what it started — answers once it has ended |
 | `session.compact {id}` | compact the history now (`busy` while a run is going) |
 | `session.trace {id}` | the session's trace (`.agent/traces/<id>.jsonl`): its events and what they add up to — runs, model and tool calls, tokens, cache hits, cost |
 | `settings.get {workspaceId}` | the permission rules in `~/.agent/settings.json` and the project's `.agent/settings.json`, the built-in allow rules, the user's auto-mode rules beside the built-in ones and why auto mode is unavailable, if it is; files that don't parse are named, never read for more than their rules (a settings file can hold keys) |
@@ -159,7 +160,12 @@ lifecycle (`run_start`, carrying the message's attachments, / `run_end` /
 `run_error`), human-in-the-loop requests (`ask`, `plan`, `resolved`), the
 queue (`queue`, the whole of it after every change) and state changes
 (`mode`, `effort`, and `model`, which carries the effort levels, effort and
-context meter that come with the new model).
+context meter that come with the new model). With background commands on
+(`settings.backgroundProcesses`), `process_start`, `process_output` and
+`process_end` follow each command the session started with
+`run_in_background` — between runs too — and the snapshot's `processes`
+carries each one's state and the last 64 KB it printed; a client folds them
+with `foldProcesses`.
 
 Every event gets a per-session, per-host `seq`, and the host keeps the last 5000
 frames, so a client that reconnects resubscribes with its `lastSeq` and gets
@@ -177,7 +183,7 @@ rule on the client side.
 
 `tool_call_output` — what a running `bash` prints, as it prints it (the tool's
 `onOutput`; display only, the model still sees just the result) — coalesces the
-same way, per call. A flush carrying more than 16 KB keeps its tail, cut at a
+same way, per call, and so does `process_output`, per background command. A flush carrying more than 16 KB keeps its tail, cut at a
 line start and marked `…`; clients keep the last 32 KB of a call's output
 (`appendOutput`) and drop it when the result arrives. `tool_call_end` carries
 `durationMs`, the time the tool ran, permission prompt excluded (none for a

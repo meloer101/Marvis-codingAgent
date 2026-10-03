@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath as realpathOf, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -278,6 +278,55 @@ describe('SessionRegistry effort', () => {
     expect(buildConfig).not.toHaveBeenCalled();
     await reg.create({ effort: 'low' });
     expect(buildConfig).toHaveBeenCalledWith({ effort: 'low' });
+    await reg.shutdown();
+  });
+});
+
+describe('background commands', () => {
+  it('reach the page as events and in the snapshot, keep the host from being swept, and stop on request', async () => {
+    const cwd = await realpathOf(await mkdtemp(join(tmpdir(), 'hc-registry-bg-')));
+    tmpDirs.push(cwd);
+    const buildConfig = vi.fn(async () => ({
+      cwd,
+      model: scriptedModel([
+        { toolCalls: [{ name: 'bash', input: { command: 'echo up; sleep 30', run_in_background: true } }] },
+        { text: 'serving' },
+      ]),
+      settings: { backgroundProcesses: true },
+      budgets: {},
+      mode: 'yolo' as const,
+      skills: false,
+      subagents: false,
+      mcp: false,
+      memory: false,
+      recorder: false,
+      trace: false,
+      projectMemory: null,
+    }));
+    const reg = registry(cwd, join(cwd, '.agent'), buildConfig);
+    const { snapshot } = await reg.start({ text: 'start the server' });
+    const host = reg.get(snapshot.id)!;
+    const events: string[] = [];
+    let printed = '';
+    host.addListener((f) => {
+      if (f.t !== 'evt') return;
+      events.push(f.event.type);
+      if (f.event.type === 'process_output') printed += f.event.text;
+    });
+    const deadline = Date.now() + 5000;
+    while (!printed.includes('up') && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+    expect(printed).toContain('up');
+
+    const snap = await host.snapshot();
+    expect(snap.processes).toEqual([expect.objectContaining({ id: 'bg1', status: 'running', output: 'up\n' })]);
+    expect(host.processesRunning).toBe(true);
+    reg.sweep(Date.now() + 60 * 60_000);
+    expect(reg.get(snapshot.id)).toBe(host);
+
+    await expect(host.killProcess('bg7')).rejects.toBeInstanceOf(InvalidRequestError);
+    expect(await host.killProcess('bg1')).toMatchObject({ id: 'bg1', status: 'killed' });
+    expect(events).toContain('process_end');
+    expect(host.processesRunning).toBe(false);
     await reg.shutdown();
   });
 });

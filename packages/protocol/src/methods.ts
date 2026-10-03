@@ -13,6 +13,7 @@
 import { z } from 'zod';
 
 import type {
+  BackgroundProcessInfo,
   ContextSnapshot,
   ImageInput,
   StatsRollup,
@@ -412,6 +413,9 @@ export interface McpView {
   problems: string[];
 }
 
+/** A background command and the tail of what it printed (`SessionSnapshot.processes`). */
+export type SessionProcess = BackgroundProcessInfo & { output: string };
+
 /** What `session.send` did: started a run, or queued the message behind the one going. */
 export type SendResult = { runId: string } | { queued: QueuedMessage };
 
@@ -445,6 +449,8 @@ export interface SessionSnapshot {
   effortLevels?: ReasoningEffort[];
   /** The worktree the session works in; absent for one in the project's checkout. */
   worktree?: SessionWorktree;
+  /** The commands it started in the background, oldest first; absent when none. */
+  processes?: SessionProcess[];
   lastSeq: number;
   /**
    * Identifies the live host behind this snapshot; absent from a disk-only
@@ -902,6 +908,10 @@ export const methods = {
   /** Forget an MCP server's OAuth tokens. */
   'mcp.logout': method<{ workspaceId: string; name: string }, McpView>(
     z.object({ workspaceId: workspaceIdSchema, name: mcpNameSchema }),
+  ),
+  /** Stop a command the session started in the background, and what it started; answers once it has ended. */
+  'session.killProcess': method<{ id: string; processId: string }, BackgroundProcessInfo>(
+    z.object({ id: sessionIdSchema, processId: z.string().regex(/^bg\d{1,6}$/, 'not a process id') }),
   ),
   'session.compact': method<
     { id: string },

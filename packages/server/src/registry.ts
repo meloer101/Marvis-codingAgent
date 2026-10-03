@@ -428,14 +428,15 @@ export class SessionRegistry {
   }
 
   /**
-   * Close every host that nobody is subscribed to, that isn't running or
-   * waiting on a prompt, and that has been idle for `idleMs`: each holds an
+   * Close every host that nobody is subscribed to, that isn't running,
+   * waiting on a prompt or keeping a background command going (a dev server
+   * left up), and that has been idle for `idleMs`: each holds an
    * `AgentSession` and its MCP processes, and closing it also flushes the
    * session's memory writes. Its log stays on disk; the next action resumes it.
    */
   sweep(now = Date.now()): void {
     for (const [id, host] of this.#hosts) {
-      if (host.listenerCount > 0 || host.running || host.pending) continue;
+      if (host.listenerCount > 0 || host.running || host.pending || host.processesRunning) continue;
       if (host.idleFor(now) >= this.#idleMs) void this.close(id);
     }
   }
@@ -719,6 +720,7 @@ export class SessionRegistry {
       confirm: host.confirm,
       onEvent: host.onAgentEvent,
       onNotice: host.onNotice,
+      onProcessEvent: host.onProcessEvent,
     });
     host.attach(session, config.model.ref);
     this.#hosts.set(host.id, host);

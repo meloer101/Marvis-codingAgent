@@ -444,6 +444,10 @@ class Connection {
         const { id, userMessage } = params as MethodParams<'session.fork'>;
         return hub.fork(id, userMessage).then((forkId) => ({ id: forkId }));
       }
+      case 'session.killProcess': {
+        const { id, processId } = params as MethodParams<'session.killProcess'>;
+        return this.#host(id).killProcess(processId);
+      }
       case 'session.compact': {
         const { id } = params as MethodParams<'session.compact'>;
         return this.#host(id).compact();

@@ -30,6 +30,8 @@ import { readFile, stat } from 'node:fs/promises';
 import type {
   AgentEvent,
   AgentSession,
+  BackgroundProcessEvent,
+  BackgroundProcessInfo,
   AgentStopReason,
   Notice,
   PermissionDecision,
@@ -59,7 +61,7 @@ import type {
   SkillInfo,
   WireEvent,
 } from '@harness-code/protocol';
-import { userEntryMessageIndexes } from '@harness-code/protocol';
+import { outputTail, userEntryMessageIndexes } from '@harness-code/protocol';
 
 /** The current run's events plus enough history to serve a reconnect gap. */
 const RING_CAPACITY = 5000;
@@ -71,10 +73,10 @@ const COALESCE_MS = 30;
  */
 const OUTPUT_BURST_CHARS = 16_000;
 
-/** A run of same-kind deltas awaiting flush: model text, or one tool's output. */
+/** A run of same-kind deltas awaiting flush: model text, or one tool's or background command's output. */
 type Coalesced =
   | { type: 'text_delta' | 'thinking_delta'; text: string }
-  | { type: 'tool_call_output'; id: string; text: string };
+  | { type: 'tool_call_output' | 'process_output'; id: string; text: string };
 /** Tool calls that never change a file — any other may have (`onFilesChanged`). */
 const LOOKUP_TOOLS: ReadonlySet<string> = new Set([
   'read',
@@ -320,6 +322,12 @@ export class SessionHost {
     }
     // Any non-delta event flushes the coalesced run first, preserving order.
     this.#emit(event);
+  };
+
+  /** A background command starting, printing or ending — during a run or not. Its output coalesces as tool output does. */
+  readonly onProcessEvent = (event: BackgroundProcessEvent): void => {
+    if (event.type === 'process_output') this.#bufferDelta(event);
+    else this.#emit(event);
   };
 
   readonly onNotice = (notice: Notice): void => {
@@ -730,6 +738,18 @@ export class SessionHost {
     this.#syncMode();
   }
 
+  /** Whether a command it started in the background is still going: then it isn't idle, whoever watches. */
+  get processesRunning(): boolean {
+    return this.#session?.processes.some((p) => p.status === 'running') === true;
+  }
+
+  /** Stop a background command and what it started; answers once it has ended. */
+  async killProcess(processId: string): Promise<BackgroundProcessInfo> {
+    const info = await this.#requireSession().killProcess(processId);
+    if (!info) throw new InvalidRequestError(`no background command ${processId} in this session`);
+    return info;
+  }
+
   /** The settings files changed: the session takes up their permission rules and auto-mode config. */
   async reloadSettings(): Promise<void> {
     await this.#session?.reloadSettings();
@@ -860,6 +880,10 @@ export class SessionHost {
     };
     if (this.#workspaceId) snapshot.workspaceId = this.#workspaceId;
     if (this.worktree) snapshot.worktree = { ...this.worktree, cwd: this.#cwd ?? this.worktree.path };
+    const processes = session.processes;
+    if (processes.length > 0) {
+      snapshot.processes = processes.map((p) => ({ ...p, output: outputTail(session.processOutput(p.id)?.text ?? '') }));
+    }
     if (session.effort) snapshot.effort = session.effort;
     if (session.sessionUsage) snapshot.usage = session.sessionUsage;
     if (session.contextSnapshot) snapshot.context = session.contextSnapshot;
@@ -922,7 +946,7 @@ export class SessionHost {
 
   #bufferDelta(delta: Coalesced): void {
     const pending = this.#pending;
-    if (pending && pending.type === delta.type && (pending.type !== 'tool_call_output' || pending.id === (delta as { id: string }).id)) {
+    if (pending && pending.type === delta.type && (!('id' in pending) || pending.id === (delta as { id: string }).id)) {
       pending.text += delta.text;
     } else {
       // A switch (thinking → text, one tool's output → another's) flushes the previous run first.
@@ -946,8 +970,8 @@ export class SessionHost {
     if (!pending) return;
     this.#pending = null;
     this.#push(
-      pending.type === 'tool_call_output'
-        ? { type: 'tool_call_output', id: pending.id, text: burstTail(pending.text) }
+      'id' in pending
+        ? { type: pending.type, id: pending.id, text: burstTail(pending.text) }
         : { type: pending.type, text: pending.text },
     );
   }
