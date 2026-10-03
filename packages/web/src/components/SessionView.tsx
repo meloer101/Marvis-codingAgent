@@ -13,10 +13,15 @@ import { TaskDock } from '@/components/TaskDock';
 import { SessionHeader } from '@/components/SessionHeader';
 import { SkillsDialog } from '@/components/SkillsDialog';
 import { Transcript } from '@/components/Transcript';
+import type { MessageActions } from '@/components/Transcript';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ContextButton } from '@/components/UsagePanel';
 import { useSessionCheckout } from '@/lib/checkout';
 import type { Checkout } from '@/lib/checkout';
+import type { UserMessageData } from '@/lib/rows';
 import type { SessionViewState } from '@/lib/sessionModel';
+import { openSession } from '@/lib/split';
 import { allCommands, clientCommand } from '@/lib/slash';
 import type { CommandSurface, SlashCommand } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
@@ -77,6 +82,33 @@ export function SessionView({ id, onNewSession, pane }: { id: string; onNewSessi
     if (!active || active === document.body) composerRef.current?.focus();
   }, [requestId]);
 
+  /** Edit a message the conversation goes on after: asked first, since what follows leaves it. */
+  const [rewinding, setRewinding] = useState<{ userMessage: number; message: UserMessageData } | null>(null);
+  const actions = useMemo<MessageActions>(() => {
+    const edit = async (userMessage: number, message: UserMessageData): Promise<void> => {
+      if (await sync.rewind(id, userMessage)) sync.putInComposer(id, message);
+    };
+    return {
+      onEdit: (userMessage, message, later) =>
+        later ? setRewinding({ userMessage, message }) : void edit(userMessage, message),
+      onFork: (userMessage, message) =>
+        void sync.fork(id, userMessage).then((forkId) => {
+          if (!forkId) return;
+          sync.putInComposer(forkId, message);
+          openSession(forkId);
+        }),
+      onRegenerate: (userMessage, message) =>
+        void sync.rewind(id, userMessage).then((ok) => {
+          if (ok) void sync.send(id, message.text, message.attachments, { images: message.images });
+        }),
+    };
+  }, [sync, id]);
+  const confirmRewind = (): void => {
+    const target = rewinding;
+    setRewinding(null);
+    if (target) void sync.rewind(id, target.userMessage).then((ok) => ok && sync.putInComposer(id, target.message));
+  };
+
   /** Client-side commands never reach the server — see lib/slash.ts. */
   const send = async (
     text: string,
@@ -127,7 +159,7 @@ export function SessionView({ id, onNewSession, pane }: { id: string; onNewSessi
     <div className="flex min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <SessionHeader view={view} {...(pane ? { pane } : {})} />
-        <Transcript view={view} onRetry={(text, attachments, images) => void sync.send(id, text, attachments, { images })} />
+        <Transcript view={view} actions={actions} />
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
           <TaskDock view={view} />
           <PendingDock view={view} />
@@ -150,6 +182,23 @@ export function SessionView({ id, onNewSession, pane }: { id: string; onNewSessi
           />
         </div>
       </div>
+      <Dialog open={rewinding !== null} onOpenChange={(open) => !open && setRewinding(null)}>
+        {rewinding && (
+          <DialogContent
+            title="Take the conversation back to here?"
+            description="This message and everything after it leave the conversation; the message goes back in the composer to change. Files the agent changed stay as they are."
+          >
+            <div className="flex justify-end gap-2 px-5 pt-3 pb-5">
+              <Button variant="ghost" size="sm" onClick={() => setRewinding(null)}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={confirmRewind}>
+                Rewind and edit
+              </Button>
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
       {surface === 'skills' && (
         <SkillsDialog
           skills={skills}

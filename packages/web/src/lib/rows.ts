@@ -188,16 +188,45 @@ export function briefNotice(notice: Notice): string | null {
 export function retryTarget(
   entries: readonly Entry[],
   running: boolean,
-): { text: string; attachments: string[]; images: ImageInput[] } | null {
+): (UserMessageData & { userMessage: number }) | null {
+  const last = lastUserMessage(entries, running);
+  if (!last) return null;
+  return last.failed || !last.answered ? last : null;
+}
+
+/** What a user message said — its text, attached files and images — to send again or edit. */
+export interface UserMessageData {
+  text: string;
+  attachments: string[];
+  images: ImageInput[];
+}
+
+/** A user entry as `UserMessageData`. */
+export function userMessageData(entry: Extract<Entry, { kind: 'user' }>): UserMessageData {
+  return { text: entry.text, attachments: entry.attachments ?? [], images: entry.images ?? [] };
+}
+
+/**
+ * The last user message, while nothing runs: which one it is (`userMessage`,
+ * counting the user entries from 0, as `session.rewind` does), what it said,
+ * and whether a reply followed and whether the run behind it failed.
+ */
+export function lastUserMessage(
+  entries: readonly Entry[],
+  running: boolean,
+): (UserMessageData & { userMessage: number; answered: boolean; failed: boolean }) | null {
   if (running) return null;
   let u = entries.length - 1;
   while (u >= 0 && entries[u]!.kind !== 'user') u--;
   const user = entries[u];
   if (!user || user.kind !== 'user') return null;
   const after = entries.slice(u + 1);
-  const failed = after.some((e) => e.kind === 'notice' && e.notice.kind === 'error');
-  const answered = after.some((e) => e.kind === 'assistant');
-  return failed || !answered ? { text: user.text, attachments: user.attachments ?? [], images: user.images ?? [] } : null;
+  return {
+    ...userMessageData(user),
+    userMessage: entries.slice(0, u).filter((e) => e.kind === 'user').length,
+    failed: after.some((e) => e.kind === 'notice' && e.notice.kind === 'error'),
+    answered: after.some((e) => e.kind === 'assistant'),
+  };
 }
 
 /** A turn's reply as markdown, for copying: its text, step by step. */

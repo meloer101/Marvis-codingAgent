@@ -256,16 +256,39 @@ describe('copy and retry', () => {
     expect(writeText).toHaveBeenLastCalledWith('hi');
   });
 
-  it('offers to send the last message again after a failed run', () => {
-    const onRetry = vi.fn();
+  const actions = () => ({ onEdit: vi.fn(), onFork: vi.fn(), onRegenerate: vi.fn() });
+
+  it('offers to send the last message again after a failed run, in place of it', () => {
+    const a = actions();
     const entries: Entry[] = [
       { kind: 'user', id: 0, text: 'fix it', attachments: ['a.ts'] },
       { kind: 'notice', id: 1, notice: { kind: 'error', level: 'error', text: 'provider down' } },
     ];
-    const { rerender } = render(<Transcript view={view({ entries })} onRetry={onRetry} />);
+    const { rerender } = render(<Transcript view={view({ entries })} actions={a} />);
     fireEvent.click(screen.getByRole('button', { name: /Retry/ }));
-    expect(onRetry).toHaveBeenCalledWith('fix it', ['a.ts'], []);
-    rerender(<Transcript view={view({ entries, running: true })} onRetry={onRetry} />);
+    expect(a.onRegenerate).toHaveBeenCalledWith(0, expect.objectContaining({ text: 'fix it', attachments: ['a.ts'], images: [] }));
+    rerender(<Transcript view={view({ entries, running: true })} actions={a} />);
     expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
+  });
+
+  it('regenerates the last reply, and edits or forks from any message — not while a run goes', () => {
+    const a = actions();
+    const entries: Entry[] = [
+      { kind: 'user', id: 0, text: 'first', images: [{ mediaType: 'image/png', data: 'x' }] },
+      { kind: 'assistant', id: 1, thinking: '', text: 'one', tools: [] },
+      { kind: 'user', id: 2, text: 'second' },
+      { kind: 'assistant', id: 3, thinking: '', text: 'two', tools: [] },
+    ];
+    const { rerender } = render(<Transcript view={view({ entries })} actions={a} />);
+    fireEvent.click(screen.getByRole('button', { name: /Regenerate/ }));
+    expect(a.onRegenerate).toHaveBeenCalledWith(1, expect.objectContaining({ text: 'second' }));
+    const edits = screen.getAllByRole('button', { name: 'Edit message' });
+    fireEvent.click(edits[0]!);
+    expect(a.onEdit).toHaveBeenCalledWith(0, { text: 'first', attachments: [], images: [{ mediaType: 'image/png', data: 'x' }] }, true);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Fork from here' })[1]!);
+    expect(a.onFork).toHaveBeenCalledWith(1, { text: 'second', attachments: [], images: [] });
+    rerender(<Transcript view={view({ entries, running: true })} actions={a} />);
+    expect(screen.queryByRole('button', { name: 'Edit message' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Regenerate/ })).toBeNull();
   });
 });

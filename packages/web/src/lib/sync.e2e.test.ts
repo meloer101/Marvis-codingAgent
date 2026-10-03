@@ -298,6 +298,31 @@ describe('SessionSync ↔ hc web --mock', () => {
     await a.sync.abort(id!);
   });
 
+  it('rewinds a conversation to before a message, and forks it into a new session', async () => {
+    const { server } = await boot();
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'server info');
+    const id = await a.sync.startSession('look around', { mode: 'yolo' });
+    const view = () => a.store.getState().views[id!];
+    const users = () => view()?.entries.flatMap((e) => (e.kind === 'user' ? [e.text] : [])) ?? [];
+    await until(() => view() && !view()!.running && view()!.entries.some((e) => e.kind === 'assistant'), 'the first run');
+    expect(await a.sync.send(id!, 'now tidy up')).toBe(true);
+    await until(() => users().length === 2 && !view()!.running, 'the second run');
+
+    // Forked as far as before the second message: one message, its own session.
+    const forkId = await a.sync.fork(id!, 1);
+    expect(forkId).toBeTruthy();
+    await until(() => a.store.getState().sessions.some((s) => s.id === forkId && s.title === 'look around · fork'), 'the fork listed');
+
+    expect(await a.sync.rewind(id!, 1)).toBe(true);
+    await until(() => users().length === 1, 'the rewound transcript');
+    expect(users()).toEqual(['look around']);
+    // A tab opening it now sees it rewound too.
+    const b = tab(server);
+    await b.sync.open(id!);
+    await until(() => b.store.getState().views[id!]?.entries.filter((e) => e.kind === 'user').length === 1, 'tab B');
+  });
+
   it('turns a draft into a session with its first message', async () => {
     const { server } = await boot();
     const a = tab(server);

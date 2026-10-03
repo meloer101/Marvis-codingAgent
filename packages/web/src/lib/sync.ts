@@ -281,6 +281,37 @@ export class SessionSync {
     }
   }
 
+  /**
+   * Take the conversation back to just before its `userMessage`-th user
+   * message (the new transcript arrives as a `rewound` event). False, with the
+   * reason in the banner, when it couldn't.
+   */
+  async rewind(id: string, userMessage: number): Promise<boolean> {
+    try {
+      await this.#act(id, () => this.rpc.call('session.rewind', { id, userMessage }));
+      return true;
+    } catch (err) {
+      this.#fail(err);
+      return false;
+    }
+  }
+
+  /** A new session with this one's conversation, whole or as far as before a user message; null on failure. */
+  async fork(id: string, userMessage?: number): Promise<string | null> {
+    try {
+      const forked = await this.rpc.call('session.fork', { id, ...(userMessage !== undefined ? { userMessage } : {}) });
+      return forked.id;
+    } catch (err) {
+      this.#fail(err);
+      return null;
+    }
+  }
+
+  /** Put a message in a session's composer, ahead of its draft (to edit and send it again). */
+  putInComposer(id: string, message: { text: string; attachments: string[]; images: ImageInput[] }): void {
+    this.#restore(id, { id: '', text: message.text, ...(message.attachments.length ? { attachments: message.attachments } : {}), ...(message.images.length ? { images: message.images } : {}) });
+  }
+
   /** Stop the run; whatever was queued behind it goes back to the composer. */
   async abort(id: string): Promise<void> {
     try {

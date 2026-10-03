@@ -183,6 +183,12 @@ export class SessionModel {
       case 'notice':
         this.#dispatch({ type: 'NOTICE', notice: event.notice });
         return true;
+      case 'rewound':
+        // The conversation was taken back: start over from the transcript as it stands.
+        this.#buffer.reset();
+        this.#liveDirty = false;
+        this.#state = { ...this.#state, entries: entriesFromTranscript(event.transcript), live: this.#buffer.snapshot() };
+        return true;
       case 'user_input':
         // A message sent mid-run was read here: after the step that just finished.
         this.#dispatch({ type: 'COMMIT_LIVE', live: this.#takeLive() });

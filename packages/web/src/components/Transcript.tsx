@@ -1,5 +1,20 @@
-import { memo, useMemo, useState, type ReactNode } from 'react';
-import { AlertTriangle, ArrowDown, Brain, Check, ChevronRight, Circle, FileText, Info, Loader2, RotateCcw, Search, X } from 'lucide-react';
+import { createContext, memo, useContext, useMemo, useState, type ReactNode } from 'react';
+import {
+  AlertTriangle,
+  ArrowDown,
+  Brain,
+  Check,
+  ChevronRight,
+  Circle,
+  FileText,
+  GitFork,
+  Info,
+  Loader2,
+  Pencil,
+  RotateCcw,
+  Search,
+  X,
+} from 'lucide-react';
 
 import type { ImageInput, Notice } from '@harness-code/core';
 import { describeToolInput } from '@harness-code/core/browser';
@@ -11,20 +26,41 @@ import { Markdown } from '@/components/Markdown';
 import { toolView } from '@/components/tools/registry';
 import { Button } from '@/components/ui/button';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
-import { briefNotice, exploreSummary, retryTarget, transcriptRows, turnParts, turnText, withLive } from '@/lib/rows';
-import type { Part, Step } from '@/lib/rows';
+import {
+  briefNotice,
+  exploreSummary,
+  lastUserMessage,
+  transcriptRows,
+  turnParts,
+  turnText,
+  userMessageData,
+  withLive,
+} from '@/lib/rows';
+import type { Part, Step, UserMessageData } from '@/lib/rows';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { cn } from '@/lib/utils';
 import { useVerbose } from '@/lib/verbose';
 
-/** `onRetry` sends a message again — offered after a run that failed or was stopped. */
-export function Transcript({
-  view,
-  onRetry,
-}: {
-  view: SessionViewState;
-  onRetry?: (text: string, attachments: string[], images: ImageInput[]) => void;
-}) {
+/**
+ * What can be done with a user message, counted from 0 as the transcript shows
+ * them (`userMessage`): taken back to change (`onEdit` — `later` says the
+ * conversation goes on after it), forked into a new session from before it,
+ * or sent again in place of what followed (`onRegenerate`).
+ */
+export interface MessageActions {
+  onEdit: (userMessage: number, message: UserMessageData, later: boolean) => void;
+  onFork: (userMessage: number, message: UserMessageData) => void;
+  onRegenerate: (userMessage: number, message: UserMessageData) => void;
+}
+
+const ActionsContext = createContext<{ actions: MessageActions; running: boolean } | null>(null);
+
+/**
+ * With `actions`, user messages can be edited (the conversation taken back to
+ * them) and forked, and the last one sent again: Retry after a run that
+ * failed or was stopped, Regenerate after one that answered.
+ */
+export function Transcript({ view, actions }: { view: SessionViewState; actions?: MessageActions }) {
   const { entries, live, running } = view;
   const { ref, onScroll, atBottom, scrollToBottom } = useStickToBottom<HTMLDivElement>(
     `${entries.length}:${live.text.length}:${live.thinking.length}:${live.tools.length}:${running}`,
@@ -34,15 +70,26 @@ export function Transcript({
   const committed = useMemo(() => transcriptRows(entries), [entries]);
   const rows = useMemo(() => withLive(committed, live, entries.length), [committed, live, entries.length]);
   const conversationEmpty = committed.every((r) => r.kind === 'details');
-  const retry = useMemo(() => (onRetry ? retryTarget(entries, running) : null), [entries, running, onRetry]);
+  const last = useMemo(() => (actions ? lastUserMessage(entries, running) : null), [entries, running, actions]);
+  // Which user message each user entry is, and whether anything follows it.
+  const ordinals = useMemo(() => {
+    const out = new Map<number, { userMessage: number; later: boolean }>();
+    let n = 0;
+    entries.forEach((e, i) => {
+      if (e.kind === 'user') out.set(e.id, { userMessage: n++, later: i < entries.length - 1 });
+    });
+    return out;
+  }, [entries]);
+  const context = useMemo(() => (actions ? { actions, running } : null), [actions, running]);
 
   return (
+    <ActionsContext.Provider value={context}>
     <div className="relative min-h-0 flex-1">
       <div ref={ref} onScroll={onScroll} className="h-full overflow-y-auto">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
           {rows.map((row) =>
             row.kind === 'entry' ? (
-              <EntryRow key={row.key} entry={row.entry} />
+              <EntryRow key={row.key} entry={row.entry} ordinal={row.entry.kind === 'user' ? ordinals.get(row.entry.id) : undefined} />
             ) : row.kind === 'turn' ? (
               <TurnRow key={row.key} steps={row.steps} verbose={verbose} />
             ) : (
@@ -54,13 +101,26 @@ export function Transcript({
               Send a message to start.
             </p>
           )}
-          {retry && onRetry && (
+          {last && actions && (last.failed || !last.answered) && (
             <div className="flex animate-rise items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={() => onRetry(retry.text, retry.attachments, retry.images)}>
+              <Button size="sm" variant="secondary" onClick={() => actions.onRegenerate(last.userMessage, last)}>
                 <RotateCcw />
                 Retry
               </Button>
-              <span className="text-xs text-muted-foreground">Sends your last message again.</span>
+              <span className="text-xs text-muted-foreground">Sends your last message again, in place of the failed attempt.</span>
+            </div>
+          )}
+          {last && actions && last.answered && !last.failed && (
+            <div className="-mt-2 flex">
+              <button
+                type="button"
+                onClick={() => actions.onRegenerate(last.userMessage, last)}
+                title="Send your last message again, in place of this reply"
+                className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <RotateCcw className="size-3" />
+                Regenerate
+              </button>
             </div>
           )}
           {running && liveEmpty && (
@@ -83,13 +143,20 @@ export function Transcript({
         </Button>
       )}
     </div>
+    </ActionsContext.Provider>
   );
 }
 
 const ROW_STYLE = { contentVisibility: 'auto', containIntrinsicSize: 'auto 80px' } as const;
 
 /** Committed rows never change identity, so memo skips them while the live region streams. */
-const EntryRow = memo(function EntryRow({ entry }: { entry: Entry }) {
+const EntryRow = memo(function EntryRow({
+  entry,
+  ordinal,
+}: {
+  entry: Entry;
+  ordinal?: { userMessage: number; later: boolean } | undefined;
+}) {
   return (
     <div className="animate-rise" style={ROW_STYLE}>
       {entry.kind === 'user' ? (
@@ -97,6 +164,7 @@ const EntryRow = memo(function EntryRow({ entry }: { entry: Entry }) {
           text={entry.text}
           {...(entry.attachments ? { attachments: entry.attachments } : {})}
           {...(entry.images ? { images: entry.images } : {})}
+          actions={ordinal && <UserMessageActions entry={entry} {...ordinal} />}
         />
       ) : entry.kind === 'notice' ? (
         <NoticeRow notice={entry.notice} />
@@ -151,26 +219,64 @@ function PartView({ part }: { part: Part }) {
   }
 }
 
+/** Edit and fork a user message, beside its copy button — not while a run goes. */
+function UserMessageActions({
+  entry,
+  userMessage,
+  later,
+}: {
+  entry: Extract<Entry, { kind: 'user' }>;
+  userMessage: number;
+  later: boolean;
+}) {
+  const ctx = useContext(ActionsContext);
+  if (!ctx || ctx.running) return null;
+  const message = userMessageData(entry);
+  const button = 'rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground';
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => ctx.actions.onEdit(userMessage, message, later)}
+        aria-label="Edit message"
+        title="Edit — take the conversation back to here"
+        className={button}
+      >
+        <Pencil className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => ctx.actions.onFork(userMessage, message)}
+        aria-label="Fork from here"
+        title="Fork — a new session with the conversation up to here"
+        className={button}
+      >
+        <GitFork className="size-3.5" />
+      </button>
+    </>
+  );
+}
+
 export function UserMessage({
   text,
   attachments,
   images,
+  actions,
 }: {
   text: string;
   attachments?: readonly string[];
   images?: readonly ImageInput[];
+  /** More buttons for its top-right corner (edit, fork), shown on hover with copy. */
+  actions?: ReactNode;
 }) {
   return (
     <div className="group/user relative flex flex-col gap-2 rounded-lg border bg-card px-4 py-3 text-sm shadow-xs">
       {images && images.length > 0 && <ImageThumbs images={images} />}
-      {text && <div className="pr-6 whitespace-pre-wrap">{text}</div>}
-      {text && (
-        <CopyButton
-          text={text}
-          label="Copy message"
-          className="absolute top-1.5 right-1.5 opacity-0 group-hover/user:opacity-100 focus-visible:opacity-100"
-        />
-      )}
+      {text && <div className="pr-16 whitespace-pre-wrap">{text}</div>}
+      <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover/user:opacity-100 focus-within:opacity-100">
+        {actions}
+        {text && <CopyButton text={text} label="Copy message" />}
+      </div>
       {attachments && attachments.length > 0 && <AttachmentChips paths={attachments} />}
     </div>
   );

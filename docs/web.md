@@ -131,6 +131,8 @@ the server with the same schemas the client is typed from.
 | `session.setEffort {id, effort}` | change the reasoning effort, from the next message (`bad_request` for a level the model lacks) |
 | `session.update {id, title?, pinned?, archived?, force?}` | rename, pin, archive; answers with the new row. Archiving removes the session's worktree: `conflict` over uncommitted changes there, unless `force` |
 | `session.delete {id}` | delete for good: log, metadata, offloaded output, trace, worktree (`busy` while it runs) |
+| `session.rewind {id, userMessage}` | take the conversation back to just before that user message (counted from 0 as the transcript shows them); a `rewound` event carries the transcript as it stands; files stay as they are (`busy` while a run goes) |
+| `session.fork {id, userMessage?}` | a new session with the conversation, whole or as far as before that message, its model, mode and effort, titled "… · fork"; a worktree session forks into a worktree of its own, branched from the other's branch → `{id}` |
 | `session.compact {id}` | compact the history now (`busy` while a run is going) |
 | `session.slashCommands {id}` | the session's MCP prompt commands |
 | `session.skills {id}` | the session's skills (`/name [task]` loads one) |
@@ -251,6 +253,12 @@ processes. The two are managed separately.
   gets `[image]`. The log keeps them inline, so a transcript (and `run_start`,
   a queued message, `user_input`) carries them; the context estimate counts
   1.6K tokens each.
+- **Rewind and fork.** A `rewind` event in the log keeps only the first N
+  messages in force (`liveEvents`, which every replay of the log goes
+  through): the model's history, the read ledger, a resume and the transcript
+  all forget what came after, though the file still has it. A fork copies the
+  events in force, as far as the cut, into a new log. Neither undoes what the
+  agent did to files.
 - **Skills** run as `/name [task]`: after the MCP prompts, the server expands a
   skill's name into the request to load it through the `skill` tool — the text
   the TUI's skill picker sends — with the rest of the line as the task.
@@ -461,12 +469,18 @@ The token is as powerful as the user's shell — a client can switch a session t
   Permission asks and plan reviews dock above the composer instead of opening
   modals (`components/PendingDock.tsx`); the ask for a `write` over a file
   carries the file as it is (`before`), so the dock shows what would change.
-- **Copy and retry.** A finished turn's reply (its text, as markdown) and each
-  message can be copied from a button that shows on hover. After a run that
-  failed or was stopped — its error notice ends the transcript — or a message
-  that never got a reply, Retry sends that message again with its attachments
-  (`retryTarget`). It is a new message, not a rewind: the failed attempt stays
-  in the history.
+- **Copy, edit, fork, retry.** A finished turn's reply (its text, as
+  markdown) and each message can be copied from a button that shows on hover.
+  A user message's corner also has Edit — the conversation goes back to just
+  before it (`session.rewind`; asked first when anything follows) and the
+  message, files and images, goes back in the composer to change — and Fork,
+  a new session with the conversation up to before it, the message in its
+  composer, opened in the focused pane (`session.fork`; the palette forks the
+  whole session). Under the last reply, Regenerate rewinds to before the last
+  message and sends it again; after a run that failed or was stopped, or a
+  message that never got a reply, Retry does the same, so the failed attempt
+  leaves the conversation (`lastUserMessage`). None of these is offered while
+  a run goes, and none touches the files.
 - **Side panel** (`components/SidePanel.tsx`): to the right of a session,
   opened from the header or with ⌥⌘B (Ctrl+Alt+B); which tab shows is kept
   (`lib/panel.ts`). **Changes** (`components/ChangesPanel.tsx`) lists the

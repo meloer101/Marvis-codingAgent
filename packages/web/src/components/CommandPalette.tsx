@@ -11,6 +11,7 @@ import {
   FolderTree,
   Gauge,
   GitCompareArrows,
+  GitFork,
   Keyboard,
   ListChecks,
   ListCollapse,
@@ -228,6 +229,14 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       }
       items.push(
         { id: 'compact', group, label: 'Compact the context', hint: '/compact', icon: Minimize2, run: () => void sync.send(id, '/compact') },
+        {
+          id: 'fork',
+          group,
+          label: 'Fork session',
+          keywords: 'copy branch duplicate conversation',
+          icon: GitFork,
+          run: () => void sync.fork(id).then((forkId) => forkId && openSession(forkId)),
+        },
         { id: 'usage', group, label: 'Context and usage', hint: '/cost', keywords: 'cost tokens', icon: ChartPie, run: () => sync.request(id, 'usage') },
         { id: 'skills', group, label: 'Skills…', hint: '/skills', icon: Sparkle, run: () => sync.request(id, 'skills') },
       );
