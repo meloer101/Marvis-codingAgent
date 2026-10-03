@@ -880,6 +880,21 @@ export class AgentSession {
 
   // -- control --------------------------------------------------------------
 
+  /**
+   * Take the conversation back to its first `keepMessages` messages, as the
+   * log has them: the model's history, the read ledger and the log (a
+   * `rewind` event) all forget what came after. Files the agent changed stay
+   * as they are. Not while a turn runs; needs the recorder.
+   */
+  async rewind(keepMessages: number): Promise<void> {
+    if (this.#abortController) throw new Error('A run is going: stop it before rewinding');
+    const recorder = this.#recorder;
+    if (!recorder) throw new Error('This session is not recorded, so it cannot be rewound');
+    await recorder.recordRewind(keepMessages);
+    this.#messages = await loadSession(recorder.agentDir, this.id);
+    this.#session = await rebuildSessionState(recorder.agentDir, this.id, this.#cwd);
+  }
+
   /** Abort an in-flight turn. Never touches process signals. */
   abort(): void {
     this.#abortController?.abort();

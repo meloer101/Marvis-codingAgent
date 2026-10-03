@@ -11,7 +11,7 @@ import { ProviderError } from '../provider/types.js';
 import type { Provider } from '../provider/types.js';
 import type { ResolvedModel } from '../provider/router.js';
 import type { AgentEvent } from './loop.js';
-import { loadTranscript, readSessionSummary } from './session.js';
+import { forkSession, liveEvents, loadSession, loadTranscript, readSessionSummary } from './session.js';
 import { AgentSession, AttachmentError, skillInvocation } from './session-runner.js';
 import type { AgentSessionConfig, Notice } from './session-runner.js';
 
@@ -515,6 +515,54 @@ describe('AgentSession', () => {
     const blind = await createSession({ model: sessionModel(new ScriptedProvider([{ text: 'x' }])) });
     await expect(blind.session.runTurn('what is this?', { images: [image] })).rejects.toThrow(/can't see images/);
     expect(() => seeing.session.checkImages([{ mediaType: 'image/tiff' as never, data: 'x' }])).toThrow(/PNG, JPEG/);
+  });
+
+  it('rewinds: the model, the transcript and a resume all forget what came after', async () => {
+    const cwd = await tempDir();
+    const agentDir = join(cwd, '.agent');
+    const provider = new ScriptedProvider([{ text: 'one' }, { text: 'two' }, { text: 'three' }]);
+    const { session } = await createSession({ cwd, agentDir, recorder: true, model: sessionModel(provider) });
+    await session.runTurn('first');
+    await session.runTurn('second');
+
+    await session.rewind(2); // keep "first" and its reply
+    const said = async () =>
+      (await loadTranscript(agentDir, session.id)).flatMap((t) =>
+        t.type === 'message' ? t.message.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])) : [],
+      );
+    expect(await said()).toEqual(['first', 'one']);
+    await session.runTurn('again');
+    // (The request's message list grows on after the call: its first three are what was sent.)
+    expect(provider.requests[2]!.messages.slice(0, 3).map((m) => m.content.find((b) => b.type === 'text'))).toMatchObject([
+      { text: 'first' },
+      { text: 'one' },
+      { text: 'again' },
+    ]);
+    expect(await said()).toEqual(['first', 'one', 'again', 'three']);
+    expect((await loadSession(agentDir, session.id)).length).toBe(4);
+
+    // A copy of the conversation as far as its first two messages.
+    await forkSession(agentDir, session.id, 'forked', 2);
+    expect((await loadTranscript(agentDir, 'forked')).filter((t) => t.type === 'message')).toHaveLength(2);
+    await expect(forkSession(agentDir, session.id, 'forked')).rejects.toThrow(); // never over another
+  });
+
+  it('keeps, at a rewind, the messages and calls before the cut and drops a compaction after it', () => {
+    const msg = (text: string) => ({ type: 'message' as const, ts: 0, message: { role: 'user' as const, content: [{ type: 'text' as const, text }] } });
+    const events = [
+      msg('a'),
+      { type: 'tool_call' as const, ts: 0, toolCall: { id: 't', name: 'read', input: {}, result: { content: '' } } },
+      msg('b'),
+      { type: 'compaction' as const, ts: 0, compaction: { messages: [], tokensBefore: 1, tokensAfter: 1, keptTurns: 0 } },
+      msg('c'),
+      { type: 'rewind' as const, ts: 0, rewind: { keepMessages: 1 } },
+      msg('d'),
+    ];
+    expect(liveEvents(events).map((e) => e.type + (e.message ? `:${(e.message.content[0] as { text: string }).text}` : ''))).toEqual([
+      'message:a',
+      'tool_call',
+      'message:d',
+    ]);
   });
 
   it('a resumed session remembers what was attached', async () => {

@@ -72,12 +72,18 @@ export interface CompactionMeta {
 }
 
 export interface SessionEvent {
-  type: 'message' | 'tool_call' | 'compaction';
+  type: 'message' | 'tool_call' | 'compaction' | 'rewind';
   ts: number;
   message?: Message;
   toolCall?: RecordedToolCall;
   /** The full post-compaction message list plus what it saved. Replayed by `loadSession`. */
   compaction?: CompactionMeta & { messages: Message[] };
+  /**
+   * The conversation was taken back: of the messages in force, only the first
+   * `keepMessages` stay — what came after them (calls, compactions) is gone
+   * from every replay, though still in the file (`liveEvents`).
+   */
+  rewind?: { keepMessages: number };
 }
 
 export const SESSIONS_DIR = 'sessions';
@@ -137,7 +143,10 @@ export class SessionRecorder {
   readonly id: string;
   private readonly path: string;
 
-  constructor(agentDir: string, id: string = randomUUID()) {
+  constructor(
+    readonly agentDir: string,
+    id: string = randomUUID(),
+  ) {
     this.id = id;
     this.path = sessionPath(agentDir, id);
   }
@@ -161,6 +170,11 @@ export class SessionRecorder {
       ts: Date.now(),
       compaction: { messages, ...meta },
     });
+  }
+
+  /** Take the conversation back to its first `keepMessages` messages (`liveEvents`). */
+  async recordRewind(keepMessages: number): Promise<void> {
+    await this.append({ type: 'rewind', ts: Date.now(), rewind: { keepMessages } });
   }
 
   private async append(event: SessionEvent): Promise<void> {
@@ -193,12 +207,53 @@ export type TranscriptItem =
       subagent?: SubagentCallRecord[];
     };
 
+/** A session's events still in force: every reader of the log goes through here. */
 async function readSessionEvents(agentDir: string, id: string): Promise<SessionEvent[]> {
   const raw = await readFile(sessionPath(agentDir, id), 'utf8');
-  return raw
-    .split('\n')
-    .filter((line) => line.trim() !== '')
-    .map((line) => JSON.parse(line) as SessionEvent);
+  return liveEvents(
+    raw
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => JSON.parse(line) as SessionEvent),
+  );
+}
+
+/**
+ * The events a log's `rewind`s leave in force, in order: each drops, of what
+ * stood before it, everything from the message after its first `keepMessages`
+ * on — the calls and compactions with it — and is itself gone.
+ */
+export function liveEvents(events: readonly SessionEvent[]): SessionEvent[] {
+  const live: SessionEvent[] = [];
+  for (const event of events) {
+    if (event.type !== 'rewind') {
+      live.push(event);
+      continue;
+    }
+    const keep = event.rewind?.keepMessages ?? 0;
+    let messages = 0;
+    const cut = live.findIndex((e) => e.type === 'message' && messages++ === keep);
+    if (cut !== -1) live.length = cut;
+  }
+  return live;
+}
+
+/**
+ * Start session `to` as a copy of session `from`'s conversation — whole, or
+ * its first `keepMessages` messages — with the calls and compactions that go
+ * with them. Nothing else of `from` (metadata, offloaded output) is copied.
+ */
+export async function forkSession(
+  agentDir: string,
+  from: string,
+  to: string,
+  keepMessages?: number,
+): Promise<void> {
+  const events = await readSessionEvents(agentDir, from);
+  const kept = keepMessages === undefined ? events : liveEvents([...events, { type: 'rewind', ts: 0, rewind: { keepMessages } }]);
+  const path = sessionPath(agentDir, to);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, kept.map((e) => `${JSON.stringify(e)}\n`).join(''), { encoding: 'utf8', flag: 'wx' });
 }
 
 /**
