@@ -401,6 +401,10 @@ class Connection {
         const { workspaceId, group, rules } = params as MethodParams<'settings.setAutoMode'>;
         return hub.setAutoMode(workspaceId, group, rules);
       }
+      case 'settings.setBackgroundProcesses': {
+        const { workspaceId, enabled } = params as MethodParams<'settings.setBackgroundProcesses'>;
+        return hub.setBackgroundProcesses(workspaceId, enabled);
+      }
       case 'autoMode.denials':
         return hub.denials((params as MethodParams<'autoMode.denials'>).workspaceId);
       case 'session.retryDenied': {

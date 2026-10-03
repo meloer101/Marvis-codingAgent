@@ -15,6 +15,7 @@ import {
   memoryView,
   readMemory,
   setAutoModeGroup,
+  setBackgroundProcesses,
   setRules,
   settingsView,
   writeMemory,
@@ -59,6 +60,16 @@ describe('permission rules', () => {
     expect(view.problems).toHaveLength(1);
     await expect(setRules(place, 'user', 'deny', ['Write'])).rejects.toThrow(/not valid JSON/);
     expect(await readFile(join(home, '.agent', 'settings.json'), 'utf8')).toBe('{ "model": ');
+  });
+
+  it("turns background commands on in the user's settings, and off again", async () => {
+    await mkdir(join(place.root, '.agent'), { recursive: true });
+    await writeFile(join(place.root, '.agent', 'settings.json'), JSON.stringify({ backgroundProcesses: true }));
+    expect((await settingsView(place)).backgroundProcesses).toEqual({ user: false, project: true });
+    await setBackgroundProcesses(place, true);
+    expect((await settingsView(place)).backgroundProcesses.user).toBe(true);
+    await setBackgroundProcesses(place, false);
+    expect(await json(join(home, '.agent', 'settings.json'))).toEqual({});
   });
 
   it("sets an auto-mode group in the user's settings, or drops it back to the built-ins", async () => {

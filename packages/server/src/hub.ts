@@ -70,6 +70,7 @@ import {
   memoryView,
   readMemory,
   setAutoModeGroup,
+  setBackgroundProcesses,
   setRules,
   settingsView,
   writeMemory,
@@ -482,6 +483,12 @@ export class WorkspaceHub {
   async setAutoMode(id: string, group: AutoModeGroup, rules: string[] | null): Promise<SettingsView> {
     await setAutoModeGroup(this.#place(id), group, rules);
     await this.#reloadSettings();
+    return this.settings(id);
+  }
+
+  /** Background commands on or off for the user; sessions started afterwards have it (the tools a session shows the model stay as they started). */
+  async setBackgroundProcesses(id: string, enabled: boolean): Promise<SettingsView> {
+    await setBackgroundProcesses(this.#place(id), enabled);
     return this.settings(id);
   }
 

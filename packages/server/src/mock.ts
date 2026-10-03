@@ -4,10 +4,11 @@
  * model. Frontend development and demos cost nothing and stay deterministic
  * for screenshots (`hc web --mock`, docs/web.md "Running it").
  *
- * The script, consumed across two sends, covers every UI surface: streamed
+ * The script, consumed across three sends, covers every UI surface: streamed
  * thinking + text, read-only lookups, a task list, a `bash` tool, `write` +
- * `edit` file tools (each asks for permission in `ask` mode), and — after the
- * client switches to plan mode — an `exit_plan_mode` plan approval.
+ * `edit` file tools (each asks for permission in `ask` mode), — after the
+ * client switches to plan mode — an `exit_plan_mode` plan approval, and then
+ * a dev server left running in the background.
  */
 
 import {
@@ -113,6 +114,22 @@ function mockScript(): ScriptedTurn[] {
       ],
     },
     { text: 'Thanks — the plan is approved, so I can proceed.' },
+    // Send #3: a dev server, left running in the background (on in mock mode).
+    {
+      text: "I'll start the dev server and leave it running.",
+      toolCalls: [
+        {
+          name: 'bash',
+          input: {
+            command:
+              "echo 'dev server listening on http://localhost:5173'; " +
+              "while true; do sleep 2; printf '\\033[2m%s\\033[0m GET / \\033[32m200\\033[0m\\n' \"$(date +%H:%M:%S)\"; done",
+            run_in_background: true,
+          },
+        },
+      ],
+    },
+    { text: 'It’s running in the background as bg1 — the Processes tab shows what it prints, and stops it.' },
   ];
 }
 
@@ -188,7 +205,7 @@ export function mockConfigFactory(cwd: string, agentDir?: string): SessionConfig
       model: mockModel(provider, opts.model && MOCK_MODELS[opts.model] ? opts.model : MOCK_MODEL_REF),
       resolveModel: (ref) => mockModel(provider, ref),
       // A real project's defaults: lookups run without asking.
-      settings: { permissions: { allow: [...DEFAULT_ALLOW_RULES] } },
+      settings: { permissions: { allow: [...DEFAULT_ALLOW_RULES] }, backgroundProcesses: true },
       budgets: {},
       mode: opts.mode ?? 'ask',
       skills: false,

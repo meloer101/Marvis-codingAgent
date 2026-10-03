@@ -139,6 +139,7 @@ the server with the same schemas the client is typed from.
 | `settings.get {workspaceId}` | the permission rules in `~/.agent/settings.json` and the project's `.agent/settings.json`, the built-in allow rules, the user's auto-mode rules beside the built-in ones and why auto mode is unavailable, if it is; files that don't parse are named, never read for more than their rules (a settings file can hold keys) |
 | `settings.setRules {workspaceId, scope, list, rules}` | replace one list (`allow`, `ask`, `deny`) in the user's or the project's settings; every rule must parse, and a file that doesn't is never written over (`bad_request`). The live sessions it applies to — every one for the user's, the project's for its own — take it up at once (`AgentSession.reloadSettings`), keeping what "always allow" granted → the settings again |
 | `settings.setAutoMode {workspaceId, group, rules}` | replace one auto-mode group (`environment`, `allow`, `soft_deny`, `hard_deny`) in the user's settings, `null` for the built-in rules; live sessions take it up |
+| `settings.setBackgroundProcesses {workspaceId, enabled}` | background commands on or off in the user's settings (`settings.get` says what each file has); sessions started afterwards have them |
 | `autoMode.denials {workspaceId?}` | the live sessions auto mode refused something in (or paused in), each with its denials, newest first |
 | `session.retryDenied {id, denialId}` | let the agent try a refused call once more — it's told so on its next turn |
 | `memory.list {workspaceId}` | the instruction files (`AGENTS.md`, `CLAUDE.md` in `~/.agent/` and at the project's root — or the `AGENTS.md` to write) and the memories in the global and project stores, each with what's wrong with it, if sessions skip it |
@@ -550,6 +551,15 @@ The token is as powerful as the user's shell — a client can switch a session t
   failed or denied tool marked, compactions and provider errors between them.
   The last run is open, the rest fold to a line. With telemetry off
   (`telemetry.enabled: false`) there is nothing to show, and the tab says so.
+  **Processes** (`components/ProcessesPanel.tsx`) appears once the session has
+  started a command in the background (`backgroundProcesses` on, `bash` with
+  `run_in_background`), the tab carrying how many still run: each command,
+  newest first, with its status — running and for how long, its exit code,
+  stopped — and Stop (`session.killProcess`) while it runs; one opens to what
+  it printed, colours kept, following the tail. The one still running opens
+  first. A `bash` card that started one says `background · bg1` and opens the
+  tab on it (`openProcess`); `bash_output` and `bash_kill` cards are a line
+  each. On a narrow panel the tabs keep their icons alone.
 - **Usage** (`components/StatsView.tsx`, `#/stats`, from the chart icon in the
   sidebar's footer or the palette): `stats.summary` over the last 7, 30 or 90
   days or all time, in one project or all. The cost leads — the tokens, when no
@@ -576,7 +586,11 @@ The token is as powerful as the user's shell — a client can switch a session t
   first. **MCP servers**: each server as its file has it, the project's
   winning over yours by name; an OAuth one has Sign in — the page to
   authorize at opens in a new tab, "waiting for the browser" until the
-  `mcp_login` push, then the list again — or Sign out.
+  `mcp_login` push, then the list again — or Sign out. **Tools**: the switch
+  for background commands in your settings (`settings.setBackgroundProcesses`),
+  noting when the project's turn them on regardless; sessions started
+  afterwards have them, as the tools a session shows the model are fixed when
+  it starts.
 - **Terminal** (`components/TerminalPanel.tsx`, `components/XTermView.tsx`):
   under the session, Ctrl+` (or the header button) shows and hides it, and its
   top edge drags to resize (both kept). A tab per shell of the project, + for

@@ -327,6 +327,12 @@ export interface SettingsView {
     rules: Partial<Record<AutoModeGroup, string[]>>;
     builtin: Record<AutoModeGroup, string[]>;
   };
+  /**
+   * Whether sessions may start commands in the background
+   * (`backgroundProcesses`), as each file says; either turns it on. Off by
+   * default: it changes the tools the model is shown.
+   */
+  backgroundProcesses: { user: boolean; project: boolean };
   /** Settings files that couldn't be read, `path: reason`: left out above, and never written over. */
   problems: string[];
 }
@@ -869,6 +875,10 @@ export const methods = {
       group: z.enum(AUTO_MODE_GROUPS),
       rules: z.array(z.string().min(1).max(2000)).max(200).nullable(),
     }),
+  ),
+  /** Turn background commands on or off in the user's settings; sessions started afterwards have it. */
+  'settings.setBackgroundProcesses': method<{ workspaceId: string; enabled: boolean }, SettingsView>(
+    z.object({ workspaceId: workspaceIdSchema, enabled: z.boolean() }),
   ),
   /** The live sessions auto mode refused something in — in one workspace, or all — newest denial first. */
   'autoMode.denials': method<{ workspaceId?: string }, SessionDenials[]>(

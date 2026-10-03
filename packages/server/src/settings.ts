@@ -112,6 +112,10 @@ export async function settingsView(place: SettingsPlace, autoModeUnavailable?: s
     user: { path: userPath, rules: rulesOf(userSettings) },
     project: { path: projectPath, rules: rulesOf(projectSettings) },
     builtinAllow: [...DEFAULT_ALLOW_RULES],
+    backgroundProcesses: {
+      user: userSettings.backgroundProcesses === true,
+      project: projectSettings.backgroundProcesses === true,
+    },
     autoMode: {
       ...(autoModeUnavailable ? { unavailable: autoModeUnavailable } : {}),
       rules,
@@ -149,6 +153,11 @@ export async function setRules(
 export async function setAutoModeGroup(place: SettingsPlace, group: AutoModeGroup, rules: string[] | null): Promise<void> {
   const clean = rules === null ? undefined : [...new Set(rules.map((r) => r.trim()).filter(Boolean))];
   await written(() => writeUserSettings({ autoMode: { [group]: clean } }, { homeDir: place.home }));
+}
+
+/** Background commands on (`true`) or off (the key dropped) in the user's settings. */
+export async function setBackgroundProcesses(place: SettingsPlace, enabled: boolean): Promise<void> {
+  await written(() => writeUserSettings({ backgroundProcesses: enabled ? true : undefined }, { homeDir: place.home }));
 }
 
 /** A settings file that doesn't parse is the user's to fix: say so, as a bad request. */
