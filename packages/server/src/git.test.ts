@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   GitCommandError,
   createPullRequest,
+  gitApplyHunk,
   gitCommit,
   gitDiff,
   gitPush,
@@ -17,6 +18,7 @@ import {
   gitUnstage,
   parseNumstat,
   parseStatus,
+  splitHunks,
 } from './git.js';
 import { WorkspacePathError } from './paths.js';
 
@@ -256,5 +258,70 @@ describe('changing git state', () => {
     } finally {
       process.env['PATH'] = path;
     }
+  });
+});
+
+describe('hunks', () => {
+  /** A committed file of 30 numbered lines, then two changes far enough apart to be two hunks. */
+  async function twoHunks(sub = ''): Promise<{ root: string; run: (...args: string[]) => string; file: string; dir: string }> {
+    const { root, run } = await repo();
+    const dir = join(root, sub);
+    await mkdir(dir, { recursive: true });
+    const lines = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`);
+    const file = join(dir, 'f.txt');
+    await writeFile(file, `${lines.join('\n')}\n`);
+    run('add', '.');
+    run('commit', '-q', '-m', 'init');
+    lines[1] = 'line 2 changed';
+    lines[27] = 'line 28 changed';
+    await writeFile(file, `${lines.join('\n')}\n`);
+    return { root, run, file, dir };
+  }
+
+  const hunksOf = async (root: string, side: 'staged' | 'unstaged') => {
+    const diff = await gitDiff(root, 'f.txt', side);
+    return diff.kind === 'text' ? splitHunks(diff.patch).hunks : [];
+  };
+
+  it('splits a patch into its header and hunks', () => {
+    const { header, hunks } = splitHunks('diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\n\\ No newline at end of file\n');
+    expect(header).toBe('diff --git a/f b/f\n--- a/f\n+++ b/f\n');
+    expect(hunks).toEqual(['@@ -1 +1 @@\n-a\n+b\n', '@@ -9 +9 @@\n-c\n+d\n\\ No newline at end of file\n']);
+  });
+
+  it('stages one hunk, unstages it, and discards the other', async () => {
+    const { root, file } = await twoHunks();
+    const unstaged = await hunksOf(root, 'unstaged');
+    expect(unstaged).toHaveLength(2);
+
+    await gitApplyHunk(root, 'f.txt', unstaged[0]!, 'stage');
+    expect((await gitStatus(root)).repo && (await gitStatus(root))).toMatchObject({ files: [{ path: 'f.txt', staged: 'modified', unstaged: 'modified' }] });
+    const staged = await hunksOf(root, 'staged');
+    expect(staged).toHaveLength(1);
+    expect(staged[0]).toContain('+line 2 changed');
+    expect(await hunksOf(root, 'unstaged')).toHaveLength(1);
+
+    await gitApplyHunk(root, 'f.txt', staged[0]!, 'unstage');
+    expect(await hunksOf(root, 'staged')).toHaveLength(0);
+
+    const second = (await hunksOf(root, 'unstaged'))[1]!;
+    await gitApplyHunk(root, 'f.txt', second, 'discard');
+    const text = await readFile(file, 'utf8');
+    expect(text).toContain('line 2 changed');
+    expect(text).toContain('line 28\n');
+  });
+
+  it('refuses a hunk that is no longer there', async () => {
+    const { root, file } = await twoHunks();
+    const [first] = await hunksOf(root, 'unstaged');
+    await writeFile(file, (await readFile(file, 'utf8')).replace('line 2 changed', 'line 2 changed again'));
+    await expect(gitApplyHunk(root, 'f.txt', first!, 'stage')).rejects.toThrow(/changed since/);
+  });
+
+  it('works in a workspace that is a subdirectory of the repository', async () => {
+    const { dir } = await twoHunks('pkg/app');
+    const [first] = await hunksOf(dir, 'unstaged');
+    await gitApplyHunk(dir, 'f.txt', first!, 'stage');
+    expect(await hunksOf(dir, 'staged')).toHaveLength(1);
   });
 });

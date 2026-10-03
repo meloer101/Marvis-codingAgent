@@ -45,6 +45,7 @@ import { detectEditors, openInEditor } from './editors.js';
 import type { Editor } from './editors.js';
 import { FileIndex, readWorkspaceFile } from './files.js';
 import { gitDiff, gitStatus } from './git.js';
+import type { DiffSide } from './git.js';
 import { BusyError, InvalidRequestError } from './host.js';
 import type { SessionHost } from './host.js';
 import { inspectDirectory } from './inspect.js';
@@ -229,10 +230,10 @@ export class WorkspaceHub {
     return checkout ? gitStatus(checkout.cwd) : { repo: false };
   }
 
-  /** One file's changes in workspace `id`. */
-  async gitDiff(id: string, path: string, sessionId?: string): Promise<GitDiff> {
+  /** One file's changes in workspace `id`: all, or the staged or unstaged ones. */
+  async gitDiff(id: string, path: string, sessionId?: string, side?: DiffSide): Promise<GitDiff> {
     const checkout = await this.#checkout(id, sessionId);
-    return checkout ? gitDiff(checkout.cwd, path) : { kind: 'withheld', reason: this.#goneReason(id) };
+    return checkout ? gitDiff(checkout.cwd, path, side) : { kind: 'withheld', reason: this.#goneReason(id) };
   }
 
   /** The local branches of workspace `id`'s repository, for a worktree to start from. */

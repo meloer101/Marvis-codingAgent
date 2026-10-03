@@ -34,6 +34,7 @@ import { BusyError, ConflictError, InvalidRequestError, SessionNotFoundError } f
 import {
   GitCommandError,
   createPullRequest,
+  gitApplyHunk,
   gitCommit,
   gitPush,
   gitRevert,
@@ -299,8 +300,12 @@ class Connection {
         return hub.gitStatus(workspaceId, sessionId);
       }
       case 'git.diff': {
-        const { workspaceId, sessionId, path } = params as MethodParams<'git.diff'>;
-        return hub.gitDiff(workspaceId, path, sessionId);
+        const { workspaceId, sessionId, path, side } = params as MethodParams<'git.diff'>;
+        return hub.gitDiff(workspaceId, path, sessionId, side);
+      }
+      case 'git.applyHunk': {
+        const { workspaceId, sessionId, path, hunk, action } = params as MethodParams<'git.applyHunk'>;
+        return hub.gitChange(workspaceId, (root) => gitApplyHunk(root, path, hunk, action), sessionId);
       }
       case 'git.branches':
         return hub.gitBranches((params as MethodParams<'git.branches'>).workspaceId);

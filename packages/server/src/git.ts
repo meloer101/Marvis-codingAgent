@@ -234,15 +234,19 @@ async function countLines(path: string): Promise<{ added: number; removed: numbe
   }
 }
 
-export async function gitDiff(root: string, path: string): Promise<GitDiff> {
+/** Which changes a diff shows: against HEAD (all), staged (HEAD → index), or unstaged (index → work tree). */
+export type DiffSide = 'all' | 'staged' | 'unstaged';
+
+export async function gitDiff(root: string, path: string, side: DiffSide = 'all'): Promise<GitDiff> {
   const rel = workspacePath(path);
   if (isSensitivePath(rel)) return { kind: 'withheld', reason: 'This looks like a secret, so its contents stay on disk.' };
   if ((await prefixOf(root)) === null) return { kind: 'withheld', reason: 'Not a git repository.' };
   const flags = ['--no-color', '--no-ext-diff', '--relative'];
+  const against = side === 'staged' ? ['--cached'] : side === 'unstaged' ? [] : [await base(root)];
   let patch: string;
   try {
-    patch = (await git(root, ['diff', await base(root), ...flags, '--', rel], { maxBuffer: MAX_PATCH_BYTES })).stdout;
-    if (patch === '') {
+    patch = (await git(root, ['diff', ...against, ...flags, '--', rel], { maxBuffer: MAX_PATCH_BYTES })).stdout;
+    if (patch === '' && side === 'all') {
       // Untracked: against nothing. `--no-index` exits 1 when the files differ.
       const untracked = (await git(root, ['ls-files', '--others', '--exclude-standard', '--', rel])).stdout.trim();
       if (untracked !== '') {
@@ -265,6 +269,55 @@ export async function gitDiff(root: string, path: string): Promise<GitDiff> {
 }
 
 // -- changing things ----------------------------------------------------------
+
+/** A one-file patch split into its header (`diff --git`, `---`, `+++`…) and its hunks, each from its `@@` line. */
+export function splitHunks(patch: string): { header: string; hunks: string[] } {
+  const lines = patch.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  const first = lines.findIndex((l) => l.startsWith('@@ '));
+  if (first === -1) return { header: patch, hunks: [] };
+  const hunks: string[] = [];
+  for (const line of lines.slice(first)) {
+    if (line.startsWith('@@ ')) hunks.push(`${line}\n`);
+    else hunks[hunks.length - 1] += `${line}\n`;
+  }
+  return { header: `${lines.slice(0, first).join('\n')}\n`, hunks };
+}
+
+/**
+ * Stage, unstage or discard one hunk of a file, as it was shown (`hunk`, from
+ * its `@@` line): staging and discarding take it from the unstaged changes,
+ * unstaging from the staged ones. The diff is taken again first, and a hunk
+ * no longer in it — the file changed since — is refused rather than guessed
+ * at. Never a secret's.
+ */
+export async function gitApplyHunk(
+  root: string,
+  path: string,
+  hunk: string,
+  action: 'stage' | 'unstage' | 'discard',
+): Promise<void> {
+  const rel = workspacePath(path);
+  if (isSensitivePath(rel)) throw new GitCommandError(`${rel} looks like a secret, so it isn't changed from here.`);
+  // Paths relative to the repository's top, applied there: a workspace may be a subdirectory.
+  const top = (await git(root, ['rev-parse', '--show-toplevel'])).stdout.trim();
+  const flags = ['--no-color', '--no-ext-diff', '--src-prefix=a/', '--dst-prefix=b/'];
+  const patch = (
+    await git(root, ['diff', ...(action === 'unstage' ? ['--cached'] : []), ...flags, '--', rel], {
+      maxBuffer: MAX_PATCH_BYTES,
+    })
+  ).stdout;
+  const { header, hunks } = splitHunks(patch);
+  const wanted = hunk.endsWith('\n') ? hunk : `${hunk}\n`;
+  if (!hunks.includes(wanted)) {
+    throw new GitCommandError('That part of the file has changed since it was shown — look at it again.');
+  }
+  await git(
+    top,
+    ['apply', '--whitespace=nowarn', ...(action === 'discard' ? [] : ['--cached']), ...(action === 'stage' ? [] : ['-R']), '-'],
+    { input: header + wanted },
+  );
+}
 
 /** Stage `paths` as they are on disk: changes, new files and deletions alike. */
 export async function gitStage(root: string, paths: readonly string[]): Promise<void> {

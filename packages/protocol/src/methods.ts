@@ -469,9 +469,38 @@ export const methods = {
   'git.status': method<{ workspaceId: string; sessionId?: string }, GitStatus>(
     z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional() }),
   ),
-  /** One file's changes against HEAD (`path` relative to the workspace root). */
-  'git.diff': method<{ workspaceId: string; sessionId?: string; path: string }, GitDiff>(
-    z.object({ workspaceId: workspaceIdSchema, sessionId: sessionIdSchema.optional(), path: pathSchema }),
+  /**
+   * One file's changes (`path` relative to the workspace root): against HEAD,
+   * or just its `staged` (HEAD → index) or `unstaged` (index → work tree) ones.
+   */
+  'git.diff': method<
+    { workspaceId: string; sessionId?: string; path: string; side?: 'all' | 'staged' | 'unstaged' },
+    GitDiff
+  >(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      sessionId: sessionIdSchema.optional(),
+      path: pathSchema,
+      side: z.enum(['all', 'staged', 'unstaged']).optional(),
+    }),
+  ),
+  /**
+   * Stage, unstage or discard one hunk of a file — its text as `git.diff`
+   * showed it, from its `@@` line: staging and discarding take it from the
+   * unstaged changes, unstaging from the staged ones. `bad_request` when the
+   * file changed since and that hunk is no longer there.
+   */
+  'git.applyHunk': method<
+    { workspaceId: string; sessionId?: string; path: string; hunk: string; action: 'stage' | 'unstage' | 'discard' },
+    void
+  >(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      sessionId: sessionIdSchema.optional(),
+      path: pathSchema,
+      hunk: z.string().min(1).max(1024 * 1024),
+      action: z.enum(['stage', 'unstage', 'discard']),
+    }),
   ),
   /** Stage files as they are on disk (changes, new files, deletions). */
   'git.stage': method<{ workspaceId: string; sessionId?: string; paths: string[] }, void>(gitPathsSchema),
