@@ -10,6 +10,7 @@ import { HelpDialog } from '@/components/HelpDialog';
 import { SessionSidebar } from '@/components/SessionSidebar';
 import { SessionArea } from '@/components/SessionArea';
 import { StatsView } from '@/components/StatsView';
+import { SettingsPage } from '@/components/settings/SettingsPage';
 import { attentionChanges, documentTitle, notificationsOn } from '@/lib/attention';
 import { panesOf, routeToHash, useRoute } from '@/lib/route';
 import { useFocusedPane } from '@/lib/split';
@@ -118,6 +119,8 @@ export function App() {
           <SessionArea panes={panes} focused={focused} onNewSession={newSession} />
         ) : route.kind === 'stats' ? (
           <StatsView />
+        ) : route.kind === 'settings' ? (
+          <SettingsPage section={route.section} />
         ) : (
           <DraftView {...(route.kind === 'new' ? { workspaceId: route.workspaceId } : {})} />
         )}

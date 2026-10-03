@@ -17,6 +17,7 @@ import {
   PinOff,
   Plus,
   Search,
+  Settings,
   Trash2,
   X,
 } from 'lucide-react';
@@ -210,6 +211,14 @@ export function SessionSidebar({
             className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
             <ChartColumn className="size-3.5" />
+          </a>
+          <a
+            href={routeToHash({ kind: 'settings', section: 'permissions' })}
+            title="Settings — permissions, auto mode, memory, MCP servers"
+            aria-label="Settings"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          >
+            <Settings className="size-3.5" />
           </a>
         </div>
         <span

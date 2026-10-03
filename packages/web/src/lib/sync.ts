@@ -31,6 +31,8 @@ import type {
   FileMatch,
   GitCommitResult,
   GitDiff,
+  MethodParams,
+  MethodResult,
   PushEvent,
   QueuedMessage,
   SessionSnapshot,
@@ -44,6 +46,23 @@ import type {
 } from '@harness-code/protocol';
 
 import { checkoutKey, checkoutParams } from './checkout';
+
+/** What the settings page asks the server. */
+export type SettingsMethod =
+  | 'settings.get'
+  | 'settings.setRules'
+  | 'settings.setAutoMode'
+  | 'autoMode.denials'
+  | 'session.retryDenied'
+  | 'memory.list'
+  | 'memory.read'
+  | 'memory.write'
+  | 'memory.delete'
+  | 'mcp.list'
+  | 'mcp.login'
+  | 'mcp.logout';
+
+export type McpLoginPush = Extract<PushEvent, { type: 'mcp_login' }>;
 import type { Checkout } from './checkout';
 import { RpcClient, RpcError } from './rpc';
 import type { ConnectionStatus, RpcClientOptions } from './rpc';
@@ -103,6 +122,7 @@ export class SessionSync {
   #terms = new Map<string, TerminalView>();
   /** Checkouts whose git state something shows, and how many things (by `checkoutKey`). */
   #gitWatch = new Map<string, { checkout: Checkout; count: number }>();
+  readonly #mcpLogins = new Set<(event: McpLoginPush) => void>();
   /** `git.status` calls in flight, and checkouts that changed again meanwhile. */
   #gitLoading = new Map<string, Promise<void>>();
   #gitAgain = new Set<string>();
@@ -317,6 +337,19 @@ export class SessionSync {
   /** What the traces add up to — one workspace's or every one's — from `since` on; rejects when it can't be asked. */
   loadStats(opts: { workspaceId?: string; since?: number } = {}): Promise<StatsSummary> {
     return this.rpc.call('stats.summary', opts);
+  }
+
+  /** One of the settings page's calls (`components/settings/`); rejects with why it couldn't be made. */
+  settingsCall<M extends SettingsMethod>(method: M, params: MethodParams<M>): Promise<MethodResult<M>> {
+    // None of these takes no params, so the call's rest-args form always wants exactly one.
+    const call = this.rpc.call.bind(this.rpc) as (method: M, params: MethodParams<M>) => Promise<MethodResult<M>>;
+    return call(method, params);
+  }
+
+  /** Hear how sign-ins begun with `mcp.login` end; returns the release. */
+  onMcpLogin(listener: (event: McpLoginPush) => void): () => void {
+    this.#mcpLogins.add(listener);
+    return () => this.#mcpLogins.delete(listener);
   }
 
   /** Put a message in a session's composer, ahead of its draft (to edit and send it again). */
@@ -826,6 +859,10 @@ export class SessionSync {
     }
     if (event.type === 'terminals') {
       this.#store.setState((s) => ({ terminals: { ...s.terminals, [event.workspaceId]: event.terminals } }));
+      return;
+    }
+    if (event.type === 'mcp_login') {
+      for (const listener of this.#mcpLogins) listener(event);
       return;
     }
     if (event.type === 'git_changed') {

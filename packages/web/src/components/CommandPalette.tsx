@@ -5,6 +5,7 @@ import {
   Activity,
   Archive,
   ArchiveRestore,
+  BookOpen,
   ChartColumn,
   ChartPie,
   Columns2,
@@ -26,8 +27,11 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Plug,
   Plus,
   Search,
+  Settings,
+  ShieldCheck,
   Sparkle,
   Square,
   SquareTerminal,
@@ -283,6 +287,38 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       items.push({ id: 'split-close', group: 'App', label: 'Close the other pane', keywords: 'split view unsplit', icon: Columns2, run: () => closePane(other) });
     }
 
+    items.push({
+      id: 'settings',
+      group: 'App',
+      label: 'Settings',
+      keywords: 'preferences configuration',
+      icon: Settings,
+      run: go(routeToHash({ kind: 'settings', section: 'permissions' })),
+    });
+    items.push({
+      id: 'settings-permissions',
+      group: 'App',
+      label: 'Permission rules',
+      keywords: 'settings allow ask deny auto mode denials',
+      icon: ShieldCheck,
+      run: go(routeToHash({ kind: 'settings', section: 'permissions' })),
+    });
+    items.push({
+      id: 'settings-mcp',
+      group: 'App',
+      label: 'MCP servers',
+      keywords: 'settings oauth sign in login',
+      icon: Plug,
+      run: go(routeToHash({ kind: 'settings', section: 'mcp' })),
+    });
+    items.push({
+      id: 'settings-memory',
+      group: 'App',
+      label: 'Memory and instructions',
+      keywords: 'settings agents.md claude.md memories',
+      icon: BookOpen,
+      run: go(routeToHash({ kind: 'settings', section: 'memory' })),
+    });
     items.push({
       id: 'stats',
       group: 'App',

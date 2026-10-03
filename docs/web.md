@@ -386,8 +386,8 @@ The token is as powerful as the user's shell — a client can switch a session t
 
 - **Routes** are the URL hash: `#/` is the draft for a new session in the most
   recently used project, `#/new/<workspace>` one in a given project, `#/s/<id>`
-  a session, `#/s/<id>/<id>` two side by side, `#/stats` the usage page
-  (`lib/route.ts`). The draft picks the project, where the session works, mode,
+  a session, `#/s/<id>/<id>` two side by side, `#/stats` the usage page,
+  `#/settings/<section>` the settings (`lib/route.ts`). The draft picks the project, where the session works, mode,
   model and effort.
 - **Split view** (`components/SessionArea.tsx`, `lib/split.ts`): two sessions
   side by side, each with its header, transcript and composer. ⌥-click a
@@ -553,6 +553,24 @@ The token is as powerful as the user's shell — a client can switch a session t
   model's share; and the sessions, the costliest first, each opening to its
   Trace tab. A session on a model without a price counts as `≥` what the rest
   cost, or `—` when nothing had one.
+- **Settings** (`components/settings/`, `#/settings/<section>`, from the gear in
+  the sidebar's footer or the palette), for the most recently used project or
+  the one picked in the header — what's yours, every project's, beside what's
+  the project's. **Permissions**: the allow, ask and deny lists of
+  `~/.agent/settings.json` and the project's `.agent/settings.json`, a rule
+  added on Enter and removed with its ×, the server's reason shown when one
+  doesn't parse; the built-in allow rules folded below. **Auto mode**: why it's
+  unavailable, if it is; what it refused in the open sessions, each with
+  "Allow a retry" (`session.retryDenied`) and a paused session marked; the
+  classifier's four groups, a group's built-in rules as one row that folds
+  open (`$defaults` — removing it keeps only your own) and "Built-ins only" to
+  go back to them. **Memory**: the instruction files — or the `AGENTS.md` to
+  write — and each store's memories, opened in place in a mono field to edit
+  (⌘↵ saves, Escape cancels); a memory sessions skip says why; delete arms
+  first. **MCP servers**: each server as its file has it, the project's
+  winning over yours by name; an OAuth one has Sign in — the page to
+  authorize at opens in a new tab, "waiting for the browser" until the
+  `mcp_login` push, then the list again — or Sign out.
 - **Terminal** (`components/TerminalPanel.tsx`, `components/XTermView.tsx`):
   under the session, Ctrl+` (or the header button) shows and hides it, and its
   top edge drags to resize (both kept). A tab per shell of the project, + for

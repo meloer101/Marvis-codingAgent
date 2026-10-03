@@ -254,7 +254,7 @@
   [`web.md`](./web.md)。
 - **P1 10-03 已完成**：每会话 git worktree、运行中插话（steering）、分屏、块级暂存/还原，见 [`web.md`](./web.md)。
 - **P2 进行中**：已完成 write 覆盖文件的真实 diff、子 agent 调用与工具耗时写入会话日志、图片附件、回退/编辑/分叉、
-  统计与 trace 视图；剩余后台进程、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）。之后 P3 桌面壳。
+  统计与 trace 视图、设置页（权限规则、auto-mode 规则与拒绝记录、memory、MCP OAuth）；剩余后台进程。之后 P3 桌面壳。
 
 ## Other
 
