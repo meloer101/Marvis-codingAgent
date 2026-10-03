@@ -52,20 +52,20 @@ function FileBrowser({ checkout }: { checkout: Checkout }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5">
-        <Search className="size-3.5 shrink-0 text-muted-foreground" />
+      <div className="mx-3 mb-2 flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-background pr-1.5 pl-2 focus-within:ring-2 focus-within:ring-ring/30">
+        <Search className="size-[13px] shrink-0 text-faint" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Find a file"
           aria-label="Find a file"
-          className="min-w-0 flex-1 bg-transparent py-1 text-xs outline-none placeholder:text-muted-foreground"
+          className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint"
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto py-1">
+      <div className="mx-3 mb-3 min-h-0 flex-1 overflow-y-auto rounded-lg bg-background py-1">
         {matches ? (
           matches.length === 0 ? (
-            <p className="px-6 py-10 text-center font-serif text-sm text-muted-foreground italic">No file matches.</p>
+            <p className="px-6 py-10 text-center text-[13px] text-muted-foreground">No file matches.</p>
           ) : (
             <ul>
               {matches.map((m) => (
@@ -97,7 +97,7 @@ function FolderEntries({ checkout, dir, depth }: { checkout: Checkout; dir: stri
   }, [sync, checkoutKey(checkout), dir, rev]);
   if (!entries) return depth === 0 ? <p className="px-4 py-2 text-xs text-muted-foreground">Loading…</p> : null;
   if (entries.length === 0 && depth === 0) {
-    return <p className="px-6 py-10 text-center font-serif text-sm text-muted-foreground italic">No files.</p>;
+    return <p className="px-6 py-10 text-center text-[13px] text-muted-foreground">No files.</p>;
   }
   return (
     <ul>
@@ -127,10 +127,10 @@ function FolderRow({ checkout, path, name, depth }: { checkout: Checkout; path: 
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         style={{ paddingLeft: 12 + depth * 14 }}
-        className="flex w-full items-center gap-1.5 py-1 pr-3 text-left text-xs transition-colors hover:bg-accent/60"
+        className="flex w-full items-center gap-1.5 py-1 pr-3 text-left text-xs transition-colors hover:bg-subtle"
       >
         <ChevronRight className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
-        <Icon className="size-3.5 shrink-0 text-brass" />
+        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">{name}</span>
       </button>
       {open && <FolderEntries checkout={checkout} dir={path} depth={depth + 1} />}
@@ -145,9 +145,9 @@ function FileRow({ path, label, depth }: { path: string; label: string; depth: n
       onClick={() => openFile(path)}
       title={path}
       style={{ paddingLeft: 12 + depth * 14 + 15 }}
-      className="flex w-full items-center gap-1.5 py-1 pr-3 text-left font-mono text-[11px] transition-colors hover:bg-accent/60"
+      className="flex w-full items-center gap-1.5 py-1 pr-3 text-left font-mono text-xs transition-colors hover:bg-subtle"
     >
-      <File className="size-3.5 shrink-0 text-muted-foreground" />
+      <File className="size-3.5 shrink-0 text-faint" />
       <span className="truncate">{label}</span>
     </button>
   );
@@ -177,13 +177,13 @@ function FileViewer({ checkout, path: given, line }: { checkout: Checkout; path:
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
+      <div className="flex shrink-0 items-center gap-1 px-3 pb-2">
         <button
           type="button"
           onClick={() => openFile(null)}
           aria-label="Back to the files"
           title="Back to the files"
-          className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" />
         </button>
@@ -197,14 +197,14 @@ function FileViewer({ checkout, path: given, line }: { checkout: Checkout; path:
             type="button"
             onClick={() => void sync.openInEditor(checkout, path, e.id, line)}
             title={`Open in ${e.name}${line ? ` at line ${line}` : ''}`}
-            className="flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
           >
             <SquareArrowOutUpRight className="size-3" />
             {e.name}
           </button>
         ))}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-3 mb-3 min-h-0 flex-1 overflow-y-auto rounded-lg bg-background">
         {!state ? (
           <p className="px-4 py-3 text-xs text-muted-foreground">Reading…</p>
         ) : 'error' in state ? (

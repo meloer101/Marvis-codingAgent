@@ -36,7 +36,7 @@ export function TracePanel({ sessionId, running }: { sessionId: string; running:
   if (trace === 'error') return <p className="px-4 py-3 text-xs text-destructive">The trace couldn’t be read.</p>;
   if (runs.length === 0) {
     return (
-      <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">
+      <p className="px-6 py-16 text-center text-[13px] text-muted-foreground">
         No trace yet — model and tool calls are recorded as the session runs (unless telemetry is off).
       </p>
     );
@@ -44,7 +44,7 @@ export function TracePanel({ sessionId, running }: { sessionId: string; running:
   const s = trace.summary;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 flex-col gap-1 border-b px-3 py-2 font-mono text-[11px] text-muted-foreground">
+      <div className="flex shrink-0 flex-col gap-1 pr-3 pb-2 pl-5 font-mono text-[11px] text-faint">
         <div className="flex items-center gap-2">
           <span className="min-w-0 flex-1 truncate">
             {runs.length} {runs.length === 1 ? 'run' : 'runs'} · {s.turns} model {s.turns === 1 ? 'call' : 'calls'} ·{' '}
@@ -56,9 +56,9 @@ export function TracePanel({ sessionId, running }: { sessionId: string; running:
             onClick={() => setRev((r) => r + 1)}
             aria-label="Refresh"
             title="Refresh"
-            className="rounded p-1 transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-md p-1 transition-colors hover:bg-background hover:text-foreground"
           >
-            <RefreshCw className="size-3.5" />
+            <RefreshCw className="size-3" />
           </button>
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -71,7 +71,7 @@ export function TracePanel({ sessionId, running }: { sessionId: string; running:
           <Legend />
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-3 mb-3 min-h-0 flex-1 overflow-y-auto rounded-lg bg-background py-1">
         {runs.map((run, i) => (
           <RunBlock key={run.startedAt} run={run} n={i + 1} defaultOpen={i === runs.length - 1} />
         ))}
@@ -99,19 +99,19 @@ function RunBlock({ run, n, defaultOpen }: { run: TraceRun; n: number; defaultOp
   const [open, setOpen] = useState(defaultOpen);
   const time = new Date(run.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return (
-    <section className="border-b">
+    <section>
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11px] text-muted-foreground transition-colors hover:bg-accent/60"
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-[11px] text-faint transition-colors hover:bg-subtle"
       >
         <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />
         <span className="font-sans text-xs font-medium text-foreground">Run {n}</span>
         <span>{time}</span>
         <span className="min-w-0 flex-1 truncate">{run.model.replace(/^[^/]*\//, '')}</span>
         <span>{fmtDuration(run.wallMs)}</span>
-        {run.stopReason && run.stopReason !== 'end_turn' && <span className="text-brass-strong">{run.stopReason}</span>}
+        {run.stopReason && run.stopReason !== 'end_turn' && <span className="text-destructive">{run.stopReason}</span>}
         {run.costUSD !== undefined && <span>{fmtCost(run.costUSD)}</span>}
       </button>
       {open && (
@@ -129,7 +129,7 @@ function RunBlock({ run, n, defaultOpen }: { run: TraceRun; n: number; defaultOp
 /** One row: what it was, its bar on the run's span, how long it took. */
 function Row({ row }: { row: TraceRow }) {
   const track = (bar: string, at: number, span: number) => (
-    <span className="relative h-2 min-w-0 flex-1 rounded-sm bg-muted/60">
+    <span className="relative h-2 min-w-0 flex-1 rounded-sm bg-subtle">
       <span
         className={cn('absolute top-0 h-2 rounded-sm', bar)}
         style={{ left: `${at * 100}%`, width: `max(${span * 100}%, 3px)` }}

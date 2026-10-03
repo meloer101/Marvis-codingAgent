@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronRight, FileSearch, GitBranch, Loader2, RefreshCw, Square, SquareCheck, SquareMinus, Undo2 } from 'lucide-react';
+import { Check, FileSearch, GitBranch, LoaderCircle, RefreshCw, Undo2 } from 'lucide-react';
 
 import type { GitDiff, GitFile } from '@harness-code/protocol';
 
@@ -52,25 +52,28 @@ export function ChangesPanel({
 
   if (!status) {
     return (
-      <div className="flex items-center justify-center gap-2 py-16 text-xs text-muted-foreground">
-        <Loader2 className="size-3.5 animate-spin" />
+      <div className="flex items-center justify-center gap-2 py-16 text-[13px] text-muted-foreground">
+        <LoaderCircle className="size-3.5 animate-spin text-primary" />
         Reading git…
       </div>
     );
   }
   if (!status.repo) {
-    return <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">Not a git repository.</p>;
+    return <p className="px-6 py-16 text-center text-[13px] text-muted-foreground">Not a git repository.</p>;
   }
   const files = scope === 'session' ? mine : status.files;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
-        <GitBranch className="size-3.5 shrink-0" />
-        <span className="truncate font-mono text-foreground" title={status.upstream ? `tracking ${status.upstream}` : undefined}>
+      <div className="group/branch flex h-10 shrink-0 items-center gap-1.5 pr-3 pl-5 text-[11px] text-faint">
+        <GitBranch className="size-3 shrink-0" />
+        <span
+          className="truncate font-mono text-muted-foreground"
+          title={status.upstream ? `tracking ${status.upstream}` : undefined}
+        >
           {status.branch ?? 'detached HEAD'}
         </span>
         {(status.ahead > 0 || status.behind > 0) && (
-          <span className="shrink-0 font-mono text-[10px] tabular-nums" title="Commits ahead of / behind its upstream">
+          <span className="shrink-0 font-mono tabular-nums" title="Commits ahead of / behind its upstream">
             {status.ahead > 0 && `↑${status.ahead}`}
             {status.ahead > 0 && status.behind > 0 && ' '}
             {status.behind > 0 && `↓${status.behind}`}
@@ -78,7 +81,7 @@ export function ChangesPanel({
         )}
         <span className="flex-1" />
         {sessionPaths ? (
-          <div role="radiogroup" aria-label="Which changes" className="flex shrink-0 rounded-md border p-0.5">
+          <div role="radiogroup" aria-label="Which changes" className="flex shrink-0 p-0.5">
             <ScopeButton on={scope === 'all'} onClick={() => setScope('all')} label="All" count={status.files.length} />
             <ScopeButton
               on={scope === 'session'}
@@ -89,25 +92,25 @@ export function ChangesPanel({
             />
           </div>
         ) : (
-          <span className="shrink-0">{status.files.length === 0 ? 'clean' : `${status.files.length} changed`}</span>
+          <span className="shrink-0 text-xs">{status.files.length === 0 ? 'clean' : `${status.files.length} changed`}</span>
         )}
         <button
           type="button"
           onClick={() => void sync.loadGitStatus(checkout)}
           aria-label="Refresh"
           title="Refresh"
-          className="rounded p-1 transition-colors hover:bg-accent hover:text-foreground"
+          className="rounded-md p-1 opacity-0 transition hover:bg-background hover:text-foreground focus-visible:opacity-100 group-hover/branch:opacity-100"
         >
-          <RefreshCw className="size-3.5" />
+          <RefreshCw className="size-3" />
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3">
         {files.length === 0 ? (
-          <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">
+          <p className="px-6 py-16 text-center text-[13px] text-muted-foreground">
             {scope === 'session' && status.files.length > 0 ? 'This session has not edited any of these files.' : 'No changes.'}
           </p>
         ) : (
-          <ul>
+          <ul className="overflow-hidden rounded-lg bg-background py-1">
             {files.map((f) => (
               <ChangedFile
                 key={f.path}
@@ -158,7 +161,7 @@ function RevertDialog({
           }
         >
           <div className="flex flex-col gap-4 px-5 pt-3 pb-5">
-            <p className="truncate rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs">
+            <p className="truncate rounded-md bg-subtle px-3 py-2 font-mono text-xs">
               {file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
             </p>
             <div className="flex justify-end gap-2">
@@ -196,12 +199,13 @@ function ScopeButton({
       aria-checked={on}
       onClick={onClick}
       title={title}
+      aria-label={`${label}, ${count}`}
       className={cn(
-        'rounded px-1.5 py-0.5 text-[11px] transition-colors',
-        on ? 'bg-accent font-medium text-foreground' : 'hover:text-foreground',
+        'rounded-[3px] px-2 py-0.5 text-xs font-medium transition-colors',
+        on ? 'bg-background text-foreground shadow-[0_1px_0.5px_rgb(0_0_0/0.08)]' : 'text-muted-foreground hover:text-foreground',
       )}
     >
-      {label} <span className="font-mono text-[10px] tabular-nums opacity-70">{count}</span>
+      {label}
     </button>
   );
 }
@@ -214,7 +218,7 @@ export function changeLetter(file: GitFile): { letter: string; tone: string; lab
   if (sides.includes('deleted')) return { letter: 'D', tone: 'text-destructive', label: 'deleted' };
   if (sides.includes('added')) return { letter: 'A', tone: 'text-success', label: 'added' };
   if (sides.includes('renamed') || sides.includes('copied')) return { letter: 'R', tone: 'text-primary', label: 'renamed' };
-  return { letter: 'M', tone: 'text-brass', label: 'modified' };
+  return { letter: 'M', tone: 'text-warning', label: 'modified' };
 }
 
 function ChangedFile({
@@ -239,10 +243,9 @@ function ChangedFile({
   // Fully staged, partly (staged with more changes since), or not at all.
   const staged = file.staged !== undefined && file.staged !== 'conflicted';
   const partly = staged && file.unstaged !== undefined;
-  const StageIcon = !staged ? Square : partly ? SquareMinus : SquareCheck;
   return (
-    <li className="group border-b">
-      <div className="flex min-w-0 items-center transition-colors hover:bg-accent/60">
+    <li className="group">
+      <div className="flex h-[34px] min-w-0 items-center gap-2.5 pr-1.5 pl-2 transition-colors hover:bg-subtle">
         <button
           type="button"
           role="checkbox"
@@ -250,32 +253,28 @@ function ChangedFile({
           aria-label={`Stage ${file.path}`}
           title={!staged ? 'Stage' : partly ? 'Partly staged — stage the rest' : 'Unstage'}
           onClick={() => onStage(!staged || partly)}
-          className={cn(
-            'shrink-0 py-1.5 pr-1 pl-2.5 transition-colors hover:text-foreground',
-            staged ? 'text-primary' : 'text-muted-foreground/70',
-          )}
+          className="flex shrink-0 items-center justify-center rounded-[3px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
-          <StageIcon className="size-3.5" />
+          <StageBox state={!staged ? 'off' : partly ? 'mixed' : 'on'} />
         </button>
         <button
           type="button"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
           title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-          className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pr-1 pl-1 text-left text-xs"
+          className="flex h-full min-w-0 flex-1 items-center gap-2.5 text-left font-mono text-xs"
         >
-          <ChevronRight className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
-          <span className={cn('w-3 shrink-0 text-center font-mono text-[11px] font-semibold', tone)} title={sides || label} aria-label={label}>
+          <span className={cn('w-2 shrink-0 text-center font-medium', tone)} title={sides || label} aria-label={label}>
             {letter}
           </span>
-          <span className="min-w-0 truncate font-mono text-[11px]">
-            {name}
-            {dir && <span className="text-muted-foreground"> {dir}</span>}
+          <span className="min-w-0 truncate">
+            {dir && <span className="text-faint">{dir}/</span>}
+            <span className="font-medium">{name}</span>
           </span>
           <span className="flex-1" />
-          <span className="shrink-0 font-mono text-[10px] tabular-nums">
+          <span className="shrink-0 text-[11px] tabular-nums">
             {file.binary ? (
-              <span className="text-muted-foreground">binary</span>
+              <span className="text-faint">binary</span>
             ) : (
               <>
                 {(file.added ?? 0) > 0 && <span className="text-success">+{file.added}</span>}
@@ -291,7 +290,7 @@ function ChangedFile({
             onClick={() => openFile(file.path)}
             aria-label={`Open ${file.path}`}
             title="Open the file"
-            className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100"
+            className="hidden shrink-0 rounded-md p-1 text-faint group-hover:block hover:bg-muted hover:text-foreground focus-visible:block"
           >
             <FileSearch className="size-3.5" />
           </button>
@@ -301,13 +300,23 @@ function ChangedFile({
           onClick={onRevert}
           aria-label={`Discard changes to ${file.path}`}
           title="Discard changes"
-          className="mr-1.5 shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent hover:text-destructive focus-visible:opacity-100"
+          className="hidden shrink-0 rounded-md p-1 text-faint group-hover:block hover:bg-muted hover:text-destructive focus-visible:block"
         >
           <Undo2 className="size-3.5" />
         </button>
       </div>
       {open && <FileDiff checkout={checkout} sessionId={sessionId} file={file} />}
     </li>
+  );
+}
+
+/** A checkbox drawn to the Graphite spec: an outlined square, or ink with a check or a bar. */
+function StageBox({ state }: { state: 'off' | 'on' | 'mixed' }) {
+  if (state === 'off') return <span className="block size-3.5 rounded-[3px] border border-border-strong bg-background" />;
+  return (
+    <span className="flex size-3.5 items-center justify-center rounded-[3px] bg-ink text-on-ink">
+      {state === 'on' ? <Check className="size-2.5" strokeWidth={3} /> : <span className="h-[1.5px] w-1.5 bg-on-ink" />}
+    </span>
   );
 }
 
@@ -417,14 +426,14 @@ function DiffSection({
       <DiffView
         diff={lines}
         lang={langForPath(path) ?? undefined}
-        className="max-h-none border-t bg-muted/20"
+        className="max-h-none bg-subtle"
         hunkActions={hunkActions}
       />
     );
   })();
   return label ? (
     <section aria-label={`${label} changes`}>
-      <p className="border-t bg-muted/20 px-3 pt-1.5 pb-0.5 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
+      <p className="bg-subtle px-3 pt-1.5 pb-0.5 text-[11px] font-medium tracking-[0.02em] text-faint">
         {label}
       </p>
       {body}
@@ -461,7 +470,7 @@ function HunkButton({ label, title, confirm, onClick }: { label: string; title: 
         'rounded px-1.5 py-px text-[11px] font-medium transition-colors',
         armed
           ? 'bg-destructive text-white'
-          : 'text-muted-foreground opacity-70 group-hover/hunk:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100',
+          : 'text-muted-foreground opacity-70 group-hover/hunk:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100',
       )}
     >
       {armed ? `${label}?` : label}

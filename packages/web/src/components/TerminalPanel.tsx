@@ -94,7 +94,7 @@ export function TerminalPanel({ checkout }: { checkout: Checkout }) {
               <button type="button" role="tab" aria-selected={t.id === shown} onClick={() => setActive(t.id)} className="flex items-center gap-1.5">
                 <SquareTerminal className="size-3.5 shrink-0" />
                 <span className="max-w-40 truncate font-mono text-[11px]">{titles[t.id] || `${t.title} ${i + 1}`}</span>
-                {t.exitCode !== undefined && <span className="text-[10px] text-muted-foreground">exited</span>}
+                {t.exitCode !== undefined && <span className="text-[11px] text-muted-foreground">exited</span>}
               </button>
               <button
                 type="button"
@@ -132,7 +132,7 @@ export function TerminalPanel({ checkout }: { checkout: Checkout }) {
       </div>
       <div ref={body} className="relative min-h-0 flex-1">
         {!available ? (
-          <p className="px-6 py-8 text-center font-serif text-sm text-muted-foreground italic">
+          <p className="px-6 py-8 text-center text-[13px] text-muted-foreground">
             Terminals need node-pty, which couldn’t be loaded on this machine.
           </p>
         ) : (

@@ -27,8 +27,8 @@ export function ProcessesPanel({ sessionId, processes }: { sessionId: string; pr
 
   if (processes.length === 0) {
     return (
-      <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">
-        No background commands — a dev server or watcher the agent starts with <code className="not-italic">run_in_background</code>{' '}
+      <p className="px-6 py-16 text-center text-[13px] text-muted-foreground">
+        No background commands — a dev server or watcher the agent starts with <code>run_in_background</code>{' '}
         keeps running here.
       </p>
     );
@@ -36,10 +36,10 @@ export function ProcessesPanel({ sessionId, processes }: { sessionId: string; pr
   const running = processes.filter((p) => p.status === 'running').length;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <p className="shrink-0 border-b px-3 py-2 font-mono text-[11px] text-muted-foreground">
+      <p className="shrink-0 pr-3 pb-2 pl-5 font-mono text-[11px] text-faint">
         {running} running · {processes.length - running} ended
       </p>
-      <ul className="min-h-0 flex-1 overflow-y-auto">
+      <ul className="mx-3 mb-3 min-h-0 flex-1 overflow-y-auto rounded-lg bg-background py-1">
         {[...processes].reverse().map((p) => (
           <Process
             key={p.id}
@@ -81,7 +81,7 @@ function Process({
     }
   };
   return (
-    <li className="border-b">
+    <li>
       <div className="flex items-center gap-2 px-3 py-1.5">
         <button
           type="button"
@@ -96,7 +96,7 @@ function Process({
             {p.command}
           </span>
         </button>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums" title={statusText(p)}>
+        <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums" title={statusText(p)}>
           {p.status === 'running' ? fmtDuration(now - p.startedAt) : statusText(p)}
         </span>
         {p.status === 'running' && (
@@ -106,7 +106,7 @@ function Process({
             disabled={stopping}
             aria-label={`Stop ${p.id}`}
             title="Stop it, and what it started"
-            className="flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-50"
+            className="flex shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium transition-colors hover:text-destructive disabled:opacity-50"
           >
             {stopping ? <LoaderCircle className="size-3 animate-spin" /> : <Square className="size-2.5 fill-current" />}
             Stop
@@ -123,8 +123,8 @@ function Process({
 function Output({ process: p }: { process: SessionProcess }) {
   const { ref, onScroll } = useStickToBottom<HTMLDivElement>(p.output.length);
   return (
-    <div ref={ref} onScroll={onScroll} className="max-h-96 overflow-auto border-t bg-muted/40">
-      {p.cwd && <p className="px-3 pt-2 font-mono text-[10px] text-muted-foreground">in {p.cwd}/</p>}
+    <div ref={ref} onScroll={onScroll} className="mx-2 mb-2 max-h-96 overflow-auto rounded-md bg-subtle">
+      {p.cwd && <p className="px-3 pt-2 font-mono text-[11px] text-muted-foreground">in {p.cwd}/</p>}
       {p.output ? (
         <TerminalText text={p.output} />
       ) : (

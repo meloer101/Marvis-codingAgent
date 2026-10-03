@@ -63,7 +63,7 @@ describe('ChangesPanel', () => {
     expect(screen.getByText('Reading git…')).toBeTruthy();
     act(() => useAppStore.setState({ git: { w1: status } }));
     expect(screen.getByText('feature')).toBeTruthy();
-    expect(screen.getByText('↑2')).toBeTruthy();
+    expect(screen.getByTitle('Commits ahead of / behind its upstream').textContent).toBe('↑2');
     expect(screen.getByText('3 changed')).toBeTruthy();
     const math = screen.getByRole('button', { name: /math\.ts/, expanded: false });
     expect(math.textContent).toContain('M');
@@ -89,9 +89,8 @@ describe('ChangesPanel', () => {
   it("narrows to the files this session's edits and writes touched", () => {
     renderPanel(undefined, new Set(['src/math.ts']));
     act(() => useAppStore.setState({ git: { w1: status } }));
-    expect(screen.getByRole('radio', { name: /All/ }).textContent).toContain('3');
-    const mine = screen.getByRole('radio', { name: /This session/ });
-    expect(mine.textContent).toContain('1');
+    expect(screen.getByRole('radio', { name: 'All, 3' })).toBeTruthy();
+    const mine = screen.getByRole('radio', { name: 'This session, 1' });
     fireEvent.click(mine);
     expect(screen.getByRole('button', { name: /math\.ts/, expanded: false })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /new\.txt/, expanded: false })).toBeNull();

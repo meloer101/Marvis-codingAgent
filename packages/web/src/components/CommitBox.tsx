@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { ArrowUp, ExternalLink, GitCommitHorizontal, GitPullRequest, Loader2 } from 'lucide-react';
+import { ExternalLink, LoaderCircle } from 'lucide-react';
 
 import type { GitFile, GitStatus } from '@harness-code/protocol';
 
@@ -89,54 +89,56 @@ export function CommitBox({
   };
 
   return (
-    <div className="flex shrink-0 flex-col gap-2 border-t bg-muted/20 px-3 py-2.5">
+    <div className="flex shrink-0 flex-col gap-2 p-3">
       <textarea
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         onKeyDown={onKeyDown}
         rows={2}
-        placeholder="Commit message — ⌘↵ to commit"
+        placeholder="Commit message"
         aria-label="Commit message"
-        className="field-sizing-content max-h-40 min-h-12 w-full resize-none rounded-md border bg-background px-2.5 py-1.5 text-xs outline-none focus-visible:border-primary/45 focus-visible:ring-2 focus-visible:ring-primary/20"
+        className="field-sizing-content max-h-40 min-h-16 w-full resize-none rounded-md bg-background px-2.5 py-2 text-[13px] outline-none placeholder:text-faint focus-visible:ring-2 focus-visible:ring-ring/30"
       />
       <div className="flex items-center gap-1.5">
         <Button size="sm" onClick={commit} disabled={!canCommit}>
-          {busy === 'commit' ? <Loader2 className="animate-spin" /> : <GitCommitHorizontal />}
+          {busy === 'commit' && <LoaderCircle className="animate-spin" />}
           {staged > 0 ? `Commit ${staged} staged` : `Commit ${toCommit} ${toCommit === 1 ? 'file' : 'files'}`}
+          <kbd className="font-mono text-[11px] font-normal text-faint">⌘↵</kbd>
         </Button>
         <span className="flex-1" />
         <Button
           size="sm"
-          variant="secondary"
+          variant="outline"
           onClick={push}
           disabled={!canPush}
           title={status.branch === null ? 'Check out a branch to push' : published ? `Push to ${status.upstream}` : 'Publish the branch'}
         >
-          {busy === 'push' ? <Loader2 className="animate-spin" /> : <ArrowUp />}
+          {busy === 'push' && <LoaderCircle className="animate-spin" />}
           {published ? 'Push' : 'Publish'}
-          {published && status.ahead > 0 && <span className="font-mono text-[10px] tabular-nums">{status.ahead}</span>}
+          {published && status.ahead > 0 && (
+            <span className="font-mono text-[11px] font-normal text-faint tabular-nums">↑{status.ahead}</span>
+          )}
         </Button>
         <Button
           size="sm"
-          variant="secondary"
+          variant="outline"
           onClick={() => setPr(pr ? null : { title: lastSummary ?? '', body: '', draft: false })}
           disabled={busy !== null || !published}
           aria-expanded={pr !== null}
           title={published ? 'Open a pull request with the GitHub CLI' : 'Publish the branch first'}
         >
-          <GitPullRequest />
           Pull request
         </Button>
       </div>
       {pr && (
-        <div className="flex flex-col gap-1.5 rounded-md border bg-background p-2">
+        <div className="flex flex-col gap-1.5 rounded-md bg-background p-2">
           <input
             autoFocus
             value={pr.title}
             onChange={(e) => setPr({ ...pr, title: e.target.value })}
             placeholder="Title"
             aria-label="Pull request title"
-            className="rounded border bg-background px-2 py-1 text-xs outline-none focus-visible:border-primary/45"
+            className="rounded-md bg-subtle px-2 py-1 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
           />
           <textarea
             value={pr.body}
@@ -144,11 +146,11 @@ export function CommitBox({
             rows={3}
             placeholder="Description (optional)"
             aria-label="Pull request description"
-            className="resize-none rounded border bg-background px-2 py-1 text-xs outline-none focus-visible:border-primary/45"
+            className="resize-none rounded-md bg-subtle px-2 py-1 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
           />
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <input type="checkbox" checked={pr.draft} onChange={(e) => setPr({ ...pr, draft: e.target.checked })} />
+              <input type="checkbox" className="accent-ink" checked={pr.draft} onChange={(e) => setPr({ ...pr, draft: e.target.checked })} />
               Draft
             </label>
             <span className="flex-1" />
@@ -156,7 +158,7 @@ export function CommitBox({
               Cancel
             </Button>
             <Button size="sm" onClick={openPr} disabled={busy !== null || pr.title.trim() === ''}>
-              {busy === 'pr' && <Loader2 className="animate-spin" />}
+              {busy === 'pr' && <LoaderCircle className="animate-spin" />}
               Create
             </Button>
           </div>

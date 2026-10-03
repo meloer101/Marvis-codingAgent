@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
-import { Loader2, MessageSquareText, Pencil, X } from 'lucide-react';
+import { LoaderCircle, MessageSquareText, Pencil, X } from 'lucide-react';
 
 import { DiffView } from '@/components/DiffView';
 import { Button } from '@/components/ui/button';
@@ -67,7 +67,7 @@ export function ReviewableDiff({
     <DiffView
       diff={diff}
       lang={langForPath(path) ?? undefined}
-      className="max-h-none border-t bg-muted/20"
+      className="max-h-none bg-subtle"
       onLineClick={onLineClick}
       renderAfter={renderAfter}
       hunkActions={hunkActions}
@@ -90,15 +90,15 @@ function CommentCard({ sessionId, comment }: { sessionId: string; comment: Revie
     );
   }
   return (
-    <div className="group/comment flex items-start gap-2 rounded-md border border-brass/30 bg-brass-subtle/50 px-2.5 py-1.5 text-xs">
-      <MessageSquareText className="mt-0.5 size-3.5 shrink-0 text-brass" />
+    <div className="group/comment flex items-start gap-2 rounded-md bg-muted px-2.5 py-1.5 font-sans text-xs">
+      <MessageSquareText className="mt-0.5 size-3.5 shrink-0 text-primary" />
       <p className="min-w-0 flex-1 whitespace-pre-wrap">{comment.body}</p>
       <span className="flex shrink-0 opacity-60 transition-opacity group-hover/comment:opacity-100">
         <button
           type="button"
           onClick={() => setEditing(true)}
           aria-label="Edit comment"
-          className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
         >
           <Pencil className="size-3" />
         </button>
@@ -106,7 +106,7 @@ function CommentCard({ sessionId, comment }: { sessionId: string; comment: Revie
           type="button"
           onClick={() => removeComment(sessionId, comment.id)}
           aria-label="Delete comment"
-          className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground"
         >
           <X className="size-3" />
         </button>
@@ -131,7 +131,7 @@ function CommentEditor({ initial = '', onSave, onCancel }: { initial?: string; o
     }
   };
   return (
-    <div className="flex flex-col gap-1.5 rounded-md border bg-background p-1.5">
+    <div className="flex flex-col gap-1.5 rounded-md bg-muted p-1.5 font-sans">
       <textarea
         autoFocus
         value={body}
@@ -140,7 +140,7 @@ function CommentEditor({ initial = '', onSave, onCancel }: { initial?: string; o
         rows={2}
         placeholder="Comment for the agent — ⌘↵ to save"
         aria-label="Review comment"
-        className="field-sizing-content max-h-40 min-h-10 resize-none rounded border bg-background px-2 py-1 text-xs outline-none focus-visible:border-primary/45"
+        className="field-sizing-content max-h-40 min-h-10 resize-none rounded-md bg-background px-2 py-1 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
       />
       <div className="flex justify-end gap-1.5">
         <Button size="sm" variant="ghost" onClick={onCancel}>
@@ -169,8 +169,8 @@ export function ReviewBar({ sessionId }: { sessionId: string }) {
     }
   };
   return (
-    <div className="flex shrink-0 items-center gap-2 border-t border-brass/25 bg-brass-subtle/40 px-3 py-2 text-xs">
-      <MessageSquareText className="size-3.5 shrink-0 text-brass" />
+    <div className="mx-3 mt-2 flex shrink-0 items-center gap-2 rounded-lg bg-background px-3 py-2 text-xs">
+      <MessageSquareText className="size-3.5 shrink-0 text-primary" />
       <span className="min-w-0 truncate">
         {comments.length} review {comments.length === 1 ? 'comment' : 'comments'}
       </span>
@@ -179,7 +179,7 @@ export function ReviewBar({ sessionId }: { sessionId: string }) {
         Discard
       </Button>
       <Button size="sm" onClick={() => void send()} disabled={sending}>
-        {sending && <Loader2 className="animate-spin" />}
+        {sending && <LoaderCircle className="animate-spin" />}
         Send to agent
       </Button>
     </div>
