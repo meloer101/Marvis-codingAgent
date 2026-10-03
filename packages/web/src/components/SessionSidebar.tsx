@@ -4,6 +4,7 @@ import {
   Archive,
   ArchiveRestore,
   ChevronRight,
+  Columns2,
   Copy,
   FolderPlus,
   GitBranch,
@@ -29,6 +30,7 @@ import { ContextActions, DropdownActions } from '@/components/ui/menu';
 import type { MenuAction } from '@/components/ui/menu';
 import { relativeTime } from '@/lib/format';
 import { routeToHash } from '@/lib/route';
+import { closePane, focusPane, openBeside, sessionHash } from '@/lib/split';
 import { loadSeen, markSeen, rowStatus, sidebarGroups } from '@/lib/sidebar';
 import type { RowStatus, SidebarGroup } from '@/lib/sidebar';
 import { useAppStore } from '@/lib/store';
@@ -43,9 +45,20 @@ const COLLAPSED_KEY = 'hc.sidebar.collapsed';
  * folding away and carrying its own "+" for a new session there. Inside a
  * group: pinned first, then newest; archived only on request. Rows rename in
  * place (double-click) and carry a ⋯ / right-click menu. The search box
- * filters every project at once.
+ * filters every project at once. A row opens in the focused pane of a split;
+ * ⌥-click (or "Open beside") opens it next to the session on screen.
  */
-export function SessionSidebar({ activeId, onNew }: { activeId: string | null; onNew: () => void }) {
+export function SessionSidebar({
+  activeId,
+  shown = activeId ? [activeId] : [],
+  onNew,
+}: {
+  /** The session with the focus. */
+  activeId: string | null;
+  /** Every session on screen (two in a split), left to right. */
+  shown?: readonly string[];
+  onNew: () => void;
+}) {
   const sync = useSync();
   const workspaces = useAppStore((s) => s.workspaces);
   const sessions = useAppStore((s) => s.sessions);
@@ -59,12 +72,12 @@ export function SessionSidebar({ activeId, onNew }: { activeId: string | null; o
   const [removing, setRemoving] = useState<Workspace | null>(null);
   useTick(60_000); // relative times move on by themselves
 
-  // The session on screen counts as seen, up to its latest change.
-  const active = sessions.find((s) => s.id === activeId);
-  const activeKey = active ? `${active.id}@${active.mtimeMs}` : '';
+  // The sessions on screen count as seen, up to their latest change.
+  const onScreen = sessions.filter((s) => shown.includes(s.id));
+  const onScreenKey = onScreen.map((s) => `${s.id}@${s.mtimeMs}`).join(' ');
   useEffect(() => {
-    if (active) setSeen((prev) => markSeen(prev, active.id, active.mtimeMs));
-  }, [activeKey]);
+    if (onScreen.length > 0) setSeen((prev) => onScreen.reduce((acc, s) => markSeen(acc, s.id, s.mtimeMs), prev));
+  }, [onScreenKey]);
 
   const groups = useMemo(
     () => sidebarGroups(workspaces, sessions, { query, showArchived }),
@@ -157,7 +170,9 @@ export function SessionSidebar({ activeId, onNew }: { activeId: string | null; o
                 key={row.id}
                 row={row}
                 active={row.id === activeId}
-                status={rowStatus(row, seen[row.id], row.id === activeId)}
+                pane={shown.indexOf(row.id)}
+                canOpenBeside={activeId !== null && row.id !== activeId}
+                status={rowStatus(row, seen[row.id], shown.includes(row.id))}
                 renaming={renaming === row.id}
                 onStartRename={() => setRenaming(row.id)}
                 onRename={(title) => {
@@ -203,7 +218,10 @@ export function SessionSidebar({ activeId, onNew }: { activeId: string | null; o
         onConfirm={(row) => {
           setDeleting(null);
           void sync.deleteSession(row.id).then(() => {
-            if (row.id === activeId) window.location.hash = routeToHash({ kind: 'new', workspaceId: row.workspaceId });
+            const pane = shown.indexOf(row.id);
+            if (pane === -1) return;
+            if (shown.length > 1) closePane(pane);
+            else window.location.hash = routeToHash({ kind: 'new', workspaceId: row.workspaceId });
           });
         }}
       />
@@ -310,6 +328,8 @@ function ProjectGroup({
 function SessionRow({
   row,
   active,
+  pane,
+  canOpenBeside,
   status,
   renaming,
   onStartRename,
@@ -318,7 +338,11 @@ function SessionRow({
   onDelete,
 }: {
   row: SessionSummary;
+  /** It has the focus. */
   active: boolean;
+  /** The pane it shows in (-1: not on screen). */
+  pane: number;
+  canOpenBeside: boolean;
   status: RowStatus;
   renaming: boolean;
   onStartRename: () => void;
@@ -338,6 +362,7 @@ function SessionRow({
     row.archived
       ? { label: 'Unarchive', icon: <ArchiveRestore />, onSelect: update({ archived: false }) }
       : { label: 'Archive', icon: <Archive />, onSelect: update({ archived: true }) },
+    ...(canOpenBeside ? [{ label: 'Open beside', icon: <Columns2 />, onSelect: () => openBeside(row.id) }] : []),
     { label: 'Copy session id', icon: <Copy />, onSelect: () => void navigator.clipboard?.writeText(row.id) },
     { label: 'Delete…', icon: <Trash2 />, onSelect: onDelete, destructive: true, separated: true },
   ];
@@ -346,14 +371,26 @@ function SessionRow({
     <ContextActions actions={actions}>
       <li className="group/row relative">
         <a
-          href={routeToHash({ kind: 'session', id: row.id })}
+          href={sessionHash(row.id)}
+          onClick={(e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey) return; // the browser's own: a new tab or window
+            if (e.altKey && canOpenBeside) {
+              e.preventDefault();
+              openBeside(row.id);
+            } else if (pane !== -1) {
+              e.preventDefault();
+              focusPane(pane);
+            }
+          }}
           onDoubleClick={(e) => {
             e.preventDefault();
             onStartRename();
           }}
+          title={canOpenBeside ? '⌥-click to open beside' : undefined}
           className={cn(
             'flex items-center gap-2 rounded-md py-1.5 pr-2 pl-6 text-[13px] transition-colors hover:bg-sidebar-accent',
             active && 'bg-sidebar-accent font-medium text-sidebar-accent-foreground',
+            !active && pane !== -1 && 'bg-sidebar-accent/50',
             row.archived && 'text-muted-foreground',
           )}
         >

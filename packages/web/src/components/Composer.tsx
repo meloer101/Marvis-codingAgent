@@ -64,6 +64,7 @@ export function Composer({
   trailing,
   restored,
   onRestored,
+  autoFocus = true,
 }: {
   sessionId: string;
   running: boolean;
@@ -85,6 +86,8 @@ export function Composer({
   /** Handed back to edit (queued messages a Stop returned): put in front of the draft, then `onRestored`. */
   restored?: RestoredDraft;
   onRestored?: () => void;
+  /** Take the focus when mounted (not in the pane of a split that hasn't got it). */
+  autoFocus?: boolean;
 }) {
   const [text, setText] = useState(() => platform.storage.get(draftKey(sessionId)) ?? '');
   const [attached, setAttached] = useState<string[]>(() => loadFiles(sessionId));
@@ -113,7 +116,7 @@ export function Composer({
   // session's draft instead of saving this one's text under the new id. A
   // prompt that mounted alongside (a session opened mid-ask) keeps the focus.
   useEffect(() => {
-    if (!document.activeElement?.closest('[data-pending-dock]')) ref.current?.focus();
+    if (autoFocus && !document.activeElement?.closest('[data-pending-dock]')) ref.current?.focus();
   }, []);
 
   useEffect(() => {

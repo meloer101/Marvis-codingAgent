@@ -254,7 +254,8 @@
   [`web.md`](./web.md)。
 - **每会话 git worktree 10-03 已完成**：草稿选 base 分支，`.worktreeinclude`，归档即清理、再运行时恢复，见 [`web.md`](./web.md) 的 Worktrees。
 - **运行中插话 10-03 已完成**（web）：Enter 在下一步插入，⌥Enter 排到本轮之后，见 [`web.md`](./web.md) 的 Steering。
-- **MVP 之后**：P1 分屏、块级暂存/还原；P2 图片附件（provider 加 image 内容块）、rewind / 编辑历史消息 / fork、后台进程、
+- **分屏 10-03 已完成**：两个会话并排，侧边面板和终端跟随有焦点的那个，见 [`web.md`](./web.md) 的 Split view。
+- **MVP 之后**：P1 块级暂存/还原；P2 图片附件（provider 加 image 内容块）、rewind / 编辑历史消息 / fork、后台进程、
   统计与 trace 视图、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）、覆盖已有文件的 `write` 显示真实
   diff（要 write 记下旧内容）、子代理的调用和工具耗时落盘（现在只在实时视图里有）；P3 桌面壳。
 

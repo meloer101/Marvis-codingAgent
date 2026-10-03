@@ -18,6 +18,8 @@ export interface PaletteItem {
   keywords?: string;
   icon?: LucideIcon;
   run: () => void;
+  /** ⌥Enter: the other way to run it (a session opened beside the one on screen). */
+  altRun?: () => void;
 }
 
 /** Sessions listed before a query narrows them. */

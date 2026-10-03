@@ -5,6 +5,7 @@ import {
   Archive,
   ArchiveRestore,
   ChartPie,
+  Columns2,
   Cpu,
   FolderPlus,
   FolderTree,
@@ -36,7 +37,8 @@ import { EFFORT_LABELS, MODES } from '@/components/ComposerControls';
 import { relativeTime } from '@/lib/format';
 import { filterPalette } from '@/lib/palette';
 import type { PaletteGroup, PaletteItem } from '@/lib/palette';
-import { routeToHash } from '@/lib/route';
+import { panesOf, routeToHash, useRoute } from '@/lib/route';
+import { closePane, openBeside, openSession } from '@/lib/split';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
 import { setTheme, useTheme } from '@/lib/theme';
@@ -83,10 +85,10 @@ function Palette({
     listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' });
   }, [active]);
 
-  const run = (item: PaletteItem | undefined): void => {
+  const run = (item: PaletteItem | undefined, alt = false): void => {
     if (!item) return;
     onClose();
-    item.run();
+    (alt && item.altRun ? item.altRun : item.run)();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
@@ -97,7 +99,7 @@ function Palette({
       setActive((i) => (i + (e.key === 'ArrowDown' ? 1 : shown.length - 1)) % shown.length);
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      run(shown[active]);
+      run(shown[active], e.altKey);
     }
   };
 
@@ -145,7 +147,7 @@ function Palette({
                     role="option"
                     aria-selected={i === active}
                     onMouseMove={() => i !== active && setActive(i)}
-                    onClick={() => run(item)}
+                    onClick={(e) => run(item, e.altKey)}
                     className={cn(
                       'flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px]',
                       i === active && 'bg-accent text-accent-foreground',
@@ -153,6 +155,9 @@ function Palette({
                   >
                     {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" /> : <span className="size-3.5 shrink-0" />}
                     <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {item.altRun && i === active && (
+                      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">⌥↵ beside</span>
+                    )}
                     {item.hint && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{item.hint}</span>}
                   </div>
                 </li>
@@ -177,6 +182,7 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
   const verbose = useVerbose();
   const panel = usePanel();
   const terminalOpen = useTerminalPanel().open;
+  const panes = panesOf(useRoute());
   const workspaceId = view?.workspaceId;
 
   // The models to switch to: fresh each time the palette opens.
@@ -257,8 +263,13 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
         hint: `${names.get(s.workspaceId) ?? ''} · ${relativeTime(s.mtimeMs)}${s.archived ? ' · archived' : ''}`,
         keywords: names.get(s.workspaceId) ?? '',
         icon: MessageSquare,
-        run: go(routeToHash({ kind: 'session', id: s.id })),
+        run: () => openSession(s.id),
+        ...(activeId ? { altRun: () => openBeside(s.id) } : {}),
       });
+    }
+    if (panes.length > 1 && activeId) {
+      const other = panes.indexOf(activeId) === 0 ? 1 : 0;
+      items.push({ id: 'split-close', group: 'App', label: 'Close the other pane', keywords: 'split view unsplit', icon: Columns2, run: () => closePane(other) });
     }
 
     for (const t of ['system', 'light', 'dark'] as const) {
@@ -298,5 +309,5 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
     });
     // Group order, whatever order they were pushed in.
     return GROUPS.flatMap((g) => items.filter((i) => i.group === g));
-  }, [view, activeId, row, sessions, workspaces, models, theme, verbose, panel, terminalOpen, onNewSession, sync]);
+  }, [view, activeId, row, sessions, workspaces, models, theme, verbose, panel, terminalOpen, onNewSession, sync, panes.join('/')]);
 }

@@ -10,9 +10,7 @@ import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerContro
 import { PendingDock } from '@/components/PendingDock';
 import { QueuedMessages } from '@/components/QueuedMessages';
 import { TaskDock } from '@/components/TaskDock';
-import { TerminalPanel } from '@/components/TerminalPanel';
 import { SessionHeader } from '@/components/SessionHeader';
-import { SidePanel } from '@/components/SidePanel';
 import { SkillsDialog } from '@/components/SkillsDialog';
 import { Transcript } from '@/components/Transcript';
 import { ContextButton } from '@/components/UsagePanel';
@@ -26,7 +24,18 @@ import { useSync } from '@/lib/syncContext';
 
 const FALLBACK_MODES: readonly PermissionMode[] = ['ask', 'acceptEdits', 'plan', 'readOnly', 'yolo'];
 
-export function SessionView({ id, onNewSession }: { id: string; onNewSession: () => void }) {
+/** One pane of a split view: whether it has the focus, and closing it. */
+export interface PaneProps {
+  focused: boolean;
+  onClose: () => void;
+}
+
+/**
+ * A session: header, transcript and composer, with what docks above it. The
+ * side panel and the terminal beside it are `SessionArea`'s, for the session
+ * with the focus.
+ */
+export function SessionView({ id, onNewSession, pane }: { id: string; onNewSession: () => void; pane?: PaneProps }) {
   const sync = useSync();
   const view = useAppStore((s) => s.views[id]);
   const connected = useAppStore((s) => s.status === 'open');
@@ -113,7 +122,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <SessionHeader view={view} />
+        <SessionHeader view={view} {...(pane ? { pane } : {})} />
         <Transcript view={view} onRetry={(text, attachments) => void sync.send(id, text, attachments)} />
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
           <TaskDock view={view} />
@@ -126,6 +135,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
           <SessionComposer
             view={view}
             checkout={checkout}
+            autoFocus={!pane || pane.focused}
             modes={modes}
             onSend={send}
             inputRef={composerRef}
@@ -135,9 +145,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
             onSurface={setSurface}
           />
         </div>
-        {checkout && <TerminalPanel checkout={checkout} />}
       </div>
-      <SidePanel view={view} checkout={checkout} />
       {surface === 'skills' && (
         <SkillsDialog
           skills={skills}
@@ -162,6 +170,7 @@ function useSessionModes(view: SessionViewState | undefined): readonly Permissio
 function SessionComposer({
   view,
   checkout,
+  autoFocus,
   modes,
   onSend,
   inputRef,
@@ -173,6 +182,7 @@ function SessionComposer({
   view: SessionViewState;
   /** Where `@` looks for files: where the session works. */
   checkout: Checkout | undefined;
+  autoFocus: boolean;
   modes: readonly PermissionMode[];
   onSend: (text: string, attachments: string[], opts?: { steer?: boolean }) => Promise<boolean>;
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -203,6 +213,7 @@ function SessionComposer({
     <Composer
       key={id}
       sessionId={id}
+      autoFocus={autoFocus}
       running={view.running}
       disabled={!connected || view.hydrating}
       commands={commands}

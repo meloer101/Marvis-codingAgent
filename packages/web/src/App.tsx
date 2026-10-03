@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Loader2, WifiOff, X } from 'lucide-react';
 import type { SessionSummary } from '@harness-code/protocol';
 
@@ -8,10 +8,10 @@ import { CommandPalette } from '@/components/CommandPalette';
 import { DraftView } from '@/components/DraftView';
 import { HelpDialog } from '@/components/HelpDialog';
 import { SessionSidebar } from '@/components/SessionSidebar';
-import { SessionView } from '@/components/SessionView';
+import { SessionArea } from '@/components/SessionArea';
 import { attentionChanges, documentTitle, notificationsOn } from '@/lib/attention';
-import { parseRoute, routeToHash } from '@/lib/route';
-import type { Route } from '@/lib/route';
+import { panesOf, routeToHash, useRoute } from '@/lib/route';
+import { useFocusedPane } from '@/lib/split';
 import { allCommands } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
@@ -19,16 +19,6 @@ import { togglePanel } from '@/lib/panel';
 import { toggleTerminal } from '@/lib/terminalPanel';
 import { toggleVerbose } from '@/lib/verbose';
 import { platform } from '@/platform';
-
-function useRoute(): Route {
-  const [route, setRoute] = useState(() => parseRoute(window.location.hash));
-  useEffect(() => {
-    const onChange = (): void => setRoute(parseRoute(window.location.hash));
-    window.addEventListener('hashchange', onChange);
-    return () => window.removeEventListener('hashchange', onChange);
-  }, []);
-  return route;
-}
 
 /**
  * Keeps the tab title on what waits for the user, and notifies (while the app
@@ -57,7 +47,10 @@ function useAttention(): void {
 export function App() {
   const sync = useSync();
   const route = useRoute();
-  const activeId = route.kind === 'session' ? route.id : null;
+  // Split view shows two sessions; the focused one is what the keys and the palette act on.
+  const panes = panesOf(route);
+  const focused = Math.min(useFocusedPane(), Math.max(0, panes.length - 1));
+  const activeId = panes[focused] ?? null;
   useAttention();
 
   /**
@@ -116,12 +109,12 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      <SessionSidebar activeId={activeId} onNew={newSession} />
+      <SessionSidebar activeId={activeId} shown={panes} onNew={newSession} />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <ConnectionBanner />
         <ErrorBanner />
-        {activeId ? (
-          <SessionView key={activeId} id={activeId} onNewSession={newSession} />
+        {panes.length > 0 ? (
+          <SessionArea panes={panes} focused={focused} onNewSession={newSession} />
         ) : (
           <DraftView {...(route.kind === 'new' ? { workspaceId: route.workspaceId } : {})} />
         )}

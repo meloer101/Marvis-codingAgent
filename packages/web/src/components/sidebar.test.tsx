@@ -4,12 +4,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SessionSummary, Workspace } from '@harness-code/protocol';
 
 import { SessionSidebar } from './SessionSidebar';
+import { focusPane, useFocusedPane } from '@/lib/split';
 import { useAppStore } from '@/lib/store';
 import type { SessionSync } from '@/lib/sync';
 import { SyncProvider } from '@/lib/syncContext';
 
 afterEach(() => {
   cleanup();
+  focusPane(0);
+  window.location.hash = '';
   useAppStore.setState({ status: 'closed', workspaces: [], sessions: [] });
   window.localStorage.clear();
 });
@@ -36,7 +39,7 @@ const row = (id: string, workspaceId: string, title: string, over: Partial<Sessi
   ...over,
 });
 
-function renderSidebar() {
+function renderSidebar(onScreen: { activeId: string | null; shown?: string[] } = { activeId: null }) {
   const sync = {
     updateSession: vi.fn(async () => null),
     deleteSession: vi.fn(async () => {}),
@@ -54,11 +57,35 @@ function renderSidebar() {
   });
   render(
     <SyncProvider sync={sync as unknown as SessionSync}>
-      <SessionSidebar activeId={null} onNew={() => {}} />
+      <SessionSidebar {...onScreen} onNew={() => {}} />
     </SyncProvider>,
   );
   return sync;
 }
+
+describe('SessionSidebar in split view', () => {
+  it('opens a row beside the session on screen with ⌥-click, and focuses one already on screen', () => {
+    window.location.hash = '#/s/s1';
+    renderSidebar({ activeId: 's1', shown: ['s1'] });
+    const docs = screen.getByRole('link', { name: /write the docs/ });
+    expect(docs.getAttribute('href')).toBe('#/s/s2'); // a plain click: in the focused pane
+    fireEvent.click(docs, { altKey: true });
+    expect(window.location.hash).toBe('#/s/s1/s2');
+    cleanup();
+
+    let pane = -1;
+    const Probe = () => {
+      pane = useFocusedPane();
+      return null;
+    };
+    render(<Probe />);
+    expect(pane).toBe(1); // the new pane has the focus
+    renderSidebar({ activeId: 's2', shown: ['s1', 's2'] });
+    fireEvent.click(screen.getByRole('link', { name: /fix the login flake/ }));
+    expect(window.location.hash).toBe('#/s/s1/s2'); // still both
+    expect(pane).toBe(0);
+  });
+});
 
 describe('SessionSidebar', () => {
   it('groups sessions under their projects, archived ones folded away', () => {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Folder, GitBranch, PanelRight, SquareTerminal } from 'lucide-react';
+import { Folder, GitBranch, PanelRight, SquareTerminal, X } from 'lucide-react';
 
 import { fmtTokens, fmtUSD } from '@harness-code/core/browser';
 import type { SessionWorktree } from '@harness-code/protocol';
@@ -16,22 +16,43 @@ import { cn } from '@/lib/utils';
 /**
  * Where the session runs and what it is called — the title renames in place —
  * and what it has spent so far, with the context breakdown behind it. What the
- * next message runs under (mode, model, effort) lives in the composer.
+ * next message runs under (mode, model, effort) lives in the composer. In a
+ * split, the pane without the focus is muted, and each pane has a close button.
  */
-export function SessionHeader({ view }: { view: SessionViewState }) {
+export function SessionHeader({ view, pane }: { view: SessionViewState; pane?: { focused: boolean; onClose: () => void } }) {
   const workspace = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId));
   const title = useAppStore((s) => s.sessions.find((r) => r.id === view.id)?.title);
   const worktreeGone = useAppStore((s) => s.sessions.find((r) => r.id === view.id)?.worktree?.missing === true);
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 text-sm">
+    <header
+      className={cn(
+        'flex h-12 shrink-0 items-center gap-2 overflow-hidden border-b px-4 text-sm transition-colors',
+        pane && !pane.focused && 'bg-muted/40 text-muted-foreground',
+      )}
+    >
       {workspace && <ProjectChip name={workspace.name} root={workspace.root} />}
       {view.worktree && <BranchChip worktree={view.worktree} gone={worktreeGone} />}
       {workspace && title !== undefined && <span className="text-muted-foreground/60">/</span>}
       {title !== undefined && <SessionTitle id={view.id} title={title} />}
       <div className="flex-1" />
       <SpendButton view={view} />
-      <TerminalToggle />
-      <PanelToggle />
+      {(!pane || pane.focused) && (
+        <>
+          <TerminalToggle />
+          <PanelToggle />
+        </>
+      )}
+      {pane && (
+        <button
+          type="button"
+          onClick={pane.onClose}
+          aria-label="Close this pane"
+          title="Close this pane"
+          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <X className="size-4" />
+        </button>
+      )}
     </header>
   );
 }
@@ -79,8 +100,8 @@ function PanelToggle() {
 /** Which project a session runs in. */
 export function ProjectChip({ name, root }: { name: string; root: string }) {
   return (
-    <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-xs font-medium" title={root}>
-      <Folder className="size-3.5 text-muted-foreground" />
+    <span className="flex min-w-0 shrink items-center gap-1.5 text-xs font-medium" title={root}>
+      <Folder className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="max-w-40 truncate">{name}</span>
     </span>
   );

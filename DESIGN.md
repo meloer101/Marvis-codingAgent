@@ -90,7 +90,7 @@ Rules: assistant prose is 15px/1.75 serif capped at 68ch; UI labels stay sans; C
 
 ## Layout
 
-App shell: 256px sidebar + main column; transcript and composer centered at `max-w-3xl`. Radius scale anchored at `--radius: 0.625rem`. Thin themed scrollbars. Selection tinted violet.
+App shell: 256px sidebar + main column; transcript and composer centered at `max-w-3xl`. Split view divides the main column into two equal panes behind a left border; the terminal runs under both and the side panel stays at the right edge, for the focused pane. The unfocused pane's header sits on `muted/40` in muted ink and drops the terminal and panel buttons; each pane's header ends with a × to close it. Headers clip rather than spill (the project chip shrinks first). In the sidebar the focused session's row has the accent fill, the other one on screen half of it. Radius scale anchored at `--radius: 0.625rem`. Thin themed scrollbars. Selection tinted violet.
 
 ## Motion
 

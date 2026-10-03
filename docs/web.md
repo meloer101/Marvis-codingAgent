@@ -353,8 +353,18 @@ The token is as powerful as the user's shell — a client can switch a session t
 
 - **Routes** are the URL hash: `#/` is the draft for a new session in the most
   recently used project, `#/new/<workspace>` one in a given project, `#/s/<id>`
-  a session (`lib/route.ts`). The draft picks the project, where the session
-  works, mode, model and effort.
+  a session, `#/s/<id>/<id>` two side by side (`lib/route.ts`). The draft picks
+  the project, where the session works, mode, model and effort.
+- **Split view** (`components/SessionArea.tsx`, `lib/split.ts`): two sessions
+  side by side, each with its header, transcript and composer. ⌥-click a
+  sidebar row, "Open beside" in its menu, or ⌥Enter on a session in the
+  palette opens it next to the one on screen; each pane's × closes it. One
+  pane has the focus — the last one clicked or typed in; the other's header
+  is muted. The side panel (at the right edge) and the terminal (under both)
+  are the focused session's, Esc stops its run, the palette acts on it, and a
+  session opened from the sidebar or the palette takes its place (one already
+  on screen just takes the focus). Only the focused pane's composer takes the
+  focus when it mounts.
 - **Where it works** (`WorktreePicker` in `components/ComposerControls.tsx`):
   the draft's first footer control — "Local", the project folder, or
   "Worktree" off one of the repository's branches (`git.branches`, loaded with

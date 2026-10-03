@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseRoute, routeToHash } from './route';
+import { panesOf, parseRoute, routeShowing, routeToHash } from './route';
 
 describe('parseRoute', () => {
   it('treats empty, root and unknown hashes as home', () => {
@@ -29,5 +29,27 @@ describe('new-session routes', () => {
     expect(parseRoute('#/new/0f1e2d3c4b5a')).toEqual({ kind: 'new', workspaceId: '0f1e2d3c4b5a' });
     expect(routeToHash({ kind: 'new', workspaceId: '0f1e2d3c4b5a' })).toBe('#/new/0f1e2d3c4b5a');
     expect(routeToHash({ kind: 'home' })).toBe('#/');
+  });
+});
+
+describe('split view', () => {
+  it('parses and builds two sessions side by side; the same one twice is one', () => {
+    expect(parseRoute('#/s/a/b')).toEqual({ kind: 'session', id: 'a', split: 'b' });
+    expect(parseRoute('#/s/a/a')).toEqual({ kind: 'session', id: 'a' });
+    expect(routeToHash({ kind: 'session', id: 'a', split: 'b' })).toBe('#/s/a/b');
+    expect(panesOf(parseRoute('#/s/a/b'))).toEqual(['a', 'b']);
+    expect(panesOf({ kind: 'home' })).toEqual([]);
+  });
+
+  it('puts a session in a pane, keeping the other', () => {
+    const single = parseRoute('#/s/a');
+    const split = parseRoute('#/s/a/b');
+    expect(routeShowing(single, 'c', 1)).toEqual({ kind: 'session', id: 'a', split: 'c' });
+    expect(routeShowing(single, 'c', 0)).toEqual({ kind: 'session', id: 'c' });
+    expect(routeShowing(split, 'c', 0)).toEqual({ kind: 'session', id: 'c', split: 'b' });
+    expect(routeShowing(split, 'c', 1)).toEqual({ kind: 'session', id: 'a', split: 'c' });
+    // Opening beside itself is just itself.
+    expect(routeShowing(single, 'a', 1)).toEqual({ kind: 'session', id: 'a' });
+    expect(routeShowing({ kind: 'home' }, 'c', 1)).toEqual({ kind: 'session', id: 'c' });
   });
 });

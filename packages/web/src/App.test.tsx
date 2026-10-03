@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import type { SessionViewState } from './lib/sessionModel';
+import { focusPane } from './lib/split';
 import { App } from './App';
 import { useAppStore } from './lib/store';
 import { SessionSync } from './lib/sync';
@@ -18,6 +20,7 @@ function renderApp() {
 
 afterEach(() => {
   cleanup();
+  act(() => focusPane(0));
   window.location.hash = '';
   useAppStore.setState({ status: 'closed', info: null, sessions: [], views: {}, error: null, paletteOpen: false });
 });
@@ -98,5 +101,45 @@ describe('App', () => {
       fireEvent.keyDown(window, { key: 'O', metaKey: true, shiftKey: true });
     });
     expect(window.location.hash).toBe('#/');
+  });
+
+  it('shows two sessions side by side; keys and the side panel follow the focused one; a pane closes', () => {
+    const view = (id: string, text: string, running = false): SessionViewState => ({
+      id,
+      modelRef: 'mock/mock-model',
+      mode: 'ask',
+      entries: [{ kind: 'user', id: 0, text }],
+      live: { thinking: '', text: '', tools: [] },
+      pendingAsk: null,
+      pendingPlan: null,
+      running,
+      hydrating: false,
+      effortLevels: [],
+      queue: [],
+      askId: null,
+      planId: null,
+    });
+    useAppStore.setState({ status: 'open', views: { a: view('a', 'left one', true), b: view('b', 'right one', true) } });
+    const { container } = renderApp();
+    act(() => {
+      window.location.hash = '#/s/a/b';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    expect(screen.getByText('left one')).toBeTruthy();
+    expect(screen.getByText('right one')).toBeTruthy();
+    // The panel and terminal toggles show on the focused pane only — the left one first.
+    const toggles = () => [...container.querySelectorAll('[data-pane]')].map((p) => p.querySelector('[aria-label="Side panel"]') !== null);
+    expect(toggles()).toEqual([true, false]);
+    act(() => {
+      fireEvent.pointerDown(container.querySelector('[data-pane="1"]')!);
+    });
+    expect(toggles()).toEqual([false, true]);
+
+    const panes = screen.getAllByLabelText('Close this pane');
+    expect(panes).toHaveLength(2);
+    act(() => {
+      fireEvent.click(panes[1]!);
+    });
+    expect(window.location.hash).toBe('#/s/a');
   });
 });
