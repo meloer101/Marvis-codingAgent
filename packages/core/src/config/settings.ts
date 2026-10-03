@@ -111,9 +111,12 @@ export interface LoadedSettings {
   sources: string[];
 }
 
-export async function loadSettings(cwd = process.cwd()): Promise<LoadedSettings> {
-  const userPath = join(homedir(), AGENT_DIR, SETTINGS_FILE);
-  const projectPath = join((await findStateRoot(cwd)) ?? resolve(cwd), AGENT_DIR, SETTINGS_FILE);
+export async function loadSettings(
+  cwd = process.cwd(),
+  opts: { homeDir?: string } = {},
+): Promise<LoadedSettings> {
+  const userPath = userSettingsPath(opts.homeDir);
+  const projectPath = await projectSettingsPath(cwd);
   const candidates = [userPath, projectPath];
 
   let settings: Settings = { ...DEFAULT_SETTINGS };
@@ -239,12 +242,40 @@ export async function writeUserSettings(
   patch: Settings,
   opts?: { homeDir?: string },
 ): Promise<string> {
-  const path = userSettingsPath(opts?.homeDir);
-  let existing: Settings = {};
+  return patchSettingsFile(userSettingsPath(opts?.homeDir), patch);
+}
+
+/** Path of project `cwd`'s settings file (`<state root>/.agent/settings.json`), as `loadSettings` reads it. */
+export async function projectSettingsPath(cwd: string): Promise<string> {
+  return join((await findStateRoot(cwd)) ?? resolve(cwd), AGENT_DIR, SETTINGS_FILE);
+}
+
+/**
+ * Patch project `cwd`'s `.agent/settings.json` (create it if missing), merged
+ * as `writeUserSettings` merges. `autoMode` is refused: `loadSettings` drops
+ * it from the project layer, so a repository can't authorize itself.
+ */
+export async function writeProjectSettings(cwd: string, patch: Settings): Promise<string> {
+  if (patch.autoMode) throw new Error('auto mode is configured per user, not per project');
+  return patchSettingsFile(await projectSettingsPath(cwd), patch);
+}
+
+async function patchSettingsFile(path: string, patch: Settings): Promise<string> {
+  let text: string | undefined;
   try {
-    existing = JSON.parse(await readFile(path, 'utf8')) as Settings;
-  } catch {
+    text = await readFile(path, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     // First write.
+  }
+  let existing: Settings = {};
+  if (text !== undefined && text.trim() !== '') {
+    // Never write over a file that doesn't parse: that would lose what's in it.
+    try {
+      existing = JSON.parse(text) as Settings;
+    } catch (err) {
+      throw new Error(`${path} is not valid JSON (${err instanceof Error ? err.message : String(err)}); fix it first`);
+    }
   }
   const next: Settings = { ...existing, ...patch };
   if (patch.permissions) {

@@ -37,9 +37,11 @@ export interface PermissionEngineOptions {
 export class PermissionEngine {
   private readonly workspaceRoot: string;
   private mode: PermissionMode;
-  private readonly allow: PermissionRule[];
-  private readonly askRules: PermissionRule[];
-  private readonly deny: PermissionRule[];
+  private allow: PermissionRule[];
+  private askRules: PermissionRule[];
+  private deny: PermissionRule[];
+  /** What `addAllowRule` granted this session: kept when the configured rules change. */
+  private readonly added: PermissionRule[] = [];
   private readonly classifyAllShell: boolean;
   private readonly useAutoModeDuringPlan: boolean;
 
@@ -69,7 +71,23 @@ export class PermissionEngine {
    * coarse and the caller echoes exactly what was added.
    */
   addAllowRule(raw: string): void {
-    this.allow.push(parseRule(raw));
+    const rule = parseRule(raw);
+    this.added.push(rule);
+    this.allow.push(rule);
+  }
+
+  /**
+   * Replace the configured rules — the settings they came from changed. What
+   * `addAllowRule` granted this session stays. Throws, changing nothing, on a
+   * rule that doesn't parse.
+   */
+  setRules(rules: { allow: string[]; ask: string[]; deny: string[] }): void {
+    const allow = rules.allow.map(parseRule);
+    const ask = rules.ask.map(parseRule);
+    const deny = rules.deny.map(parseRule);
+    this.allow = [...allow, ...this.added];
+    this.askRules = ask;
+    this.deny = deny;
   }
 
   async evaluate(req: EvaluateRequest): Promise<PermissionVerdict> {

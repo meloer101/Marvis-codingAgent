@@ -29,6 +29,8 @@ export interface LoginOptions {
   storeRoot?: string;
   /** Where progress lines go. Defaults to stderr. */
   log?: (line: string) => void;
+  /** Where the browser page that catches the redirect sends the user back to. Default "the terminal". */
+  returnTo?: string;
 }
 
 export interface LoginResult {
@@ -62,7 +64,7 @@ export async function loginToServer(
       `<!doctype html><meta charset="utf-8"><body style="font:14px system-ui;padding:2rem">` +
         (err
           ? `<h3>Authorization failed</h3><p>${escapeHtml(err)}</p>`
-          : `<h3>Authorized</h3><p>You can close this tab and return to the terminal.</p>`) +
+          : `<h3>Authorized</h3><p>You can close this tab and return to ${escapeHtml(opts.returnTo ?? 'the terminal')}.</p>`) +
         `</body>`,
     );
     resolveCallback();

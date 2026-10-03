@@ -254,6 +254,18 @@ describe('PermissionEngine', () => {
     );
   });
 
+  it('setRules replaces the configured rules, keeping what addAllowRule granted', async () => {
+    const e = engine({ mode: 'ask', allow: ['Edit'] });
+    e.addAllowRule('Bash');
+    e.setRules({ allow: [], ask: [], deny: ['Write'] });
+    const verdict = (toolName: string, input: unknown) => e.evaluate({ toolName, input, readOnly: false });
+    expect((await verdict('edit', { path: 'a.ts', old_string: 'a', new_string: 'b' })).decision).toBe('ask');
+    expect((await verdict('write', { path: 'a.ts', content: 'x' })).decision).toBe('deny');
+    expect((await verdict('bash', { command: 'npm test' })).decision).toBe('allow');
+    expect(() => e.setRules({ allow: ['Bash('], ask: [], deny: [] })).toThrow(/closing parenthesis/);
+    expect((await verdict('write', { path: 'a.ts', content: 'x' })).decision).toBe('deny');
+  });
+
   it('a runtime allow rule does not defeat sensitive-file protection', async () => {
     const e = engine({ mode: 'ask' });
     e.addAllowRule('Read');

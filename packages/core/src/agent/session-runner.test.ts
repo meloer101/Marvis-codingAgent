@@ -290,6 +290,27 @@ describe('AgentSession auto mode', () => {
     expect(session.recentDenials[0]?.label).toBe('Git Destructive');
   });
 
+  it('reloadSettings takes up changed permission rules, keeping what was always-allowed', async () => {
+    const cwd = await tempDir();
+    const homeDir = await tempDir();
+    await mkdir(join(cwd, '.agent'), { recursive: true });
+    const { session } = await createSession({ cwd, homeDir, mode: 'ask' });
+    session.engine.addAllowRule('Read');
+    const verdict = (toolName: string, input: unknown) =>
+      session.engine.evaluate({ toolName, input, readOnly: toolName === 'read' });
+    expect((await verdict('bash', { command: 'npm test' })).decision).toBe('ask');
+
+    await writeFile(
+      join(cwd, '.agent', 'settings.json'),
+      JSON.stringify({ permissions: { allow: ['Bash(npm test)'], deny: ['Write'] } }),
+      'utf8',
+    );
+    await session.reloadSettings();
+    expect((await verdict('bash', { command: 'npm test' })).decision).toBe('allow');
+    expect((await verdict('write', { path: 'a.txt', content: 'x' })).decision).toBe('deny');
+    expect((await verdict('read', { path: 'a.txt' })).decision).toBe('allow');
+  });
+
   it('retryDenied injects an authorization note on the next turn', async () => {
     const provider = new ScriptedProvider([
       { toolCalls: [{ name: 'bash', input: { command: 'git push --force origin main' } }] },

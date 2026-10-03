@@ -25,6 +25,7 @@ import type { ResolvedBudgets } from '../config/budgets.js';
 import {
   AGENT_DIR,
   findProjectRoot,
+  loadSettings,
   resolveProjectMemoryDir,
   resolveStateDir,
   writeUserSettings,
@@ -804,6 +805,33 @@ export class AgentSession {
 
   get autoModeCumulativeDenials(): number {
     return this.#autoState?.cumulativeDenials ?? 0;
+  }
+
+  /** Auto mode stopped deciding after repeated denials: calls ask until one is approved. */
+  get autoModePaused(): boolean {
+    return this.#autoState?.paused === true;
+  }
+
+  /**
+   * The settings files changed (the web's settings page wrote them): take up
+   * their permission rules and auto-mode config, for this session and the
+   * sub-agents it starts from now on. What "always allow" granted this
+   * session stays; the mode stays as it is.
+   */
+  async reloadSettings(): Promise<void> {
+    const { settings } = await loadSettings(this.#cwd, this.#config.homeDir ? { homeDir: this.#config.homeDir } : {});
+    const permissions = settings.permissions ?? {};
+    this.#engine.setRules({
+      allow: [...(permissions.allow ?? []), ...(this.#config.allow ?? [])],
+      ask: [...(permissions.ask ?? []), ...(this.#config.ask ?? [])],
+      deny: [...(permissions.deny ?? []), ...(this.#config.deny ?? [])],
+    });
+    const current = this.#config.settings;
+    if (settings.permissions) current.permissions = settings.permissions;
+    else delete current.permissions;
+    if (settings.autoMode) current.autoMode = settings.autoMode;
+    else delete current.autoMode;
+    this.#autoClassifier?.setAutoMode(settings.autoMode);
   }
 
   get autoModeEnvironmentConfigured(): boolean {
