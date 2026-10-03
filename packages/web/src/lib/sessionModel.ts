@@ -20,7 +20,15 @@ import {
   initialFoldState,
   settleChildren,
 } from '@harness-code/protocol';
-import type { FoldAction, FoldState, QueuedMessage, SessionSnapshot, ToolItem, WireEvent } from '@harness-code/protocol';
+import type {
+  FoldAction,
+  FoldState,
+  QueuedMessage,
+  SessionSnapshot,
+  SessionWorktree,
+  ToolItem,
+  WireEvent,
+} from '@harness-code/protocol';
 
 // `entriesFromTranscript` now lives in `@harness-code/protocol` (shared with the
 // TUI); re-exported here so existing importers of this module keep working.
@@ -30,6 +38,8 @@ export interface SessionViewState extends FoldState {
   id: string;
   /** The project the session runs in. */
   workspaceId?: string;
+  /** The git worktree it works in, apart from the project's checkout. */
+  worktree?: SessionWorktree;
   running: boolean;
   /** The model's effort levels, Faster→Smarter; empty without reasoning (no picker). */
   effortLevels: readonly ReasoningEffort[];
@@ -331,6 +341,7 @@ export function stateFromSnapshot(
       : null,
     id: s.id,
     ...(s.workspaceId ? { workspaceId: s.workspaceId } : {}),
+    ...(s.worktree ? { worktree: s.worktree } : {}),
     running: s.running,
     effortLevels: s.effortLevels ?? [],
     hydrating: opts.hydrating ?? false,

@@ -41,6 +41,8 @@ import type {
   WorkspaceInspection,
 } from '@harness-code/protocol';
 
+import { checkoutKey, checkoutParams } from './checkout';
+import type { Checkout } from './checkout';
 import { RpcClient, RpcError } from './rpc';
 import type { ConnectionStatus, RpcClientOptions } from './rpc';
 import { applySessionPush, mergeSessionList } from './sessionList';
@@ -97,9 +99,9 @@ export class SessionSync {
   #bootId: string | null = null;
   /** The terminal views showing output, by terminal (one view per terminal per tab). */
   #terms = new Map<string, TerminalView>();
-  /** Workspaces whose git state something shows, and how many things. */
-  #gitWatch = new Map<string, number>();
-  /** `git.status` calls in flight, and workspaces that changed again meanwhile. */
+  /** Checkouts whose git state something shows, and how many things (by `checkoutKey`). */
+  #gitWatch = new Map<string, { checkout: Checkout; count: number }>();
+  /** `git.status` calls in flight, and checkouts that changed again meanwhile. */
   #gitLoading = new Map<string, Promise<void>>();
   #gitAgain = new Set<string>();
 
@@ -232,6 +234,8 @@ export class SessionSync {
       model?: string;
       mode?: PermissionMode;
       effort?: ReasoningEffort;
+      /** Work in a worktree of its own, on a new branch off `base`. */
+      worktree?: { base: string };
     } = {},
   ): Promise<string | null> {
     try {
@@ -421,11 +425,21 @@ export class SessionSync {
   }
 
   /** Files matching an `@` query; empty when it can't be asked. Never an error banner: it runs as you type. */
-  async searchFiles(workspaceId: string, query: string): Promise<FileMatch[]> {
+  async searchFiles(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, query: string): Promise<FileMatch[]> {
     try {
-      return await this.rpc.call('fs.search', { workspaceId, query, limit: 30 });
+      return await this.rpc.call('fs.search', { ...checkoutParams(checkout), query, limit: 30 });
     } catch {
       return [];
+    }
+  }
+
+  /** The branches a new session's worktree can start from, into the store; kept as it was when they can't be read. */
+  async loadBranches(workspaceId: string): Promise<void> {
+    try {
+      const branches = await this.rpc.call('git.branches', { workspaceId });
+      this.#store.setState((s) => ({ branches: { ...s.branches, [workspaceId]: branches } }));
+    } catch {
+      // The draft offers no worktree until they load.
     }
   }
 
@@ -449,10 +463,11 @@ export class SessionSync {
     }
   }
 
-  /** Start a shell in the workspace; null (with the reason in the banner) when it can't. */
-  async createTerminal(workspaceId: string, cols: number, rows: number): Promise<TerminalInfo | null> {
+  /** Start a shell in the checkout; null (with the reason in the banner) when it can't. */
+  async createTerminal(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, cols: number, rows: number): Promise<TerminalInfo | null> {
+    const { workspaceId } = checkout;
     try {
-      const t = await this.rpc.call('terminal.create', { workspaceId, cols, rows });
+      const t = await this.rpc.call('terminal.create', { ...checkoutParams(checkout), cols, rows });
       // Into the list now, so the panel can show it before the push arrives.
       this.#store.setState((s) => {
         const held = s.terminals[workspaceId] ?? [];
@@ -508,109 +523,130 @@ export class SessionSync {
   // -- git --------------------------------------------------------------------
 
   /**
-   * Keep workspace `workspaceId`'s git status fresh (in the store's `git`)
-   * while something shows it: loaded now, again on every `git_changed` and
-   * reconnect. Returns the release.
+   * Keep a checkout's git status fresh (in the store's `git`, by
+   * `checkoutKey`) while something shows it: loaded now, again on every
+   * `git_changed` for its workspace and on reconnect. Returns the release.
    */
-  watchGit(workspaceId: string): () => void {
-    this.#gitWatch.set(workspaceId, (this.#gitWatch.get(workspaceId) ?? 0) + 1);
-    void this.loadGitStatus(workspaceId);
+  watchGit(checkout: Checkout): () => void {
+    const key = checkoutKey(checkout);
+    const held = this.#gitWatch.get(key);
+    this.#gitWatch.set(key, { checkout, count: (held?.count ?? 0) + 1 });
+    void this.loadGitStatus(checkout);
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      const n = (this.#gitWatch.get(workspaceId) ?? 1) - 1;
-      if (n <= 0) this.#gitWatch.delete(workspaceId);
-      else this.#gitWatch.set(workspaceId, n);
+      const watch = this.#gitWatch.get(key);
+      if (!watch || watch.count <= 1) this.#gitWatch.delete(key);
+      else this.#gitWatch.set(key, { ...watch, count: watch.count - 1 });
     };
   }
 
-  /** One load at a time per workspace; a change meanwhile loads once more after it. */
-  loadGitStatus(workspaceId: string): Promise<void> {
-    const inFlight = this.#gitLoading.get(workspaceId);
+  /** One load at a time per checkout; a change meanwhile loads once more after it. */
+  loadGitStatus(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>): Promise<void> {
+    const key = checkoutKey(checkout);
+    const inFlight = this.#gitLoading.get(key);
     if (inFlight) {
-      this.#gitAgain.add(workspaceId);
+      this.#gitAgain.add(key);
       return inFlight;
     }
     const load = (async () => {
       try {
-        const status = await this.rpc.call('git.status', { workspaceId });
-        this.#store.setState((s) => ({ git: { ...s.git, [workspaceId]: status } }));
+        const status = await this.rpc.call('git.status', checkoutParams(checkout));
+        this.#store.setState((s) => ({ git: { ...s.git, [key]: status } }));
       } catch {
         // Kept as it was; the next change or reconnect asks again.
       } finally {
-        this.#gitLoading.delete(workspaceId);
-        if (this.#gitAgain.delete(workspaceId)) void this.loadGitStatus(workspaceId);
+        this.#gitLoading.delete(key);
+        if (this.#gitAgain.delete(key)) void this.loadGitStatus(checkout);
       }
     })();
-    this.#gitLoading.set(workspaceId, load);
+    this.#gitLoading.set(key, load);
     return load;
   }
 
   /** One file's changes; rejects when it can't be asked (the caller shows why). */
-  gitDiff(workspaceId: string, path: string): Promise<GitDiff> {
-    return this.rpc.call('git.diff', { workspaceId, path });
+  gitDiff(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, path: string): Promise<GitDiff> {
+    return this.rpc.call('git.diff', { ...checkoutParams(checkout), path });
   }
 
-  /** A workspace folder's entries; empty when it can't be asked. */
-  async listDir(workspaceId: string, dir: string): Promise<DirEntry[]> {
+  /** A checkout's folder entries; empty when it can't be asked. */
+  async listDir(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, dir: string): Promise<DirEntry[]> {
     try {
-      return await this.rpc.call('fs.list', { workspaceId, dir });
+      return await this.rpc.call('fs.list', { ...checkoutParams(checkout), dir });
     } catch {
       return [];
     }
   }
 
-  /** A workspace file's contents; rejects when it can't be asked (the caller shows why). */
-  readFile(workspaceId: string, path: string): Promise<FileContent> {
-    return this.rpc.call('fs.read', { workspaceId, path });
+  /** A checkout's file; rejects when it can't be asked (the caller shows why). */
+  readFile(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, path: string): Promise<FileContent> {
+    return this.rpc.call('fs.read', { ...checkoutParams(checkout), path });
   }
 
-  openInEditor(workspaceId: string, path: string, editor: EditorId, line?: number): Promise<void> {
-    return this.#run(this.rpc.call('editor.open', { workspaceId, path, editor, ...(line !== undefined ? { line } : {}) }));
+  openInEditor(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, path: string, editor: EditorId, line?: number): Promise<void> {
+    return this.#run(
+      this.rpc.call('editor.open', { ...checkoutParams(checkout), path, editor, ...(line !== undefined ? { line } : {}) }),
+    );
   }
 
   // The status reloads on the git_changed push each change sends. Staging and
   // reverting fail into the banner; commit, push and pull request reject with
   // git's reason, for the panel to show where they were asked for.
 
-  gitStage(workspaceId: string, paths: string[]): Promise<void> {
-    return this.#run(this.rpc.call('git.stage', { workspaceId, paths }));
+  gitStage(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, paths: string[]): Promise<void> {
+    return this.#run(this.rpc.call('git.stage', { ...checkoutParams(checkout), paths }));
   }
 
-  gitUnstage(workspaceId: string, paths: string[]): Promise<void> {
-    return this.#run(this.rpc.call('git.unstage', { workspaceId, paths }));
+  gitUnstage(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, paths: string[]): Promise<void> {
+    return this.#run(this.rpc.call('git.unstage', { ...checkoutParams(checkout), paths }));
   }
 
-  gitRevert(workspaceId: string, paths: string[]): Promise<void> {
-    return this.#run(this.rpc.call('git.revert', { workspaceId, paths }));
+  gitRevert(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, paths: string[]): Promise<void> {
+    return this.#run(this.rpc.call('git.revert', { ...checkoutParams(checkout), paths }));
   }
 
-  gitCommit(workspaceId: string, message: string, paths?: string[]): Promise<GitCommitResult> {
-    return this.rpc.call('git.commit', { workspaceId, message, ...(paths ? { paths } : {}) });
+  gitCommit(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, message: string, paths?: string[]): Promise<GitCommitResult> {
+    return this.rpc.call('git.commit', { ...checkoutParams(checkout), message, ...(paths ? { paths } : {}) });
   }
 
-  gitPush(workspaceId: string): Promise<void> {
-    return this.rpc.call('git.push', { workspaceId });
+  gitPush(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>): Promise<void> {
+    return this.rpc.call('git.push', checkoutParams(checkout));
   }
 
-  gitCreatePr(workspaceId: string, pr: { title: string; body?: string; draft?: boolean }): Promise<{ url: string }> {
-    return this.rpc.call('git.createPr', { workspaceId, ...pr });
+  gitCreatePr(
+    checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>,
+    pr: { title: string; body?: string; draft?: boolean },
+  ): Promise<{ url: string }> {
+    return this.rpc.call('git.createPr', { ...checkoutParams(checkout), ...pr });
   }
 
   // -- session management -------------------------------------------------------
 
-  /** Rename, pin or archive; the new row also arrives as a push. */
+  /**
+   * Rename, pin or archive; the new row also arrives as a push. Archiving a
+   * session whose worktree has uncommitted changes asks first
+   * (`archiveConflict`); `force` goes ahead and loses them.
+   */
   async updateSession(
     id: string,
-    patch: { title?: string; pinned?: boolean; archived?: boolean },
+    patch: { title?: string; pinned?: boolean; archived?: boolean; force?: boolean },
   ): Promise<SessionSummary | null> {
     try {
       return await this.rpc.call('session.update', { id, ...patch });
     } catch (err) {
-      this.#fail(err);
+      if (err instanceof RpcError && err.code === 'conflict' && patch.archived) {
+        this.#store.setState({ archiveConflict: { id, reason: err.message } });
+      } else {
+        this.#fail(err);
+      }
       return null;
     }
+  }
+
+  /** The archive confirmation was answered (or dismissed). */
+  dismissArchiveConflict(): void {
+    this.#store.setState({ archiveConflict: null });
   }
 
   deleteSession(id: string): Promise<void> {
@@ -718,7 +754,10 @@ export class SessionSync {
     if (event.type === 'git_changed') {
       const { workspaceId } = event;
       this.#store.setState((s) => ({ gitRev: { ...s.gitRev, [workspaceId]: (s.gitRev[workspaceId] ?? 0) + 1 } }));
-      if (this.#gitWatch.has(workspaceId)) void this.loadGitStatus(workspaceId);
+      // The project's checkout or any of its sessions' worktrees.
+      for (const { checkout } of this.#gitWatch.values()) {
+        if (checkout.workspaceId === workspaceId) void this.loadGitStatus(checkout);
+      }
       return;
     }
     this.#store.setState((s) => ({ sessions: applySessionPush(s.sessions, event) }));
@@ -774,7 +813,7 @@ export class SessionSync {
     }
     for (const id of retry) void this.open(id);
     // Files may have changed while the socket was down.
-    for (const workspaceId of this.#gitWatch.keys()) void this.loadGitStatus(workspaceId);
+    for (const { checkout } of this.#gitWatch.values()) void this.loadGitStatus(checkout);
     // Terminals carried on without us: attach again, from what they kept.
     for (const id of this.#terms.keys()) void this.#attachTerm(id);
     for (const workspaceId of Object.keys(this.#store.getState().terminals)) void this.loadTerminals(workspaceId);

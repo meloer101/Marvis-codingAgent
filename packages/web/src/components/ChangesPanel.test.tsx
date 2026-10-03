@@ -9,6 +9,8 @@ import { useAppStore } from '@/lib/store';
 import type { SessionSync } from '@/lib/sync';
 import { SyncProvider } from '@/lib/syncContext';
 
+
+const W1 = { workspaceId: 'w1', root: '/proj' };
 afterEach(() => {
   cleanup();
   useAppStore.setState({ git: {}, gitRev: {} });
@@ -47,7 +49,7 @@ function renderPanel(
   };
   render(
     <SyncProvider sync={sync as unknown as SessionSync}>
-      <ChangesPanel workspaceId="w1" {...(sessionId ? { sessionId } : {})} {...(sessionPaths ? { sessionPaths } : {})} />
+      <ChangesPanel checkout={W1} {...(sessionId ? { sessionId } : {})} {...(sessionPaths ? { sessionPaths } : {})} />
     </SyncProvider>,
   );
   return { sync, release, gitDiff };
@@ -56,7 +58,7 @@ function renderPanel(
 describe('ChangesPanel', () => {
   it('watches the workspace while shown, and lists the branch and each changed file', () => {
     const { sync, release } = renderPanel();
-    expect(sync.watchGit).toHaveBeenCalledWith('w1');
+    expect(sync.watchGit).toHaveBeenCalledWith(W1);
     expect(screen.getByText('Reading git…')).toBeTruthy();
     act(() => useAppStore.setState({ git: { w1: status } }));
     expect(screen.getByText('feature')).toBeTruthy();
@@ -75,7 +77,7 @@ describe('ChangesPanel', () => {
     act(() => useAppStore.setState({ git: { w1: status } }));
     fireEvent.click(screen.getByRole('button', { name: /math\.ts/, expanded: false }));
     expect(await screen.findByText('@@ -1 +1 @@')).toBeTruthy();
-    expect(gitDiff).toHaveBeenCalledWith('w1', 'src/math.ts');
+    expect(gitDiff).toHaveBeenCalledWith(W1, 'src/math.ts');
     await act(async () => useAppStore.setState({ gitRev: { w1: 1 } }));
     expect(gitDiff).toHaveBeenCalledTimes(2);
   });
@@ -109,13 +111,13 @@ describe('changing git state from the panel', () => {
       }),
     );
     fireEvent.click(screen.getByRole('checkbox', { name: 'Stage new.txt' }));
-    expect(sync.gitStage).toHaveBeenCalledWith('w1', ['new.txt']);
+    expect(sync.gitStage).toHaveBeenCalledWith(W1, ['new.txt']);
     // Partly staged: staging takes the rest.
     expect(screen.getByRole('checkbox', { name: 'Stage src/math.ts' }).getAttribute('aria-checked')).toBe('mixed');
     fireEvent.click(screen.getByRole('checkbox', { name: 'Stage src/math.ts' }));
-    expect(sync.gitStage).toHaveBeenLastCalledWith('w1', ['src/math.ts']);
+    expect(sync.gitStage).toHaveBeenLastCalledWith(W1, ['src/math.ts']);
     fireEvent.click(screen.getByRole('checkbox', { name: 'Stage new.ts' }));
-    expect(sync.gitUnstage).toHaveBeenCalledWith('w1', ['new.ts', 'old.ts']);
+    expect(sync.gitUnstage).toHaveBeenCalledWith(W1, ['new.ts', 'old.ts']);
   });
 
   it('discards a change only once confirmed, saying when that deletes the file', () => {
@@ -127,7 +129,7 @@ describe('changing git state from the panel', () => {
     expect(sync.gitRevert).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Discard changes to src/math.ts' }));
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
-    expect(sync.gitRevert).toHaveBeenCalledWith('w1', ['src/math.ts']);
+    expect(sync.gitRevert).toHaveBeenCalledWith(W1, ['src/math.ts']);
   });
 
   it('commits what is staged with ⌘↵, or the files shown when nothing is', async () => {
@@ -137,25 +139,25 @@ describe('changing git state from the panel', () => {
     expect((screen.getByRole('button', { name: /Commit 2 staged/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(box, { target: { value: 'Fix math' } });
     await act(async () => fireEvent.keyDown(box, { key: 'Enter', metaKey: true }));
-    expect(sync.gitCommit).toHaveBeenCalledWith('w1', 'Fix math', undefined);
+    expect(sync.gitCommit).toHaveBeenCalledWith(W1, 'Fix math', undefined);
     expect(screen.getByRole('status').textContent).toContain('Committed abc1234');
     expect((box as HTMLTextAreaElement).value).toBe('');
 
     act(() => useAppStore.setState({ git: { w1: { ...status, files: [{ path: 'new.txt', unstaged: 'untracked' }] } } }));
     fireEvent.change(box, { target: { value: 'Add it' } });
     await act(async () => fireEvent.click(screen.getByRole('button', { name: /Commit 1 file/ })));
-    expect(sync.gitCommit).toHaveBeenLastCalledWith('w1', 'Add it', ['new.txt']);
+    expect(sync.gitCommit).toHaveBeenLastCalledWith(W1, 'Add it', ['new.txt']);
   });
 
   it("pushes, opens a pull request, and shows git's reason when something fails", async () => {
     const { sync } = renderPanel();
     act(() => useAppStore.setState({ git: { w1: status } }));
     await act(async () => fireEvent.click(screen.getByRole('button', { name: /Push/ })));
-    expect(sync.gitPush).toHaveBeenCalledWith('w1');
+    expect(sync.gitPush).toHaveBeenCalledWith(W1);
     fireEvent.click(screen.getByRole('button', { name: /Pull request/ }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Pull request title' }), { target: { value: 'Fix math' } });
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Create' })));
-    expect(sync.gitCreatePr).toHaveBeenCalledWith('w1', { title: 'Fix math' });
+    expect(sync.gitCreatePr).toHaveBeenCalledWith(W1, { title: 'Fix math' });
     expect(screen.getByText('github.com/o/r/pull/7')).toBeTruthy();
 
     sync.gitPush.mockRejectedValueOnce(new Error('rejected: non-fast-forward'));

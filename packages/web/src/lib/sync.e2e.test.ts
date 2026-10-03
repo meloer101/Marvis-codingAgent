@@ -31,10 +31,12 @@ const emptyState = (): AppState => ({
   skills: {},
   models: {},
   git: {},
+  branches: {},
   gitRev: {},
   terminals: {},
   restored: {},
   error: null,
+  archiveConflict: null,
   helpOpen: false,
   addProjectOpen: false,
   paletteOpen: false,
@@ -198,7 +200,7 @@ describe('SessionSync ↔ hc web --mock', () => {
     const a = tab(server);
     await until(() => a.store.getState().info, 'server info');
     const workspaceId = a.store.getState().workspaces[0]!.id;
-    const release = a.sync.watchGit(workspaceId);
+    const release = a.sync.watchGit({ workspaceId, root: cwd });
     const git = () => a.store.getState().git[workspaceId];
     await until(() => git()?.repo === true, 'the first status');
     expect(git()).toMatchObject({ repo: true, branch: 'main', files: [] });
@@ -217,10 +219,61 @@ describe('SessionSync ↔ hc web --mock', () => {
       return g?.repo === true && g.files.some((f) => f.path === 'mock-demo.txt');
     }, 'the new file listed');
     expect(a.store.getState().gitRev[workspaceId]).toBeGreaterThan(0);
-    const diff = await a.sync.gitDiff(workspaceId, 'mock-demo.txt');
+    const diff = await a.sync.gitDiff({ workspaceId }, 'mock-demo.txt');
     expect(diff.kind === 'text' && diff.patch).toContain('+first line');
     release();
     await a.sync.abort(id!);
+  });
+
+  it('starts a session in a worktree of its own, whose changes stay there; archiving them asks first', async () => {
+    const { server, cwd } = await boot();
+    // Worktrees go under the home directory: a throwaway one.
+    const home = await mkdtemp(join(tmpdir(), 'hc-web-e2e-home-'));
+    const realHome = process.env.HOME;
+    process.env.HOME = home;
+    cleanups.push(async () => {
+      process.env.HOME = realHome;
+      await rm(home, { recursive: true, force: true });
+    });
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd });
+    git('init', '-q', '-b', 'main');
+    git('commit', '-q', '--allow-empty', '-m', 'init');
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'server info');
+    const workspaceId = a.store.getState().workspaces[0]!.id;
+    await a.sync.loadBranches(workspaceId);
+    expect(a.store.getState().branches[workspaceId]).toEqual({ repo: true, current: 'main', branches: ['main'] });
+
+    const id = await a.sync.startSession('set up a scratch file', { mode: 'yolo', worktree: { base: 'main' } });
+    const view = () => a.store.getState().views[id!];
+    const worktree = (await until(() => view()?.worktree, 'the worktree'))!;
+    expect(worktree.branch).toMatch(/^hc\/set-up-a-scratch-file-[0-9a-f]{4}$/);
+    expect(worktree.path.startsWith(join(home, '.agent', 'worktrees'))).toBe(true);
+    await until(() => a.store.getState().sessions.find((s) => s.id === id)?.worktree?.branch === worktree.branch, 'the row');
+    await until(() => view()?.entries.some((e) => e.kind === 'assistant') && !view()?.running, 'the run done');
+
+    // The scratch file is in the worktree; the project's checkout is untouched.
+    const own = { workspaceId, sessionId: id!, root: worktree.cwd };
+    const releaseOwn = a.sync.watchGit(own);
+    const releaseProject = a.sync.watchGit({ workspaceId, root: cwd });
+    await until(() => {
+      const g = a.store.getState().git[`${workspaceId}/${id}`];
+      return g?.repo === true && g.branch === worktree.branch && g.files.some((f) => f.path === 'mock-demo.txt');
+    }, "the worktree's change");
+    await until(() => {
+      const g = a.store.getState().git[workspaceId];
+      return g?.repo === true && g.branch === 'main' && g.files.length === 0;
+    }, "the project's clean status");
+    releaseOwn();
+    releaseProject();
+
+    // Archiving would throw the change away: asked first, then forced.
+    expect(await a.sync.updateSession(id!, { archived: true })).toBeNull();
+    expect(a.store.getState().archiveConflict).toMatchObject({ id, reason: expect.stringMatching(/uncommitted change/) });
+    expect(a.store.getState().error).toBeNull();
+    const row = await a.sync.updateSession(id!, { archived: true, force: true });
+    expect(row).toMatchObject({ archived: true, worktree: { branch: worktree.branch, missing: true } });
   });
 
   it('turns a draft into a session with its first message', async () => {
@@ -419,7 +472,7 @@ describe('SessionSync ↔ hc web --mock', () => {
       await until(() => a.store.getState().info, 'server info');
       expect(a.store.getState().info!.capabilities.terminal).toBe(true);
       const workspaceId = a.store.getState().workspaces[0]!.id;
-      const t = await a.sync.createTerminal(workspaceId, 80, 24);
+      const t = await a.sync.createTerminal({ workspaceId }, 80, 24);
       expect(t).toBeTruthy();
       await until(() => a.store.getState().terminals[workspaceId]?.length === 1, 'the terminal listed');
 

@@ -5,6 +5,8 @@ import type { DirEntry, FileContent, FileMatch } from '@harness-code/protocol';
 
 import { CopyButton } from '@/components/CopyButton';
 import { DiffView } from '@/components/DiffView';
+import { checkoutKey } from '@/lib/checkout';
+import type { Checkout } from '@/lib/checkout';
 import { fileLines } from '@/lib/diff';
 import { langForPath } from '@/lib/highlight';
 import { openFile, useOpenedFile } from '@/lib/panel';
@@ -14,21 +16,21 @@ import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
 
 /**
- * The project's files: a tree, folder by folder, or what a search finds; a
- * file opens in a viewer here (line numbers, syntax colours) that also opens
- * it in an editor on this machine. What `.gitignore` leaves out and secrets
- * aren't listed.
+ * A checkout's files — the project's, or a session's worktree: a tree, folder
+ * by folder, or what a search finds; a file opens in a viewer here (line
+ * numbers, syntax colours) that also opens it in an editor on this machine.
+ * What `.gitignore` leaves out and secrets aren't listed.
  */
-export function FilesPanel({ workspaceId }: { workspaceId: string }) {
+export function FilesPanel({ checkout }: { checkout: Checkout }) {
   const opened = useOpenedFile();
   return opened ? (
-    <FileViewer workspaceId={workspaceId} path={opened.path} line={opened.line} />
+    <FileViewer checkout={checkout} path={opened.path} line={opened.line} />
   ) : (
-    <FileBrowser workspaceId={workspaceId} />
+    <FileBrowser checkout={checkout} />
   );
 }
 
-function FileBrowser({ workspaceId }: { workspaceId: string }) {
+function FileBrowser({ checkout }: { checkout: Checkout }) {
   const sync = useSync();
   const [query, setQuery] = useState('');
   const [matches, setMatches] = useState<FileMatch[] | null>(null);
@@ -40,13 +42,13 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
     }
     let cancelled = false;
     const t = setTimeout(() => {
-      void sync.searchFiles(workspaceId, q).then((m) => !cancelled && setMatches(m));
+      void sync.searchFiles(checkout, q).then((m) => !cancelled && setMatches(m));
     }, 120);
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [sync, workspaceId, query]);
+  }, [sync, checkoutKey(checkout), query]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -74,7 +76,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
             </ul>
           )
         ) : (
-          <FolderEntries workspaceId={workspaceId} dir="" depth={0} />
+          <FolderEntries checkout={checkout} dir="" depth={0} />
         )}
       </div>
     </div>
@@ -82,17 +84,17 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
 }
 
 /** A folder's entries, loaded when shown and again when the project's files change. */
-function FolderEntries({ workspaceId, dir, depth }: { workspaceId: string; dir: string; depth: number }) {
+function FolderEntries({ checkout, dir, depth }: { checkout: Checkout; dir: string; depth: number }) {
   const sync = useSync();
-  const rev = useAppStore((s) => s.gitRev[workspaceId] ?? 0);
+  const rev = useAppStore((s) => s.gitRev[checkout.workspaceId] ?? 0);
   const [entries, setEntries] = useState<DirEntry[] | null>(null);
   useEffect(() => {
     let cancelled = false;
-    void sync.listDir(workspaceId, dir).then((e) => !cancelled && setEntries(e));
+    void sync.listDir(checkout, dir).then((e) => !cancelled && setEntries(e));
     return () => {
       cancelled = true;
     };
-  }, [sync, workspaceId, dir, rev]);
+  }, [sync, checkoutKey(checkout), dir, rev]);
   if (!entries) return depth === 0 ? <p className="px-4 py-2 text-xs text-muted-foreground">Loading…</p> : null;
   if (entries.length === 0 && depth === 0) {
     return <p className="px-6 py-10 text-center font-serif text-sm text-muted-foreground italic">No files.</p>;
@@ -104,7 +106,7 @@ function FolderEntries({ workspaceId, dir, depth }: { workspaceId: string; dir: 
         return (
           <li key={e.name}>
             {e.dir ? (
-              <FolderRow workspaceId={workspaceId} path={path} name={e.name} depth={depth} />
+              <FolderRow checkout={checkout} path={path} name={e.name} depth={depth} />
             ) : (
               <FileRow path={path} label={e.name} depth={depth} />
             )}
@@ -115,7 +117,7 @@ function FolderEntries({ workspaceId, dir, depth }: { workspaceId: string; dir: 
   );
 }
 
-function FolderRow({ workspaceId, path, name, depth }: { workspaceId: string; path: string; name: string; depth: number }) {
+function FolderRow({ checkout, path, name, depth }: { checkout: Checkout; path: string; name: string; depth: number }) {
   const [open, setOpen] = useState(false);
   const Icon = open ? FolderOpen : Folder;
   return (
@@ -131,7 +133,7 @@ function FolderRow({ workspaceId, path, name, depth }: { workspaceId: string; pa
         <Icon className="size-3.5 shrink-0 text-brass" />
         <span className="truncate">{name}</span>
       </button>
-      {open && <FolderEntries workspaceId={workspaceId} dir={path} depth={depth + 1} />}
+      {open && <FolderEntries checkout={checkout} dir={path} depth={depth + 1} />}
     </>
   );
 }
@@ -153,25 +155,24 @@ function FileRow({ path, label, depth }: { path: string; label: string; depth: n
 
 /**
  * One file, read fresh when opened and when the project's files change. A
- * path from a tool call may be absolute: it is made relative to the project.
+ * path from a tool call may be absolute: it is made relative to the checkout.
  */
-function FileViewer({ workspaceId, path: given, line }: { workspaceId: string; path: string; line?: number | undefined }) {
+function FileViewer({ checkout, path: given, line }: { checkout: Checkout; path: string; line?: number | undefined }) {
   const sync = useSync();
-  const root = useAppStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.root);
-  const path = root ? workspaceRelative(given, root) : given;
-  const rev = useAppStore((s) => s.gitRev[workspaceId] ?? 0);
+  const path = workspaceRelative(given, checkout.root);
+  const rev = useAppStore((s) => s.gitRev[checkout.workspaceId] ?? 0);
   const editors = useAppStore((s) => s.info?.editors ?? []);
   const [state, setState] = useState<{ file: FileContent } | { error: string } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    sync.readFile(workspaceId, path).then(
+    sync.readFile(checkout, path).then(
       (file) => !cancelled && setState({ file }),
       (err: unknown) => !cancelled && setState({ error: err instanceof Error ? err.message : String(err) }),
     );
     return () => {
       cancelled = true;
     };
-  }, [sync, workspaceId, path, rev]);
+  }, [sync, checkoutKey(checkout), path, rev]);
   const lines = useMemo(() => (state && 'file' in state && state.file.kind === 'text' ? fileLines(state.file.content) : null), [state]);
 
   return (
@@ -194,7 +195,7 @@ function FileViewer({ workspaceId, path: given, line }: { workspaceId: string; p
           <button
             key={e.id}
             type="button"
-            onClick={() => void sync.openInEditor(workspaceId, path, e.id, line)}
+            onClick={() => void sync.openInEditor(checkout, path, e.id, line)}
             title={`Open in ${e.name}${line ? ` at line ${line}` : ''}`}
             className="flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >

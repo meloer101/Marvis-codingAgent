@@ -305,7 +305,13 @@ it). Run in a directory that is not one, `hc` keeps `sessions/`, `traces/` and
 `memory/` under `~/.agent/projects/<name>-<hash>/` instead, so it leaves no
 `.agent/` behind; `HC_STATE_DIR` sends `sessions/` and `traces/` anywhere — the
 Harbor adapter points it at the trial's log dir, so an agent working in a task
-directory never finds (or commits) the harness's own logs there.
+directory never finds (or commits) the harness's own logs there. In a linked
+git worktree, settings, `.mcp.json`, `memory/`, `sessions/` and `traces/` are
+its main checkout's (`findStateRoot`): the same project on another branch;
+what it checks out — agents, skills, plans, `AGENTS.md` — is its own. Wherever
+the session's `sessions/<id>/` is outside the workspace (a worktree, a project
+subdirectory, `HC_STATE_DIR`), offloaded tool output goes to the system temp
+dir instead, where `read` can open it.
 
 Settings layer built-in defaults → `~/.agent/settings.json` →
 `.agent/settings.json`. Credentials come only from the environment

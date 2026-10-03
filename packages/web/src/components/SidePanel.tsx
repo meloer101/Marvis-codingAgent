@@ -4,11 +4,11 @@ import { FolderTree, GitCompareArrows, ListChecks, X } from 'lucide-react';
 import { ChangesPanel } from '@/components/ChangesPanel';
 import { FilesPanel } from '@/components/FilesPanel';
 import { TodoList } from '@/components/TodoList';
+import type { Checkout } from '@/lib/checkout';
 import { setPanel, usePanel } from '@/lib/panel';
 import type { PanelTab } from '@/lib/panel';
 import { sessionFiles } from '@/lib/sessionFiles';
 import type { SessionViewState } from '@/lib/sessionModel';
-import { useAppStore } from '@/lib/store';
 import { latestTodos } from '@/lib/todos';
 import { cn } from '@/lib/utils';
 
@@ -18,10 +18,13 @@ const TABS: Array<{ tab: PanelTab; label: string; icon: typeof X }> = [
   { tab: 'tasks', label: 'Tasks', icon: ListChecks },
 ];
 
-/** The panel to the right of a session: its project's changes and files, and the agent's task list. */
-export function SidePanel({ view }: { view: SessionViewState }) {
+/**
+ * The panel to the right of a session: the changes and files where it works —
+ * its project's checkout, or its worktree — and the agent's task list.
+ */
+export function SidePanel({ view, checkout }: { view: SessionViewState; checkout: Checkout | undefined }) {
   const tab = usePanel();
-  const root = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId)?.root);
+  const root = checkout?.root;
   const sessionPaths = useMemo(
     () => (tab === 'changes' && root ? sessionFiles(view.entries, view.live, root) : undefined),
     [tab, root, view.entries, view.live],
@@ -61,13 +64,24 @@ export function SidePanel({ view }: { view: SessionViewState }) {
       </div>
       {/* Each tab scrolls itself: Changes keeps its commit box in view. */}
       <div className="flex min-h-0 flex-1 flex-col">
-        {tab === 'changes' && view.workspaceId && (
-          <ChangesPanel workspaceId={view.workspaceId} sessionId={view.id} {...(sessionPaths ? { sessionPaths } : {})} />
+        {(tab === 'changes' || tab === 'files') && checkout?.missing && <WorktreeGone />}
+        {tab === 'changes' && checkout && !checkout.missing && (
+          <ChangesPanel checkout={checkout} sessionId={view.id} {...(sessionPaths ? { sessionPaths } : {})} />
         )}
-        {tab === 'files' && view.workspaceId && <FilesPanel workspaceId={view.workspaceId} />}
+        {tab === 'files' && checkout && !checkout.missing && <FilesPanel checkout={checkout} />}
         {tab === 'tasks' && <TasksTab view={view} />}
       </div>
     </aside>
+  );
+}
+
+/** An archived session's worktree was removed; its branch keeps what was committed. */
+function WorktreeGone() {
+  return (
+    <p className="px-6 py-16 text-center font-serif text-sm text-muted-foreground italic">
+      This session’s worktree was removed when it was archived. Its branch is kept, and checked out again when the
+      session next runs.
+    </p>
   );
 }
 

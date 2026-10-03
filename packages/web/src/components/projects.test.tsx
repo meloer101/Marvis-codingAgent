@@ -12,7 +12,8 @@ import { SyncProvider } from '@/lib/syncContext';
 afterEach(() => {
   cleanup();
   window.location.hash = '';
-  useAppStore.setState({ status: 'closed', workspaces: [], sessions: [], models: {}, addProjectOpen: false, error: null });
+  useAppStore.setState({ status: 'closed', workspaces: [], sessions: [], models: {}, branches: {}, addProjectOpen: false, error: null });
+  window.localStorage.clear();
 });
 
 const workspace = (id: string, name: string, over: Partial<Workspace['defaults']> = {}): Workspace => ({
@@ -40,6 +41,7 @@ function fakeSync(over: Record<string, unknown> = {}) {
     inspectPath: vi.fn(async () => null),
     addWorkspace: vi.fn(async () => null),
     loadModels: vi.fn(async () => {}),
+    loadBranches: vi.fn(async () => {}),
     showError: vi.fn(),
     ...over,
   };
@@ -51,6 +53,54 @@ function openMenu(label: string): void {
 }
 
 describe('DraftView', () => {
+  it('offers a worktree off one of the branches, and remembers the choice for the project', async () => {
+    const sync = fakeSync();
+    useAppStore.setState({
+      status: 'open',
+      workspaces: [workspace('aaa', 'alpha')],
+      branches: { aaa: { repo: true, current: 'main', branches: ['main', 'feature/login'] } },
+    });
+    const draft = (
+      <SyncProvider sync={sync as unknown as SessionSync}>
+        <DraftView workspaceId="aaa" />
+      </SyncProvider>
+    );
+    const { unmount } = render(draft);
+    expect(sync.loadBranches).toHaveBeenCalledWith('aaa');
+    expect(screen.getByLabelText('Where it works').textContent).toBe('Local');
+    openMenu('Where it works');
+    expect(await screen.findByText('Edits your checkout directly — on main')).toBeTruthy();
+    fireEvent.click(await screen.findByText('feature/login'));
+    expect(screen.getByLabelText('Where it works').textContent).toBe('Worktreefeature/login');
+    const box = screen.getByRole('textbox');
+    fireEvent.change(box, { target: { value: 'fix it' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    await waitFor(() =>
+      expect(sync.startSession).toHaveBeenCalledWith('fix it', {
+        workspaceId: 'aaa',
+        mode: 'ask',
+        effort: 'high',
+        worktree: { base: 'feature/login' },
+      }),
+    );
+    unmount();
+
+    // The next draft there starts from the same choice; a branch since deleted falls back to the current one.
+    act(() => useAppStore.setState({ branches: { aaa: { repo: true, current: 'main', branches: ['main'] } } }));
+    render(draft);
+    expect(screen.getByLabelText('Where it works').textContent).toBe('Worktreemain');
+  });
+
+  it('offers no worktree outside a repository', () => {
+    useAppStore.setState({ status: 'open', workspaces: [workspace('aaa', 'alpha')], branches: { aaa: { repo: false } } });
+    render(
+      <SyncProvider sync={fakeSync() as unknown as SessionSync}>
+        <DraftView workspaceId="aaa" />
+      </SyncProvider>,
+    );
+    expect(screen.queryByLabelText('Where it works')).toBeNull();
+  });
+
   it("starts the session in the route's project, with the mode and effort picked", async () => {
     const sync = fakeSync();
     useAppStore.setState({

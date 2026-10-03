@@ -3,6 +3,7 @@ import { Loader2, WifiOff, X } from 'lucide-react';
 import type { SessionSummary } from '@harness-code/protocol';
 
 import { AddProjectDialog } from '@/components/AddProjectDialog';
+import { ArchiveConflictDialog } from '@/components/ArchiveConflictDialog';
 import { CommandPalette } from '@/components/CommandPalette';
 import { DraftView } from '@/components/DraftView';
 import { HelpDialog } from '@/components/HelpDialog';
@@ -127,6 +128,7 @@ export function App() {
       </main>
       <Help activeId={activeId} />
       <AddProjectDialog />
+      <ArchiveConflictDialog />
       <CommandPalette activeId={activeId} onNewSession={newSession} />
     </div>
   );

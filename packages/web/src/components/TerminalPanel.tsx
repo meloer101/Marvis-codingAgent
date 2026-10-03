@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { Plus, SquareTerminal, X } from 'lucide-react';
 
+import type { Checkout } from '@/lib/checkout';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
 import { MIN_HEIGHT, setTerminalHeight, setTerminalOpen, useTerminalPanel } from '@/lib/terminalPanel';
@@ -14,10 +15,12 @@ const CELL = { width: 7.2, height: 17 };
 
 /**
  * The project's terminals, under the session: a tab per shell (+ for another,
- * × to end one), the one chosen showing. They run on the server, so they
+ * × to end one), the one chosen showing. A new one starts where the session
+ * works — its worktree, if it has one (and it's there). They run on the server, so they
  * outlive the page; each tab keeps its view mounted so its scrollback stays.
  */
-export function TerminalPanel({ workspaceId }: { workspaceId: string }) {
+export function TerminalPanel({ checkout }: { checkout: Checkout }) {
+  const { workspaceId } = checkout;
   const sync = useSync();
   const { open, height } = useTerminalPanel();
   const available = useAppStore((s) => s.info?.capabilities?.terminal ?? false);
@@ -37,7 +40,8 @@ export function TerminalPanel({ workspaceId }: { workspaceId: string }) {
     const rect = body.current?.getBoundingClientRect();
     const cols = Math.max(20, Math.floor((rect?.width ?? 800) / CELL.width) - 2);
     const rows = Math.max(5, Math.floor((rect?.height ?? 240) / CELL.height));
-    const t = await sync.createTerminal(workspaceId, cols, rows);
+    // An archived session's worktree is gone: a new shell starts in the project folder.
+    const t = await sync.createTerminal(checkout.missing ? { workspaceId } : checkout, cols, rows);
     creating.current = false;
     if (t) setActive(t.id);
   };

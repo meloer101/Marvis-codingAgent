@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Folder, PanelRight, SquareTerminal } from 'lucide-react';
+import { Folder, GitBranch, PanelRight, SquareTerminal } from 'lucide-react';
 
 import { fmtTokens, fmtUSD } from '@harness-code/core/browser';
+import type { SessionWorktree } from '@harness-code/protocol';
 
 import { UsagePopover } from '@/components/UsagePanel';
 import { togglePanel, usePanel } from '@/lib/panel';
@@ -20,9 +21,11 @@ import { cn } from '@/lib/utils';
 export function SessionHeader({ view }: { view: SessionViewState }) {
   const workspace = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId));
   const title = useAppStore((s) => s.sessions.find((r) => r.id === view.id)?.title);
+  const worktreeGone = useAppStore((s) => s.sessions.find((r) => r.id === view.id)?.worktree?.missing === true);
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4 text-sm">
       {workspace && <ProjectChip name={workspace.name} root={workspace.root} />}
+      {view.worktree && <BranchChip worktree={view.worktree} gone={worktreeGone} />}
       {workspace && title !== undefined && <span className="text-muted-foreground/60">/</span>}
       {title !== undefined && <SessionTitle id={view.id} title={title} />}
       <div className="flex-1" />
@@ -79,6 +82,26 @@ export function ProjectChip({ name, root }: { name: string; root: string }) {
     <span className="flex min-w-0 shrink-0 items-center gap-1.5 text-xs font-medium" title={root}>
       <Folder className="size-3.5 text-muted-foreground" />
       <span className="max-w-40 truncate">{name}</span>
+    </span>
+  );
+}
+
+/** The branch a session works on in a worktree of its own. */
+function BranchChip({ worktree, gone }: { worktree: SessionWorktree; gone: boolean }) {
+  return (
+    <span
+      className={cn(
+        'flex min-w-0 shrink items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-primary',
+        gone && 'bg-muted text-muted-foreground',
+      )}
+      title={
+        gone
+          ? `Its worktree was removed when it was archived; ${worktree.branch} is checked out again when it next runs`
+          : `Works in a worktree of its own, branched from ${worktree.base}: ${worktree.path}`
+      }
+    >
+      <GitBranch className="size-3 shrink-0" />
+      <span className="max-w-48 truncate font-mono text-[11px]">{worktree.branch}</span>
     </span>
   );
 }

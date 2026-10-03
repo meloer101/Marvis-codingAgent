@@ -8,6 +8,8 @@ import { ReviewBar, ReviewableDiff } from '@/components/ReviewComments';
 import { DiffView } from '@/components/DiffView';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { checkoutKey } from '@/lib/checkout';
+import type { Checkout } from '@/lib/checkout';
 import { parsePatch } from '@/lib/diff';
 import { isNewFile, pathsOf } from '@/lib/gitFiles';
 import { langForPath } from '@/lib/highlight';
@@ -17,28 +19,29 @@ import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
 
 /**
- * The project's changes against HEAD: the branch, then one row per changed
- * file that opens to its diff — all of them, or only those this session's
- * edits and writes touched (`sessionPaths`) — each to stage or throw away,
- * and a footer to commit, push and open a pull request. With `sessionId`, a
- * diff line's number opens a comment; the comments go to that session's
- * agent as one message. Fresh whenever a session may have changed files
- * (`git_changed`), and on reconnect.
+ * A checkout's changes against HEAD — the project's, or a session's worktree:
+ * the branch, then one row per changed file that opens to its diff — all of
+ * them, or only those this session's edits and writes touched
+ * (`sessionPaths`) — each to stage or throw away, and a footer to commit,
+ * push and open a pull request. With `sessionId`, a diff line's number opens
+ * a comment; the comments go to that session's agent as one message. Fresh
+ * whenever a session may have changed files (`git_changed`), and on reconnect.
  */
 export function ChangesPanel({
-  workspaceId,
+  checkout,
   sessionId,
   sessionPaths,
 }: {
-  workspaceId: string;
+  checkout: Checkout;
   sessionId?: string;
   sessionPaths?: ReadonlySet<string>;
 }) {
   const sync = useSync();
-  const status = useAppStore((s) => s.git[workspaceId]);
+  const key = checkoutKey(checkout);
+  const status = useAppStore((s) => s.git[key]);
   const [scope, setScope] = useState<'all' | 'session'>('all');
   const [reverting, setReverting] = useState<GitFile | null>(null);
-  useEffect(() => sync.watchGit(workspaceId), [sync, workspaceId]);
+  useEffect(() => sync.watchGit(checkout), [sync, key]);
   const mine = useMemo(
     () =>
       status?.repo && sessionPaths
@@ -90,7 +93,7 @@ export function ChangesPanel({
         )}
         <button
           type="button"
-          onClick={() => void sync.loadGitStatus(workspaceId)}
+          onClick={() => void sync.loadGitStatus(checkout)}
           aria-label="Refresh"
           title="Refresh"
           className="rounded p-1 transition-colors hover:bg-accent hover:text-foreground"
@@ -108,11 +111,11 @@ export function ChangesPanel({
             {files.map((f) => (
               <ChangedFile
                 key={f.path}
-                workspaceId={workspaceId}
+                checkout={checkout}
                 sessionId={sessionId}
                 file={f}
                 onStage={(stage) =>
-                  void (stage ? sync.gitStage(workspaceId, pathsOf(f)) : sync.gitUnstage(workspaceId, pathsOf(f)))
+                  void (stage ? sync.gitStage(checkout, pathsOf(f)) : sync.gitUnstage(checkout, pathsOf(f)))
                 }
                 onRevert={() => setReverting(f)}
               />
@@ -121,13 +124,13 @@ export function ChangesPanel({
         )}
       </div>
       {sessionId && <ReviewBar sessionId={sessionId} />}
-      <CommitBox workspaceId={workspaceId} status={status} files={files} />
+      <CommitBox checkout={checkout} status={status} files={files} />
       <RevertDialog
         file={reverting}
         onClose={() => setReverting(null)}
         onConfirm={(f) => {
           setReverting(null);
-          void sync.gitRevert(workspaceId, pathsOf(f));
+          void sync.gitRevert(checkout, pathsOf(f));
         }}
       />
     </div>
@@ -215,13 +218,13 @@ export function changeLetter(file: GitFile): { letter: string; tone: string; lab
 }
 
 function ChangedFile({
-  workspaceId,
+  checkout,
   sessionId,
   file,
   onStage,
   onRevert,
 }: {
-  workspaceId: string;
+  checkout: Checkout;
   sessionId: string | undefined;
   file: GitFile;
   onStage: (stage: boolean) => void;
@@ -303,7 +306,7 @@ function ChangedFile({
           <Undo2 className="size-3.5" />
         </button>
       </div>
-      {open && <FileDiff workspaceId={workspaceId} sessionId={sessionId} path={file.path} />}
+      {open && <FileDiff checkout={checkout} sessionId={sessionId} path={file.path} />}
     </li>
   );
 }
@@ -312,20 +315,21 @@ function ChangedFile({
  * A file's diff, fetched when opened and again after each `git_changed`; the
  * last one stays meanwhile. With a session, its lines take review comments.
  */
-function FileDiff({ workspaceId, sessionId, path }: { workspaceId: string; sessionId: string | undefined; path: string }) {
+function FileDiff({ checkout, sessionId, path }: { checkout: Checkout; sessionId: string | undefined; path: string }) {
   const sync = useSync();
-  const rev = useAppStore((s) => s.gitRev[workspaceId] ?? 0);
+  const key = checkoutKey(checkout);
+  const rev = useAppStore((s) => s.gitRev[checkout.workspaceId] ?? 0);
   const [state, setState] = useState<{ diff: GitDiff } | { error: string } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    sync.gitDiff(workspaceId, path).then(
+    sync.gitDiff(checkout, path).then(
       (diff) => !cancelled && setState({ diff }),
       (err: unknown) => !cancelled && setState({ error: err instanceof Error ? err.message : String(err) }),
     );
     return () => {
       cancelled = true;
     };
-  }, [sync, workspaceId, path, rev]);
+  }, [sync, key, path, rev]);
   const lines = useMemo(
     () => (state && 'diff' in state && state.diff.kind === 'text' ? parsePatch(state.diff.patch) : null),
     [state],

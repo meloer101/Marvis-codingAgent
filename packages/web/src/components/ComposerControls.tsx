@@ -5,14 +5,29 @@
  */
 
 import type { ReactNode } from 'react';
-import { AlertTriangle, Check, ChevronDown, Eye, Gauge, Hand, ListChecks, Loader2, PencilLine, Sparkles, Zap } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  Eye,
+  Folder,
+  Gauge,
+  GitBranch,
+  Hand,
+  ListChecks,
+  Loader2,
+  PencilLine,
+  Sparkles,
+  Zap,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
 
 import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
-import type { ModelInfo } from '@harness-code/protocol';
+import type { GitBranches, ModelInfo } from '@harness-code/protocol';
 
 import { fmtRate, fmtWindow } from '@/lib/format';
+import type { WorkPlace } from '@/lib/workPlace';
 import { cn } from '@/lib/utils';
 
 export const MODES: Record<PermissionMode, { label: string; hint: string; icon: LucideIcon; tone: string }> = {
@@ -306,6 +321,82 @@ export function EffortPicker({
           {EFFORT_LABELS[l]}
         </Choice>
       ))}
+    </ChoiceMenu>
+  );
+}
+
+/**
+ * Where a new session works: in the project folder, or in a git worktree of
+ * its own on a new branch off one of the repository's branches. Not shown
+ * outside a repository, or in one without a commit to branch from.
+ */
+export function WorktreePicker({
+  place,
+  branches,
+  onOpen,
+  onChange,
+}: {
+  place: WorkPlace;
+  /** Undefined while loading. */
+  branches: GitBranches | undefined;
+  onOpen: () => void;
+  onChange: (place: WorkPlace) => void;
+}) {
+  if (branches && (!branches.repo || branches.branches.length === 0)) return null;
+  const current = branches?.repo ? branches.current : null;
+  const list = branches?.repo ? branches.branches : undefined;
+  const worktree = place.kind === 'worktree';
+  return (
+    <ChoiceMenu
+      label="Where it works"
+      title={
+        worktree
+          ? `In a worktree of its own, on a new branch off ${place.base}`
+          : 'In the project folder — its edits land in your checkout'
+      }
+      heading="Work in"
+      value={worktree ? `wt:${place.base}` : 'local'}
+      onChange={(v) => onChange(v === 'local' ? { kind: 'local' } : { kind: 'worktree', base: v.slice(3) })}
+      onOpenChange={(opened) => {
+        if (opened) onOpen();
+      }}
+      wide
+      trigger={
+        <span className={cn('-mx-2 flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2', worktree && 'bg-primary/10 text-primary hover:bg-primary/15')}>
+          {worktree ? <GitBranch /> : <Folder />}
+          <span className="shrink-0">{worktree ? 'Worktree' : 'Local'}</span>
+          {worktree && <span className="max-w-28 truncate font-mono text-[11px] opacity-80">{place.base}</span>}
+        </span>
+      }
+    >
+      <Choice value="local">
+        <Folder className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <span className="flex min-w-0 flex-col">
+          <span>Project folder</span>
+          <span className="text-[11px] text-muted-foreground">
+            Edits your checkout directly{current ? ` — on ${current}` : ''}
+          </span>
+        </span>
+      </Choice>
+      <DropdownMenu.Separator className="mx-1 my-1 h-px bg-border" />
+      <DropdownMenu.Label className={labelClass}>New worktree, branched from</DropdownMenu.Label>
+      {list === undefined ? (
+        <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin" /> Loading branches…
+        </div>
+      ) : (
+        list.map((b) => (
+          <Choice key={b} value={`wt:${b}`}>
+            <GitBranch className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate font-mono text-xs">{b}</span>
+            {b === current && <span className="shrink-0 text-[10px] text-muted-foreground">current</span>}
+          </Choice>
+        ))
+      )}
+      <p className="px-2 pt-1.5 pb-1 text-[11px] leading-snug text-muted-foreground">
+        A branch and folder of its own, so it can’t step on your work. Ignored files named in{' '}
+        <code className="font-mono">.worktreeinclude</code> are copied in.
+      </p>
     </ChoiceMenu>
   );
 }

@@ -5,6 +5,7 @@ import { ArrowUp, ExternalLink, GitCommitHorizontal, GitPullRequest, Loader2 } f
 import type { GitFile, GitStatus } from '@harness-code/protocol';
 
 import { Button } from '@/components/ui/button';
+import type { Checkout } from '@/lib/checkout';
 import { pathsOf } from '@/lib/gitFiles';
 import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
@@ -19,11 +20,11 @@ type Note = { tone: 'ok' | 'error'; text: string; url?: string };
  * in a line beneath.
  */
 export function CommitBox({
-  workspaceId,
+  checkout,
   status,
   files,
 }: {
-  workspaceId: string;
+  checkout: Checkout;
   status: Extract<GitStatus, { repo: true }>;
   files: readonly GitFile[];
 }) {
@@ -55,7 +56,7 @@ export function CommitBox({
   const commit = (): void => {
     if (!canCommit) return;
     void act('commit', async () => {
-      const done = await sync.gitCommit(workspaceId, message, staged > 0 ? undefined : files.flatMap(pathsOf));
+      const done = await sync.gitCommit(checkout, message, staged > 0 ? undefined : files.flatMap(pathsOf));
       setMessage('');
       setLastSummary(done.summary);
       return { tone: 'ok', text: `Committed ${done.sha} · ${done.summary}` };
@@ -64,14 +65,14 @@ export function CommitBox({
   const push = (): void => {
     if (!canPush) return;
     void act('push', async () => {
-      await sync.gitPush(workspaceId);
+      await sync.gitPush(checkout);
       return { tone: 'ok', text: published ? `Pushed ${status.branch}` : `Published ${status.branch}` };
     });
   };
   const openPr = (): void => {
     if (!pr || pr.title.trim() === '') return;
     void act('pr', async () => {
-      const { url } = await sync.gitCreatePr(workspaceId, {
+      const { url } = await sync.gitCreatePr(checkout, {
         title: pr.title.trim(),
         ...(pr.body.trim() ? { body: pr.body } : {}),
         ...(pr.draft ? { draft: true } : {}),

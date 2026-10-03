@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TerminalInfo } from '@harness-code/protocol';
 
 import { TerminalPanel } from './TerminalPanel';
+import type { Checkout } from '@/lib/checkout';
 import { useAppStore } from '@/lib/store';
 import type { SessionSync } from '@/lib/sync';
 import { SyncProvider } from '@/lib/syncContext';
@@ -16,6 +17,8 @@ vi.mock('@/components/XTermView', () => ({
   ),
 }));
 
+
+const W1 = { workspaceId: 'w1', root: '/proj' };
 afterEach(() => {
   cleanup();
   act(() => setTerminalOpen(false));
@@ -31,7 +34,7 @@ const term = (id: string, over: Partial<TerminalInfo> = {}): TerminalInfo => ({
   ...over,
 });
 
-function renderPanel(terminal = true) {
+function renderPanel(terminal = true, checkout: Checkout = W1) {
   const sync = {
     loadTerminals: vi.fn(async () => {}),
     createTerminal: vi.fn(async () => {
@@ -44,7 +47,7 @@ function renderPanel(terminal = true) {
   useAppStore.setState({ info: { capabilities: { terminal } } as never });
   render(
     <SyncProvider sync={sync as unknown as SessionSync}>
-      <TerminalPanel workspaceId="w1" />
+      <TerminalPanel checkout={checkout} />
     </SyncProvider>,
   );
   return sync;
@@ -81,6 +84,22 @@ describe('TerminalPanel', () => {
     expect(sync.closeTerminal).toHaveBeenCalledWith('a');
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'New terminal' })));
     expect(sync.createTerminal).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a shell in the session's worktree, or the project folder once the worktree is gone", async () => {
+    const worktree = { workspaceId: 'w1', sessionId: 's1', root: '/wt/fix' };
+    let sync = renderPanel(true, worktree);
+    act(() => useAppStore.setState({ terminals: { w1: [] } }));
+    await act(async () => setTerminalOpen(true));
+    expect(sync.createTerminal).toHaveBeenCalledWith(worktree, expect.any(Number), expect.any(Number));
+    cleanup();
+    act(() => setTerminalOpen(false));
+    useAppStore.setState({ terminals: {} });
+
+    sync = renderPanel(true, { ...worktree, missing: true });
+    act(() => useAppStore.setState({ terminals: { w1: [] } }));
+    await act(async () => setTerminalOpen(true));
+    expect(sync.createTerminal).toHaveBeenCalledWith({ workspaceId: 'w1' }, expect.any(Number), expect.any(Number));
   });
 
   it('says why when this server has no terminals', async () => {

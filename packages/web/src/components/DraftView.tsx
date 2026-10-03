@@ -6,7 +6,7 @@ import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
 import type { Workspace } from '@harness-code/protocol';
 
 import { Composer } from '@/components/Composer';
-import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerControls';
+import { EffortPicker, ModeChip, ModelPicker, WorktreePicker } from '@/components/ComposerControls';
 import { ContextButton } from '@/components/UsagePanel';
 import { UserMessage } from '@/components/Transcript';
 import { relativeTime } from '@/lib/format';
@@ -15,6 +15,8 @@ import { allCommands, clientCommand } from '@/lib/slash';
 import type { CommandSurface } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
+import { saveWorkPlace, savedWorkPlace, usableWorkPlace } from '@/lib/workPlace';
+import type { WorkPlace } from '@/lib/workPlace';
 
 const BUILTIN_COMMANDS = allCommands([]);
 const ADD_PROJECT = '__add__';
@@ -33,6 +35,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
   const connected = useAppStore((s) => s.status === 'open');
   const workspace = workspaces.find((w) => w.id === workspaceId) ?? workspaces[0];
   const models = useAppStore((s) => (workspace ? s.models[workspace.id] : undefined));
+  const branches = useAppStore((s) => (workspace ? s.branches[workspace.id] : undefined));
   // Choices reset with the project: its modes, models and their effort levels differ.
   const [choice, setChoice] = useState<{
     workspaceId?: string;
@@ -52,10 +55,26 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
   const effort = own.effort ?? (own.model ? picked?.defaultEffort : workspace?.defaults.effort);
   const keyProblem = own.model ? picked?.problem : workspace?.defaults.keyProblem;
   const choose = (patch: typeof choice): void => setChoice({ ...own, workspaceId: workspace?.id, ...patch });
-  // The model list tells the meter the window before anything is sent.
+  // Where it works is remembered per project.
   const workspaceKey = workspace?.id;
+  const [placeChoice, setPlaceChoice] = useState<{ workspaceId: string; place: WorkPlace } | null>(null);
+  const remembered: WorkPlace = !workspaceKey
+    ? { kind: 'local' }
+    : placeChoice?.workspaceId === workspaceKey
+      ? placeChoice.place
+      : savedWorkPlace(workspaceKey);
+  const place = usableWorkPlace(remembered, branches);
+  const choosePlace = (next: WorkPlace): void => {
+    if (!workspaceKey) return;
+    saveWorkPlace(workspaceKey, next);
+    setPlaceChoice({ workspaceId: workspaceKey, place: next });
+  };
+  // The model list tells the meter the window before anything is sent; the
+  // branches say whether a worktree can be made, and from what.
   useEffect(() => {
-    if (workspaceKey) void sync.loadModels(workspaceKey);
+    if (!workspaceKey) return;
+    void sync.loadModels(workspaceKey);
+    void sync.loadBranches(workspaceKey);
   }, [workspaceKey]);
   const modelInfo = models?.find((m) => m.ref === modelRef);
   /** The picker a command opened (`/model`, …). */
@@ -103,6 +122,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
       mode,
       ...(own.model ? { model: own.model } : {}),
       ...(effort && effortLevels.includes(effort) ? { effort } : {}),
+      ...(place.kind === 'worktree' ? { worktree: { base: place.base } } : {}),
     });
     if (!id) {
       setStarting(null);
@@ -129,7 +149,9 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
             <UserMessage text={starting.text} attachments={starting.attachments} />
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin text-primary" />
-              <span className="font-serif italic">Starting the session…</span>
+              <span className="font-serif italic">
+                {place.kind === 'worktree' ? `Making a worktree off ${place.base}…` : 'Starting the session…'}
+              </span>
             </div>
           </div>
         )}
@@ -144,12 +166,18 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
           commands={BUILTIN_COMMANDS}
           onSend={send}
           onAbort={() => {}}
-          {...(workspace ? { onSearchFiles: (query: string) => sync.searchFiles(workspace.id, query) } : {})}
+          {...(workspace ? { onSearchFiles: (query: string) => sync.searchFiles({ workspaceId: workspace.id }, query) } : {})}
           onCycleMode={() => choose({ mode: nextPermissionMode(mode, { includeAuto: modes.includes('auto') }) })}
           {...(workspace ? { trailing: <ContextButton modelRef={modelRef} {...(modelInfo ? { model: modelInfo } : {})} /> } : {})}
           controls={
             workspace && (
               <>
+                <WorktreePicker
+                  place={place}
+                  branches={branches}
+                  onOpen={() => void sync.loadBranches(workspace.id)}
+                  onChange={choosePlace}
+                />
                 <ModeChip mode={mode} modes={modes} onChange={(m) => choose({ mode: m })} {...control('mode')} />
                 <ModelPicker
                   modelRef={modelRef}

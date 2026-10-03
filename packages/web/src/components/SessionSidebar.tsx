@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Copy,
   FolderPlus,
+  GitBranch,
   Loader2,
   MessageSquarePlus,
   MoreHorizontal,
@@ -357,6 +358,11 @@ function SessionRow({
           )}
         >
           {row.pinned && <Pin className="absolute left-2 size-3 text-muted-foreground" aria-label="Pinned" />}
+          {row.worktree && (
+            <span className="flex shrink-0" title={`On ${row.worktree.branch}, in a worktree of its own`}>
+              <GitBranch className="size-3 text-muted-foreground" aria-label={`In a worktree, on ${row.worktree.branch}`} />
+            </span>
+          )}
           <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled session'}</span>
           <span className="shrink-0 group-hover/row:invisible">
             <RowStatusMark status={status} mtimeMs={row.mtimeMs} />
@@ -438,7 +444,11 @@ function DeleteSessionDialog({
       {session && (
         <DialogContent
           title="Delete this session?"
-          description="Its conversation, metadata, offloaded output and trace are removed for good."
+          description={
+            session.worktree
+              ? `Its conversation, metadata, offloaded output and trace are removed for good — and its worktree, with any uncommitted changes. Its branch ${session.worktree.branch} goes too if it was merged.`
+              : 'Its conversation, metadata, offloaded output and trace are removed for good.'
+          }
         >
           <div className="flex flex-col gap-4 px-5 pt-3 pb-5">
             <p className="truncate rounded-md border bg-muted/40 px-3 py-2 text-sm">{session.title}</p>

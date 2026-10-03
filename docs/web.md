@@ -75,7 +75,7 @@ One socket per tab at `/ws`, carrying RPC and events as JSON frames
 | Frame | Direction | Carries |
 |---|---|---|
 | `{t:'req', id, method, params}` | client → server | an RPC call |
-| `{t:'res', id, ok, result \| error}` | server → client | its answer; `error.code` is `unauthorized`, `not_found`, `busy`, `bad_request` or `internal` |
+| `{t:'res', id, ok, result \| error}` | server → client | its answer; `error.code` is `unauthorized`, `not_found`, `busy`, `bad_request`, `conflict` (it would lose work: confirm with `force`) or `internal` |
 | `{t:'evt', sessionId, seq, event}` | server → client | one session's event stream, for sessions this socket subscribed to |
 | `{t:'push', event}` | server → client | server-wide state, to every authenticated socket |
 | `{t:'term', id, data \| exitCode}` | server → client | a terminal's output, or its shell's exit, to the sockets attached to it |
@@ -100,10 +100,10 @@ the server with the same schemas the client is typed from.
 | `workspace.inspect {path}` | what adding a directory would mean — nothing started |
 | `workspace.add {path, createMarker?}` / `workspace.remove {id}` | host a project / stop hosting it |
 | `fs.suggestDirs {prefix}` | directory completion for the add dialog |
-| `fs.list {workspaceId, sessionId?, dir}` | a workspace folder's entries, folders first — the listing `@` uses, so no ignored files or secrets |
+| `fs.list {workspaceId, sessionId?, dir}` | a workspace folder's entries, folders first — the listing `@` uses, so no ignored files or secrets. With `sessionId`, this and every `fs.*`, `git.*`, `terminal.create` and `editor.open` call acts on the checkout that session works in: its worktree, if it has one |
 | `fs.read {workspaceId, sessionId?, path}` | a file's text; binary, over 1 MB, a secret (by name or by what it links to), a link out of the workspace or a missing file: withheld |
-| `editor.open {workspaceId, path, line?, editor}` | open a file in VS Code, Cursor or Zed on this machine (`server.info.editors` lists those found) |
-| `terminal.list {workspaceId}` / `terminal.create {workspaceId, sessionId?, cols, rows}` | a workspace's terminals / start the user's shell in its root |
+| `editor.open {workspaceId, sessionId?, path, line?, editor}` | open a file in VS Code, Cursor or Zed on this machine (`server.info.editors` lists those found) |
+| `terminal.list {workspaceId}` / `terminal.create {workspaceId, sessionId?, cols, rows}` | a workspace's terminals / start the user's shell in its root (or the session's worktree) |
 | `terminal.attach` / `terminal.detach {id}` | start / stop getting a terminal's output on this socket; attach answers with what it kept (`scrollback`) and its exit code if it ended |
 | `terminal.input {id, data}` / `terminal.resize {id, cols, rows}` / `terminal.close {id}` | keystrokes, a new size, and ending it |
 | `git.status {workspaceId, sessionId?}` | the workspace's changes against HEAD: branch, upstream, ahead/behind, and per file its staged / unstaged change and lines added / removed |
@@ -112,10 +112,11 @@ the server with the same schemas the client is typed from.
 | `git.revert {workspaceId, sessionId?, paths}` | throw changes away: back to HEAD (a rename to its old name), or deleted when HEAD lacks the file — never a secret |
 | `git.commit {workspaceId, sessionId?, message, paths?}` | commit what is staged, staging `paths` first when given; hooks run → `{sha, summary}` |
 | `git.push {workspaceId, sessionId?}` | push the branch; one without an upstream is published to `origin` (or the only remote) |
-| `git.createPr {workspaceId, sessionId?, title, body?, draft?}` | `gh pr create` for the branch → `{url}` |
-| `fs.search {workspaceId, query, limit?}` | a workspace's files matching an `@` query, best first; no ignored files, no secrets |
+| `git.createPr {workspaceId, sessionId?, title, body?, draft?}` | `gh pr create` for the branch — into a worktree's base, when that is a local branch → `{url}` |
+| `git.branches {workspaceId}` | the repository's local branches, the checked-out one first, for a worktree to start from (`{repo: false}` outside one) |
+| `fs.search {workspaceId, sessionId?, query, limit?}` | a workspace's files matching an `@` query, best first; no ignored files, no secrets |
 | `session.list` | every workspace's sessions (on disk plus live), newest first |
-| `session.start {text, attachments?, workspaceId?, model?, mode?, effort?}` | create a session and send its first message (how a draft becomes a session); a bad attachment creates nothing |
+| `session.start {text, attachments?, workspaceId?, model?, mode?, effort?, worktree?}` | create a session and send its first message (how a draft becomes a session); a bad attachment creates nothing. `worktree {base}`: in a git worktree of its own, on a new branch off `base` |
 | `session.create {workspaceId?, model?, mode?, effort?}` | create an empty live session |
 | `session.preview {id}` | the live snapshot, or the transcript from disk — never resumes |
 | `session.open {id}` | the live snapshot, resuming the session first if needed |
@@ -127,8 +128,8 @@ the server with the same schemas the client is typed from.
 | `session.setMode {id, mode}` | change the permission mode |
 | `session.setModel {id, model}` | switch the model, history kept (`busy` mid-run, `bad_request` for a model that can't be resolved) |
 | `session.setEffort {id, effort}` | change the reasoning effort, from the next message (`bad_request` for a level the model lacks) |
-| `session.update {id, title?, pinned?, archived?}` | rename, pin, archive; answers with the new row |
-| `session.delete {id}` | delete for good: log, metadata, offloaded output, trace (`busy` while it runs) |
+| `session.update {id, title?, pinned?, archived?, force?}` | rename, pin, archive; answers with the new row. Archiving removes the session's worktree: `conflict` over uncommitted changes there, unless `force` |
+| `session.delete {id}` | delete for good: log, metadata, offloaded output, trace, worktree (`busy` while it runs) |
 | `session.compact {id}` | compact the history now (`busy` while a run is going) |
 | `session.slashCommands {id}` | the session's MCP prompt commands |
 | `session.skills {id}` | the session's skills (`/name [task]` loads one) |
@@ -230,6 +231,41 @@ processes. The two are managed separately.
   skill's name into the request to load it through the `skill` tool — the text
   the TUI's skill picker sends — with the rest of the line as the task.
 
+### Worktrees
+
+A session can work in a git worktree of its own (`session.start {worktree:
+{base}}`, `server/src/worktrees.ts`), so two sessions — or a session and the
+user — change one project at once without stepping on each other.
+
+- **Made at start.** A branch `hc/<words of the first message>-<4 hex>` off
+  `base` (a branch or commit), made `--no-track` — started from `origin/main`
+  it would otherwise track it and a push would aim at `main` — checked out in
+  `~/.agent/worktrees/<repo>-<hash>/<slug>`, outside the project, so no
+  second checkout nests in it for searches, editors or `git status` to trip
+  over. The session works at the workspace's place inside it (a workspace in
+  a subdirectory of its repository stays in that subdirectory). A session
+  that fails to start leaves neither the worktree nor the branch behind.
+- **`.worktreeinclude`** at the repository's top lists, in `.gitignore`
+  syntax, ignored files a new worktree gets a copy of — `.env`, local config —
+  which a checkout never brings. Only ignored files: the patterns pick local
+  ones, never what the branch carries.
+- **The same project.** Core sees a linked worktree as its main checkout's
+  project (`findStateRoot`, `core/config/settings.ts`): the session is logged,
+  and reads its settings, memory and MCP servers, where the project's are;
+  what the worktree checks out — `AGENTS.md`, skills, agents, plans — comes
+  from the worktree. Its bash sandbox may write the repository's `.git`, where
+  the worktree's index and refs live, and full tool outputs go to the system
+  temp dir, where `read` can open them. The metadata records `worktree {path,
+  branch, base}`; snapshots carry it with `cwd`, list rows the branch.
+- **Archiving** removes the worktree — refused with `conflict` over
+  uncommitted changes unless `force` — keeps the branch, and closes the
+  terminals opened there; the row says `missing`. The session's next run
+  checks the branch out again in a new worktree at the same place (a new
+  branch off the base, if the branch was deleted meanwhile).
+- **Deleting** removes the worktree, and the branch when git agrees it is
+  merged (`branch -d`): a branch with work of its own stays. `--mock` sessions
+  take their worktrees away when the server stops.
+
 ## Session list
 
 `session.list` is fetched on every connect. After that the server pushes
@@ -295,13 +331,32 @@ The token is as powerful as the user's shell — a client can switch a session t
    workspace's files without the ones the engine treats as secrets (`.env`,
    keys, credentials), and an attachment is checked as a `read` of that path
    would be: a deny rule or the sensitive-file stance refuses it.
+12. **Worktrees live in the home directory, and copy only what they're told.**
+   A session's worktree is under `~/.agent/worktrees/`; removing one deletes
+   only a directory git registers as a worktree, or one under that directory.
+   `.worktreeinclude` copies ignored files — secrets like `.env` included — only
+   because the repository's owner named them there.
 
 ## The web app
 
 - **Routes** are the URL hash: `#/` is the draft for a new session in the most
   recently used project, `#/new/<workspace>` one in a given project, `#/s/<id>`
-  a session (`lib/route.ts`). The draft picks the project, mode, model and
-  effort.
+  a session (`lib/route.ts`). The draft picks the project, where the session
+  works, mode, model and effort.
+- **Where it works** (`WorktreePicker` in `components/ComposerControls.tsx`):
+  the draft's first footer control — "Local", the project folder, or
+  "Worktree" off one of the repository's branches (`git.branches`, loaded with
+  the draft), the checked-out one first. The choice is kept per project
+  (`lib/workPlace.ts`); a base since deleted falls back to the checked-out
+  branch. Outside a repository, or in one without a commit, it isn't shown.
+  A session in a worktree shows its branch in the header, and a branch icon
+  in its sidebar row. Its side panel, terminal and `@` menu follow it
+  (`lib/checkout.ts`: a `Checkout` is a workspace, plus the session for a
+  worktree; git state is kept per checkout); once archiving removed the
+  worktree, the Changes and Files tabs say so, and a new terminal starts in
+  the project folder. Archiving one with uncommitted changes asks first
+  (`components/ArchiveConflictDialog.tsx`), wherever it was asked for; the
+  delete dialog says the worktree goes too.
 - **Composer** (`components/Composer.tsx`): Enter sends, Shift+Enter is a new
   line, an IME's Enter only confirms. `/` at the start opens the command menu,
   `@` at the start of a word the file menu (`fs.search`); a picked file is

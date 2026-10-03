@@ -10,6 +10,8 @@ import { useAppStore } from '@/lib/store';
 import type { SessionSync } from '@/lib/sync';
 import { SyncProvider } from '@/lib/syncContext';
 
+
+const W1 = { workspaceId: 'w1', root: '/proj' };
 afterEach(() => {
   cleanup();
   act(() => {
@@ -29,7 +31,7 @@ const tree: Record<string, DirEntry[]> = {
 
 function renderPanel(file: FileContent = { kind: 'text', content: 'const a = 1;\nconst b = 2;\n' }) {
   const sync = {
-    listDir: vi.fn(async (_w: string, dir: string) => tree[dir] ?? []),
+    listDir: vi.fn(async (_c: unknown, dir: string) => tree[dir] ?? []),
     readFile: vi.fn(async () => file),
     searchFiles: vi.fn(async () => [{ path: 'src/a.ts' }]),
     openInEditor: vi.fn(async () => {}),
@@ -40,7 +42,7 @@ function renderPanel(file: FileContent = { kind: 'text', content: 'const a = 1;\
   });
   render(
     <SyncProvider sync={sync as unknown as SessionSync}>
-      <FilesPanel workspaceId="w1" />
+      <FilesPanel checkout={W1} />
     </SyncProvider>,
   );
   return sync;
@@ -50,10 +52,10 @@ describe('FilesPanel', () => {
   it('lists the project a folder at a time and opens a file in the viewer', async () => {
     const sync = renderPanel();
     fireEvent.click(await screen.findByRole('button', { name: /src/ }));
-    expect(sync.listDir).toHaveBeenCalledWith('w1', 'src');
+    expect(sync.listDir).toHaveBeenCalledWith(W1, 'src');
     fireEvent.click(await screen.findByRole('button', { name: 'a.ts' }));
     expect(await screen.findByText('src/a.ts')).toBeTruthy(); // the viewer's header
-    expect(sync.readFile).toHaveBeenCalledWith('w1', 'src/a.ts');
+    expect(sync.readFile).toHaveBeenCalledWith(W1, 'src/a.ts');
     expect((await screen.findAllByRole('row')).map((r) => r.textContent)).toEqual(['1const a = 1;', '2const b = 2;']);
     fireEvent.click(screen.getByRole('button', { name: 'Back to the files' }));
     expect(await screen.findByRole('button', { name: /README\.md/ })).toBeTruthy();
@@ -63,18 +65,18 @@ describe('FilesPanel', () => {
     const sync = renderPanel();
     fireEvent.change(screen.getByRole('textbox', { name: 'Find a file' }), { target: { value: 'a.ts' } });
     expect(await screen.findByRole('button', { name: 'src/a.ts' })).toBeTruthy();
-    expect(sync.searchFiles).toHaveBeenCalledWith('w1', 'a.ts');
+    expect(sync.searchFiles).toHaveBeenCalledWith(W1, 'a.ts');
   });
 
   it('opens an absolute path from a tool call relative to the project, in an editor at its line', async () => {
     const sync = renderPanel();
     act(() => openFile('/proj/src/a.ts', 2));
     await screen.findByText('src/a.ts');
-    expect(sync.readFile).toHaveBeenCalledWith('w1', 'src/a.ts');
+    expect(sync.readFile).toHaveBeenCalledWith(W1, 'src/a.ts');
     await screen.findAllByRole('row');
     expect(document.querySelector('[data-line="2"]')!.className).toContain('bg-primary/10');
     fireEvent.click(screen.getByRole('button', { name: /VS Code/ }));
-    expect(sync.openInEditor).toHaveBeenCalledWith('w1', 'src/a.ts', 'vscode', 2);
+    expect(sync.openInEditor).toHaveBeenCalledWith(W1, 'src/a.ts', 'vscode', 2);
   });
 
   it('says why a file is not shown', async () => {

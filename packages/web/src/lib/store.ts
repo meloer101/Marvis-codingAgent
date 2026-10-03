@@ -1,7 +1,16 @@
 import { create } from 'zustand';
 
 import type { SlashCommandInfo } from '@harness-code/core';
-import type { GitStatus, ModelInfo, ServerInfo, SessionSummary, SkillInfo, TerminalInfo, Workspace } from '@harness-code/protocol';
+import type {
+  GitBranches,
+  GitStatus,
+  ModelInfo,
+  ServerInfo,
+  SessionSummary,
+  SkillInfo,
+  TerminalInfo,
+  Workspace,
+} from '@harness-code/protocol';
 
 import type { ConnectionStatus } from './rpc';
 import type { CommandSurface } from './slash';
@@ -22,8 +31,10 @@ export interface AppState {
   skills: Record<string, SkillInfo[]>;
   /** The models on offer per workspace, loaded when a model picker opens. */
   models: Record<string, ModelInfo[]>;
-  /** Git state per workspace something is showing (`SessionSync.watchGit`). */
+  /** Git state per checkout something is showing, by `checkoutKey` (`SessionSync.watchGit`). */
   git: Record<string, GitStatus>;
+  /** Each workspace's branches, for a new session's worktree (`SessionSync.loadBranches`). */
+  branches: Record<string, GitBranches>;
   /** Counts the `git_changed` pushes per workspace, so an open diff knows to fetch again. */
   gitRev: Record<string, number>;
   /** Each workspace's terminals, oldest first (`terminal.list`, then `terminals` pushes). */
@@ -35,6 +46,8 @@ export interface AppState {
   restored: Record<string, { text: string; attachments: string[]; inline?: boolean }>;
   /** Last failed action, shown as a dismissible banner. */
   error: string | null;
+  /** An archive the server refused over a worktree's uncommitted changes, waiting on the user to confirm. */
+  archiveConflict: { id: string; reason: string } | null;
   /** The `/help` panel. */
   helpOpen: boolean;
   /** The "add project" dialog. */
@@ -58,10 +71,12 @@ export const useAppStore = create<AppState>(() => ({
   skills: {},
   models: {},
   git: {},
+  branches: {},
   gitRev: {},
   terminals: {},
   restored: {},
   error: null,
+  archiveConflict: null,
   helpOpen: false,
   addProjectOpen: false,
   paletteOpen: false,

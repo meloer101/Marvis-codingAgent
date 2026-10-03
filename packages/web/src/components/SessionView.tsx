@@ -16,6 +16,8 @@ import { SidePanel } from '@/components/SidePanel';
 import { SkillsDialog } from '@/components/SkillsDialog';
 import { Transcript } from '@/components/Transcript';
 import { ContextButton } from '@/components/UsagePanel';
+import { useSessionCheckout } from '@/lib/checkout';
+import type { Checkout } from '@/lib/checkout';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { allCommands, clientCommand } from '@/lib/slash';
 import type { CommandSurface, SlashCommand } from '@/lib/slash';
@@ -32,6 +34,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
   const skills = useAppStore((s) => s.skills[id]);
   const commands = useMemo(() => allCommands(mcp ?? [], skills ?? []), [mcp, skills]);
   const modes = useSessionModes(view);
+  const checkout = useSessionCheckout({ id, workspaceId: view?.workspaceId, worktree: view?.worktree });
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const requestId = view ? (view.askId ?? view.planId) : null;
   const hadRequest = useRef(false);
@@ -122,6 +125,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
           />
           <SessionComposer
             view={view}
+            checkout={checkout}
             modes={modes}
             onSend={send}
             inputRef={composerRef}
@@ -131,9 +135,9 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
             onSurface={setSurface}
           />
         </div>
-        {view.workspaceId && <TerminalPanel workspaceId={view.workspaceId} />}
+        {checkout && <TerminalPanel checkout={checkout} />}
       </div>
-      <SidePanel view={view} />
+      <SidePanel view={view} checkout={checkout} />
       {surface === 'skills' && (
         <SkillsDialog
           skills={skills}
@@ -157,6 +161,7 @@ function useSessionModes(view: SessionViewState | undefined): readonly Permissio
 
 function SessionComposer({
   view,
+  checkout,
   modes,
   onSend,
   inputRef,
@@ -166,6 +171,8 @@ function SessionComposer({
   onSurface,
 }: {
   view: SessionViewState;
+  /** Where `@` looks for files: where the session works. */
+  checkout: Checkout | undefined;
   modes: readonly PermissionMode[];
   onSend: (text: string, attachments: string[]) => Promise<boolean>;
   inputRef: RefObject<HTMLTextAreaElement | null>;
@@ -202,7 +209,7 @@ function SessionComposer({
       onSend={onSend}
       onAbort={() => void sync.abort(id)}
       onCommandMenu={() => void sync.prepareCommands(id)}
-      {...(view.workspaceId ? { onSearchFiles: (query: string) => sync.searchFiles(view.workspaceId!, query) } : {})}
+      {...(checkout ? { onSearchFiles: (query: string) => sync.searchFiles(checkout, query) } : {})}
       onCycleMode={() => setMode(nextPermissionMode(view.mode, { includeAuto: modes.includes('auto') }))}
       inputRef={inputRef}
       {...(restored !== undefined ? { restored } : {})}
