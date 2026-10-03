@@ -264,7 +264,7 @@ describe('copy and retry', () => {
     ];
     const { rerender } = render(<Transcript view={view({ entries })} onRetry={onRetry} />);
     fireEvent.click(screen.getByRole('button', { name: /Retry/ }));
-    expect(onRetry).toHaveBeenCalledWith('fix it', ['a.ts']);
+    expect(onRetry).toHaveBeenCalledWith('fix it', ['a.ts'], []);
     rerender(<Transcript view={view({ entries, running: true })} onRetry={onRetry} />);
     expect(screen.queryByRole('button', { name: /Retry/ })).toBeNull();
   });

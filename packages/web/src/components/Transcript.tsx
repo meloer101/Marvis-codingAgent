@@ -1,11 +1,12 @@
 import { memo, useMemo, useState, type ReactNode } from 'react';
 import { AlertTriangle, ArrowDown, Brain, Check, ChevronRight, Circle, FileText, Info, Loader2, RotateCcw, Search, X } from 'lucide-react';
 
-import type { Notice } from '@harness-code/core';
+import type { ImageInput, Notice } from '@harness-code/core';
 import { describeToolInput } from '@harness-code/core/browser';
 import type { Entry, ToolItem } from '@harness-code/protocol';
 
 import { CopyButton } from '@/components/CopyButton';
+import { ImageThumbs } from '@/components/ImageThumbs';
 import { Markdown } from '@/components/Markdown';
 import { toolView } from '@/components/tools/registry';
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,7 @@ export function Transcript({
   onRetry,
 }: {
   view: SessionViewState;
-  onRetry?: (text: string, attachments: string[]) => void;
+  onRetry?: (text: string, attachments: string[], images: ImageInput[]) => void;
 }) {
   const { entries, live, running } = view;
   const { ref, onScroll, atBottom, scrollToBottom } = useStickToBottom<HTMLDivElement>(
@@ -55,7 +56,7 @@ export function Transcript({
           )}
           {retry && onRetry && (
             <div className="flex animate-rise items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={() => onRetry(retry.text, retry.attachments)}>
+              <Button size="sm" variant="secondary" onClick={() => onRetry(retry.text, retry.attachments, retry.images)}>
                 <RotateCcw />
                 Retry
               </Button>
@@ -92,7 +93,11 @@ const EntryRow = memo(function EntryRow({ entry }: { entry: Entry }) {
   return (
     <div className="animate-rise" style={ROW_STYLE}>
       {entry.kind === 'user' ? (
-        <UserMessage text={entry.text} {...(entry.attachments ? { attachments: entry.attachments } : {})} />
+        <UserMessage
+          text={entry.text}
+          {...(entry.attachments ? { attachments: entry.attachments } : {})}
+          {...(entry.images ? { images: entry.images } : {})}
+        />
       ) : entry.kind === 'notice' ? (
         <NoticeRow notice={entry.notice} />
       ) : null}
@@ -146,9 +151,18 @@ function PartView({ part }: { part: Part }) {
   }
 }
 
-export function UserMessage({ text, attachments }: { text: string; attachments?: readonly string[] }) {
+export function UserMessage({
+  text,
+  attachments,
+  images,
+}: {
+  text: string;
+  attachments?: readonly string[];
+  images?: readonly ImageInput[];
+}) {
   return (
     <div className="group/user relative flex flex-col gap-2 rounded-lg border bg-card px-4 py-3 text-sm shadow-xs">
+      {images && images.length > 0 && <ImageThumbs images={images} />}
       {text && <div className="pr-6 whitespace-pre-wrap">{text}</div>}
       {text && (
         <CopyButton

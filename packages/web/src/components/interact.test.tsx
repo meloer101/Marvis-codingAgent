@@ -36,6 +36,29 @@ function renderComposer(overrides: Partial<Parameters<typeof Composer>[0]> = {})
   return { textarea: screen.getByRole('textbox') as HTMLTextAreaElement, onSend, onAbort };
 }
 
+describe('Composer images', () => {
+  const png = () => new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' });
+
+  it('takes a pasted image as a thumbnail and sends it with the message, even without text', async () => {
+    const { textarea, onSend } = renderComposer();
+    fireEvent.paste(textarea, { clipboardData: { files: [png()], getData: () => '' } });
+    expect(await screen.findByRole('button', { name: 'Image 1' })).toBeTruthy();
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('', [], { steer: false, images: [{ mediaType: 'image/png', data: 'iVBORw==' }] });
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Image 1' })).toBeNull());
+  });
+
+  it("won't take images for a model that can't see them", async () => {
+    const { textarea, onSend } = renderComposer({ imagesProblem: "mock/mini can't see images" });
+    expect((screen.getByLabelText('Add images') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.paste(textarea, { clipboardData: { files: [png()], getData: () => '' } });
+    expect((await screen.findByRole('alert')).textContent).toBe("mock/mini can't see images");
+    expect(screen.queryByRole('button', { name: 'Image 1' })).toBeNull();
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+});
+
 describe('Composer', () => {
   it('sends on Enter and keeps Shift+Enter as a newline', () => {
     const { textarea, onSend } = renderComposer();
@@ -43,7 +66,7 @@ describe('Composer', () => {
     fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
     expect(onSend).not.toHaveBeenCalled();
     fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('hello', [], { steer: false });
+    expect(onSend).toHaveBeenCalledWith('hello', [], { steer: false, images: [] });
   });
 
   it('does not send on the Enter that confirms an IME candidate', () => {
@@ -70,7 +93,7 @@ describe('Composer', () => {
     const { textarea, onSend } = renderComposer();
     fireEvent.change(textarea, { target: { value: '/help' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('/help', [], { steer: false });
+    expect(onSend).toHaveBeenCalledWith('/help', [], { steer: false, images: [] });
   });
 
   it('Escape closes the menu without reaching the window (which would abort)', () => {
@@ -92,15 +115,15 @@ describe('Composer', () => {
     expect(onAbort).toHaveBeenCalled();
     fireEvent.change(textarea, { target: { value: 'next' } });
     fireEvent.click(screen.getByLabelText('Queue'));
-    expect(onSend).toHaveBeenLastCalledWith('next', [], { steer: false });
+    expect(onSend).toHaveBeenLastCalledWith('next', [], { steer: false, images: [] });
     await waitFor(() => expect(textarea.value).toBe(''));
     fireEvent.change(textarea, { target: { value: 'use tabs' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenLastCalledWith('use tabs', [], { steer: true });
+    expect(onSend).toHaveBeenLastCalledWith('use tabs', [], { steer: true, images: [] });
     await waitFor(() => expect(textarea.value).toBe(''));
     fireEvent.change(textarea, { target: { value: 'afterwards' } });
     fireEvent.keyDown(textarea, { key: 'Enter', altKey: true });
-    expect(onSend).toHaveBeenLastCalledWith('afterwards', [], { steer: false });
+    expect(onSend).toHaveBeenLastCalledWith('afterwards', [], { steer: false, images: [] });
   });
 
   it('puts restored text in front of the draft, once', () => {
@@ -126,7 +149,7 @@ describe('Composer', () => {
     expect(onSend).not.toHaveBeenCalled(); // Enter picked the file
 
     fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('look at @src/Composer.tsx ', ['src/Composer.tsx'], { steer: false });
+    expect(onSend).toHaveBeenCalledWith('look at @src/Composer.tsx ', ['src/Composer.tsx'], { steer: false, images: [] });
   });
 
   it('detaching a file takes its @path out of the text', async () => {

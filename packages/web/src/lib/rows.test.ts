@@ -111,8 +111,8 @@ describe('retryTarget', () => {
   const failed: Entry = { kind: 'notice', id: 2, notice: { kind: 'error', level: 'error', text: 'provider down' } };
 
   it('offers the last message after a run that failed or was stopped, or got no reply', () => {
-    expect(retryTarget([user, reply, failed], false)).toEqual({ text: 'fix it', attachments: ['a.ts'] });
-    expect(retryTarget([user], false)).toEqual({ text: 'fix it', attachments: ['a.ts'] });
+    expect(retryTarget([user, reply, failed], false)).toEqual({ text: 'fix it', attachments: ['a.ts'], images: [] });
+    expect(retryTarget([user], false)).toEqual({ text: 'fix it', attachments: ['a.ts'], images: [] });
   });
 
   it('offers nothing once a run answered, while one is going, or before any message', () => {

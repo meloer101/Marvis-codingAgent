@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode, RefObject } from 'react';
-import { ArrowUp, ListEnd, Square } from 'lucide-react';
+import { ArrowUp, ImagePlus, ListEnd, Square } from 'lucide-react';
 
+import type { ImageInput } from '@harness-code/core';
 import type { FileMatch } from '@harness-code/protocol';
 
 import { FileMenu } from '@/components/FileMenu';
+import { ImageThumbs } from '@/components/ImageThumbs';
 import { SlashMenu } from '@/components/SlashMenu';
 import { AttachmentChips } from '@/components/Transcript';
 import { Button } from '@/components/ui/button';
+import { MAX_IMAGES, readImage } from '@/lib/images';
 import { insertMention, mentionAt, presentAttachments, removeMention } from '@/lib/mention';
 import { filterCommands, slashQuery } from '@/lib/slash';
 import type { SlashCommand } from '@/lib/slash';
@@ -22,6 +25,7 @@ const SEARCH_DEBOUNCE_MS = 60;
 export interface RestoredDraft {
   text: string;
   attachments: string[];
+  images?: ImageInput[];
   /** Goes right before the draft (a command), not as a paragraph of its own. */
   inline?: boolean;
 }
@@ -46,7 +50,8 @@ function loadFiles(sessionId: string): string[] {
  * run is going Stop joins the send button, Enter sends for the agent to read
  * at its next step (`steer`), and ⌥Enter — or the Queue button — waits for the
  * run to end instead; the draft (and its attachments) survives reloads per
- * session. The footer holds what the next message runs under (`controls`)
+ * session. Images are pasted, dropped on it or picked with the image button,
+ * shown as thumbnails until sent; they don't survive a reload. The footer holds what the next message runs under (`controls`)
  * and, before the send button, `trailing` (the context meter).
  */
 export function Composer({
@@ -65,13 +70,17 @@ export function Composer({
   restored,
   onRestored,
   autoFocus = true,
+  imagesProblem,
 }: {
   sessionId: string;
   running: boolean;
   disabled: boolean;
   commands: SlashCommand[];
-  /** `steer`: sent while a run is going, for the agent to read at its next step rather than after the run. */
-  onSend: (text: string, attachments: string[], opts: { steer: boolean }) => Promise<boolean>;
+  /**
+   * `steer`: sent while a run is going, for the agent to read at its next step
+   * rather than after the run. `images`: what was pasted, dropped or picked.
+   */
+  onSend: (text: string, attachments: string[], opts: { steer: boolean; images: ImageInput[] }) => Promise<boolean>;
   onAbort: () => void;
   /** Called when the `/` menu opens — the session's MCP prompt commands can load then. */
   onCommandMenu?: () => void;
@@ -88,9 +97,14 @@ export function Composer({
   onRestored?: () => void;
   /** Take the focus when mounted (not in the pane of a split that hasn't got it). */
   autoFocus?: boolean;
+  /** Why images can't go with the message (the model can't see them); absent when they can. */
+  imagesProblem?: string | undefined;
 }) {
   const [text, setText] = useState(() => platform.storage.get(draftKey(sessionId)) ?? '');
   const [attached, setAttached] = useState<string[]>(() => loadFiles(sessionId));
+  const [images, setImages] = useState<ImageInput[]>([]);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const [caret, setCaret] = useState(() => text.length);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState(false);
@@ -168,6 +182,7 @@ export function Composer({
     setText(joined);
     pendingCaret.current = restored.text.length;
     setAttached((files) => [...new Set([...restored.attachments, ...files])]);
+    if (restored.images?.length) setImages((held) => [...restored.images!, ...held].slice(0, MAX_IMAGES));
     onRestored?.();
     ref.current?.focus();
   }, [restored]);
@@ -178,18 +193,53 @@ export function Composer({
     if (typingCommand) onCommandMenu?.();
   }, [typingCommand]);
 
-  const canSend = !disabled && text.trim() !== '';
+  // An image the model can't see blocks sending until it is removed or the model changes.
+  const blockedByImages = images.length > 0 && imagesProblem !== undefined;
+  const canSend = !disabled && (text.trim() !== '' || images.length > 0) && !blockedByImages;
+
+  useEffect(() => {
+    if (!imageError) return;
+    const t = setTimeout(() => setImageError(null), 5000);
+    return () => clearTimeout(t);
+  }, [imageError]);
+
+  /** Read image files into the draft — those that fit, up to `MAX_IMAGES`. */
+  const addImages = async (files: readonly File[]): Promise<void> => {
+    const wanted = files.filter((f) => f.type.startsWith('image/'));
+    if (wanted.length === 0) return;
+    if (imagesProblem) {
+      setImageError(imagesProblem);
+      return;
+    }
+    const read: ImageInput[] = [];
+    for (const file of wanted) {
+      try {
+        read.push(await readImage(file));
+      } catch (err) {
+        setImageError(err instanceof Error ? err.message : String(err));
+      }
+    }
+    setImages((held) => {
+      const next = [...held, ...read];
+      if (next.length > MAX_IMAGES) setImageError(`At most ${MAX_IMAGES} images in a message.`);
+      return next.slice(0, MAX_IMAGES);
+    });
+    ref.current?.focus();
+  };
 
   /** Send what is typed: while a run is going, to steer it unless `queue`d for after. */
   const submit = async (opts: { queue?: boolean } = {}): Promise<void> => {
     if (!canSend) return;
     const value = text;
     const files = attachments;
+    const pictures = images;
     setText('');
     setAttached([]);
-    if (!(await onSend(value, files, { steer: running && !opts.queue }))) {
+    setImages([]);
+    if (!(await onSend(value, files, { steer: running && !opts.queue, images: pictures }))) {
       setText(value);
       setAttached(files);
+      setImages(pictures);
     }
   };
 
@@ -262,10 +312,22 @@ export function Composer({
     <div className="relative">
       {commandMenuOpen && <SlashMenu commands={commandMatches} active={active} onPick={complete} />}
       {fileMenuOpen && <FileMenu files={files} active={active} onPick={pickFile} />}
-      <div className="flex flex-col rounded-xl border bg-card shadow-sm transition-shadow focus-within:border-primary/45 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/25">
-        {attachments.length > 0 && (
-          <div className="px-3 pt-2.5">
-            <AttachmentChips paths={attachments} onRemove={detach} />
+      <div
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          const files = [...e.dataTransfer.files];
+          if (files.length === 0) return;
+          e.preventDefault();
+          void addImages(files);
+        }}
+        className="flex flex-col rounded-xl border bg-card shadow-sm transition-shadow focus-within:border-primary/45 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/25"
+      >
+        {(attachments.length > 0 || images.length > 0) && (
+          <div className="flex flex-col gap-2 px-3 pt-2.5">
+            {images.length > 0 && <ImageThumbs images={images} onRemove={(i) => setImages(images.filter((_, j) => j !== i))} />}
+            {attachments.length > 0 && <AttachmentChips paths={attachments} onRemove={detach} />}
           </div>
         )}
         <textarea
@@ -279,6 +341,13 @@ export function Composer({
           }}
           onSelect={(e) => followCaret(e.currentTarget)}
           onKeyDown={onKeyDown}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'));
+            if (files.length === 0) return;
+            // A picture copied with its caption pastes both: the text still lands.
+            if (!e.clipboardData.getData('text/plain')) e.preventDefault();
+            void addImages(files);
+          }}
           placeholder={
             running
               ? 'Running… Enter: read at its next step · ⌥Enter: after this turn'
@@ -287,8 +356,34 @@ export function Composer({
           className="max-h-60 min-h-11 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm outline-none placeholder:text-muted-foreground"
           disabled={disabled}
         />
+        {(imageError || blockedByImages) && (
+          <p role="alert" className="px-3.5 pb-1 text-xs text-brass-strong">
+            {imageError ?? imagesProblem}
+          </p>
+        )}
         <div className="flex items-center gap-1 px-2 pb-2">
           <div className="flex min-w-0 flex-1 items-center gap-0.5">{controls}</div>
+          <button
+            type="button"
+            onClick={() => picker.current?.click()}
+            disabled={disabled || imagesProblem !== undefined}
+            aria-label="Add images"
+            title={imagesProblem ?? 'Add images — or paste or drop them here'}
+            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <ImagePlus className="size-3.5" />
+          </button>
+          <input
+            ref={picker}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            multiple
+            hidden
+            onChange={(e) => {
+              void addImages([...(e.target.files ?? [])]);
+              e.target.value = '';
+            }}
+          />
           {trailing}
           {running && (
             <Button size="icon-sm" variant="secondary" className="rounded-lg" onClick={onAbort} aria-label="Stop" title="Stop (Esc)">

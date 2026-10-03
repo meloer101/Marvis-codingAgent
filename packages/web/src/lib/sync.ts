@@ -21,7 +21,7 @@
  *    or answers `reset` with a fresh snapshot.
  */
 
-import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
+import type { ImageInput, PermissionMode, ReasoningEffort } from '@harness-code/core';
 import type {
   AskDecision,
   DirEntry,
@@ -230,6 +230,7 @@ export class SessionSync {
     text: string,
     opts: {
       attachments?: string[];
+      images?: ImageInput[];
       workspaceId?: string;
       model?: string;
       mode?: PermissionMode;
@@ -257,13 +258,19 @@ export class SessionSync {
    * Send a message: it starts a run, or waits for the one going to end — or,
    * with `steer`, for the agent to read it at the run's next step.
    */
-  async send(id: string, text: string, attachments: string[] = [], opts: { steer?: boolean } = {}): Promise<boolean> {
+  async send(
+    id: string,
+    text: string,
+    attachments: string[] = [],
+    opts: { steer?: boolean; images?: ImageInput[] } = {},
+  ): Promise<boolean> {
     try {
       await this.#act(id, () =>
         this.rpc.call('session.send', {
           id,
           text,
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...(opts.images?.length ? { images: opts.images } : {}),
           ...(opts.steer ? { steer: true } : {}),
         }),
       );
@@ -306,12 +313,16 @@ export class SessionSync {
     this.#store.setState((s) => {
       const before = s.restored[id];
       const attachments = message.attachments ?? [];
+      const images = [...(before?.images ?? []), ...(message.images ?? [])];
       return {
         restored: {
           ...s.restored,
-          [id]: before
-            ? { text: `${before.text}\n\n${message.text}`, attachments: [...before.attachments, ...attachments] }
-            : { text: message.text, attachments },
+          [id]: {
+            ...(before
+              ? { text: `${before.text}\n\n${message.text}`, attachments: [...before.attachments, ...attachments] }
+              : { text: message.text, attachments }),
+            ...(images.length > 0 ? { images } : {}),
+          },
         },
       };
     });

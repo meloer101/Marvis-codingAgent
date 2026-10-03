@@ -253,7 +253,7 @@
 - **MVP（M0–M5）10-03 已完成**：转录可读性、审查闭环（Changes / Files / Tasks 面板、行评论）和终端都已上线，现状见
   [`web.md`](./web.md)。
 - **P1 10-03 已完成**：每会话 git worktree、运行中插话（steering）、分屏、块级暂存/还原，见 [`web.md`](./web.md)。
-- **MVP 之后**：P2 图片附件（provider 加 image 内容块）、rewind / 编辑历史消息 / fork、后台进程、
+- **MVP 之后**：P2 rewind / 编辑历史消息 / fork、后台进程、
   统计与 trace 视图、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）；P3 桌面壳。
 
 ## Other

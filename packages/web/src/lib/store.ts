@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import type { SlashCommandInfo } from '@harness-code/core';
+import type { ImageInput, SlashCommandInfo } from '@harness-code/core';
 import type {
   GitBranches,
   GitStatus,
@@ -43,7 +43,7 @@ export interface AppState {
    * What to put back in a session's composer: queued messages a Stop handed
    * back, or one taken out of the queue to edit. The composer takes it once.
    */
-  restored: Record<string, { text: string; attachments: string[]; inline?: boolean }>;
+  restored: Record<string, { text: string; attachments: string[]; images?: ImageInput[]; inline?: boolean }>;
   /** Last failed action, shown as a dismissible banner. */
   error: string | null;
   /** An archive the server refused over a worktree's uncommitted changes, waiting on the user to confirm. */

@@ -3,7 +3,7 @@ import type { RefObject } from 'react';
 import { Loader2 } from 'lucide-react';
 
 import { nextPermissionMode } from '@harness-code/core/browser';
-import type { PermissionMode } from '@harness-code/core';
+import type { ImageInput, PermissionMode } from '@harness-code/core';
 
 import { Composer } from '@/components/Composer';
 import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerControls';
@@ -78,7 +78,11 @@ export function SessionView({ id, onNewSession, pane }: { id: string; onNewSessi
   }, [requestId]);
 
   /** Client-side commands never reach the server — see lib/slash.ts. */
-  const send = async (text: string, attachments: string[], opts: { steer?: boolean } = {}): Promise<boolean> => {
+  const send = async (
+    text: string,
+    attachments: string[],
+    opts: { steer?: boolean; images?: ImageInput[] } = {},
+  ): Promise<boolean> => {
     if (!view) return false;
     const action = clientCommand(text, { effortLevels: view.effortLevels, modes });
     switch (action?.kind) {
@@ -123,7 +127,7 @@ export function SessionView({ id, onNewSession, pane }: { id: string; onNewSessi
     <div className="flex min-h-0 min-w-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <SessionHeader view={view} {...(pane ? { pane } : {})} />
-        <Transcript view={view} onRetry={(text, attachments) => void sync.send(id, text, attachments)} />
+        <Transcript view={view} onRetry={(text, attachments, images) => void sync.send(id, text, attachments, { images })} />
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
           <TaskDock view={view} />
           <PendingDock view={view} />
@@ -184,7 +188,7 @@ function SessionComposer({
   checkout: Checkout | undefined;
   autoFocus: boolean;
   modes: readonly PermissionMode[];
-  onSend: (text: string, attachments: string[], opts?: { steer?: boolean }) => Promise<boolean>;
+  onSend: (text: string, attachments: string[], opts?: { steer?: boolean; images?: ImageInput[] }) => Promise<boolean>;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   commands: SlashCommand[];
   connected: boolean;
@@ -196,12 +200,14 @@ function SessionComposer({
   const models = useAppStore((s) => (view.workspaceId ? s.models[view.workspaceId] : undefined));
   const restored = useAppStore((s) => s.restored[view.id]);
   const modelInfo = models?.find((m) => m.ref === view.modelRef);
-  // Until the first reply measures the context, the meter shows the model's window.
+  // The meter shows the model's window until the first reply measures the
+  // context, and the composer whether the model can see images.
   const workspaceKey = view.workspaceId;
-  const needModels = !view.context && models === undefined;
+  const needModels = models === undefined;
   useEffect(() => {
     if (needModels && workspaceKey) void sync.loadModels(workspaceKey);
   }, [needModels, workspaceKey]);
+  const imagesProblem = modelInfo && !modelInfo.vision ? `${modelInfo.ref} can't see images` : undefined;
   /** A picker a command opened, closed by the picker as usual. */
   const control = (which: CommandSurface) => ({
     open: surface === which,
@@ -214,6 +220,7 @@ function SessionComposer({
       key={id}
       sessionId={id}
       autoFocus={autoFocus}
+      imagesProblem={imagesProblem}
       running={view.running}
       disabled={!connected || view.hydrating}
       commands={commands}

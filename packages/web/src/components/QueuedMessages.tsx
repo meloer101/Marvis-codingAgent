@@ -1,4 +1,4 @@
-import { CornerDownRight, Pencil, X } from 'lucide-react';
+import { CornerDownRight, Image as ImageIcon, Pencil, X } from 'lucide-react';
 
 import type { QueuedMessage } from '@harness-code/protocol';
 
@@ -53,7 +53,15 @@ function MessageGroup({
         {messages.map((q) => (
           <li key={q.id} className="group flex items-start gap-2 rounded-md px-1 py-1 text-[13px] transition-colors hover:bg-accent/60">
             <CornerDownRight className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-            <span className="line-clamp-2 min-w-0 flex-1 break-words whitespace-pre-wrap">{q.text}</span>
+            <span className="line-clamp-2 min-w-0 flex-1 break-words whitespace-pre-wrap">
+              {q.images?.length ? (
+                <span className="mr-1.5 inline-flex items-center gap-0.5 align-middle font-mono text-[10px] text-muted-foreground">
+                  <ImageIcon className="size-3" />
+                  {q.images.length}
+                </span>
+              ) : null}
+              {q.text}
+            </span>
             <span className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
               <button
                 type="button"

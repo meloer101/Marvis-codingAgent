@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, ChevronDown, Folder, Loader2 } from 'lucide-react';
 
 import { nextPermissionMode } from '@harness-code/core/browser';
-import type { PermissionMode, ReasoningEffort } from '@harness-code/core';
+import type { ImageInput, PermissionMode, ReasoningEffort } from '@harness-code/core';
 import type { Workspace } from '@harness-code/protocol';
 
 import { Composer } from '@/components/Composer';
@@ -43,7 +43,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
     model?: string;
     effort?: ReasoningEffort;
   }>({});
-  const [starting, setStarting] = useState<{ text: string; attachments: string[] } | null>(null);
+  const [starting, setStarting] = useState<{ text: string; attachments: string[]; images: ImageInput[] } | null>(null);
   const own = choice.workspaceId === workspace?.id ? choice : {};
   const mode = own.mode ?? workspace?.defaults.mode ?? 'ask';
   const modes = workspace?.defaults.modes ?? [mode];
@@ -84,7 +84,8 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
     onOpenChange: (open: boolean) => setSurface(open ? which : null),
   });
 
-  const send = async (text: string, attachments: string[]): Promise<boolean> => {
+  const send = async (text: string, attachments: string[], opts: { images?: ImageInput[] } = {}): Promise<boolean> => {
+    const images = opts.images ?? [];
     const action = clientCommand(text, { effortLevels, modes });
     switch (action?.kind) {
       case undefined:
@@ -115,9 +116,10 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
         sync.showError(action.message);
         return false;
     }
-    setStarting({ text, attachments });
+    setStarting({ text, attachments, images });
     const id = await sync.startSession(text, {
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(images.length > 0 ? { images } : {}),
       ...(workspace ? { workspaceId: workspace.id } : {}),
       mode,
       ...(own.model ? { model: own.model } : {}),
@@ -146,7 +148,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
           <Welcome workspace={workspace} />
         ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
-            <UserMessage text={starting.text} attachments={starting.attachments} />
+            <UserMessage text={starting.text} attachments={starting.attachments} images={starting.images} />
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-3.5 animate-spin text-primary" />
               <span className="font-serif italic">
@@ -166,6 +168,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
           commands={BUILTIN_COMMANDS}
           onSend={send}
           onAbort={() => {}}
+          imagesProblem={modelInfo && !modelInfo.vision ? `${modelInfo.ref} can't see images` : undefined}
           {...(workspace ? { onSearchFiles: (query: string) => sync.searchFiles({ workspaceId: workspace.id }, query) } : {})}
           onCycleMode={() => choose({ mode: nextPermissionMode(mode, { includeAuto: modes.includes('auto') }) })}
           {...(workspace ? { trailing: <ContextButton modelRef={modelRef} {...(modelInfo ? { model: modelInfo } : {})} /> } : {})}

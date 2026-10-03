@@ -7,7 +7,7 @@
  * calls can fold into one line even when it spans several model calls.
  */
 
-import type { Notice } from '@harness-code/core';
+import type { ImageInput, Notice } from '@harness-code/core';
 import type { Entry, LiveSnapshot, ToolItem } from '@harness-code/protocol';
 
 const STARTUP_KINDS: ReadonlySet<Notice['kind']> = new Set([
@@ -188,7 +188,7 @@ export function briefNotice(notice: Notice): string | null {
 export function retryTarget(
   entries: readonly Entry[],
   running: boolean,
-): { text: string; attachments: string[] } | null {
+): { text: string; attachments: string[]; images: ImageInput[] } | null {
   if (running) return null;
   let u = entries.length - 1;
   while (u >= 0 && entries[u]!.kind !== 'user') u--;
@@ -197,7 +197,7 @@ export function retryTarget(
   const after = entries.slice(u + 1);
   const failed = after.some((e) => e.kind === 'notice' && e.notice.kind === 'error');
   const answered = after.some((e) => e.kind === 'assistant');
-  return failed || !answered ? { text: user.text, attachments: user.attachments ?? [] } : null;
+  return failed || !answered ? { text: user.text, attachments: user.attachments ?? [], images: user.images ?? [] } : null;
 }
 
 /** A turn's reply as markdown, for copying: its text, step by step. */

@@ -117,13 +117,13 @@ the server with the same schemas the client is typed from.
 | `git.branches {workspaceId}` | the repository's local branches, the checked-out one first, for a worktree to start from (`{repo: false}` outside one) |
 | `fs.search {workspaceId, sessionId?, query, limit?}` | a workspace's files matching an `@` query, best first; no ignored files, no secrets |
 | `session.list` | every workspace's sessions (on disk plus live), newest first |
-| `session.start {text, attachments?, workspaceId?, model?, mode?, effort?, worktree?}` | create a session and send its first message (how a draft becomes a session); a bad attachment creates nothing. `worktree {base}`: in a git worktree of its own, on a new branch off `base` |
+| `session.start {text, attachments?, images?, workspaceId?, model?, mode?, effort?, worktree?}` | create a session and send its first message (how a draft becomes a session); a bad attachment or image creates nothing. `worktree {base}`: in a git worktree of its own, on a new branch off `base` |
 | `session.create {workspaceId?, model?, mode?, effort?}` | create an empty live session |
 | `session.preview {id}` | the live snapshot, or the transcript from disk — never resumes |
 | `session.open {id}` | the live snapshot, resuming the session first if needed |
 | `session.subscribe {id, sinceSeq?, epoch?}` | start receiving the session's events; replays the gap or answers `{reset, snapshot}` |
 | `session.unsubscribe {id}` | stop receiving them |
-| `session.send {id, text, attachments?, steer?}` | start a run, or queue the message behind the one going (`{runId}` or `{queued}`); with `steer`, the run reads it at its next step |
+| `session.send {id, text, attachments?, images?, steer?}` | start a run, or queue the message behind the one going (`{runId}` or `{queued}`); with `steer`, the run reads it at its next step |
 | `session.unqueue {id, queuedId}` | take a queued message back before it goes |
 | `session.abort {id}` | stop the run; pending prompts settle as a deny, and the queue comes back as `{unqueued}` |
 | `session.setMode {id, mode}` | change the permission mode |
@@ -242,6 +242,15 @@ processes. The two are managed separately.
   binary, or over 256 KB (for those, mention the path and let the agent read
   what it needs). Titles and what a compaction keeps of the user's messages
   leave the file bodies out.
+- **Images** (`images: [{mediaType, data}]`, base64 PNG, JPEG, GIF or WebP):
+  up to eight a message, 5 MB each, for a model whose capabilities say it sees
+  them (`vision`: GPT-4o, o-series, GPT-5, Claude via OpenRouter, the `-vl` /
+  `-4v` / llava kinds) — refused as `bad_request` before anything is sent
+  otherwise. They go in the message between attached files and the text, as
+  `image_url` parts on the wire; a model switched to later that can't see them
+  gets `[image]`. The log keeps them inline, so a transcript (and `run_start`,
+  a queued message, `user_input`) carries them; the context estimate counts
+  1.6K tokens each.
 - **Skills** run as `/name [task]`: after the MCP prompts, the server expands a
   skill's name into the request to load it through the `skill` tool — the text
   the TUI's skill picker sends — with the rest of the line as the task.
@@ -386,7 +395,12 @@ The token is as powerful as the user's shell — a client can switch a session t
   line, an IME's Enter only confirms. `/` at the start opens the command menu,
   `@` at the start of a word the file menu (`fs.search`); a picked file is
   attached while its `@path` stays in the text, shown as a chip, and kept with
-  the draft across reloads. Its footer holds the mode chip (Shift+Tab cycles
+  the draft across reloads. Images are pasted, dropped on the composer or picked
+  with its image button (`lib/images.ts`: one bigger than 2048 px on its long
+  edge, over 5 MB or in another format is redrawn as PNG or JPEG first), shown
+  as thumbnails until sent and not kept across reloads; a model that can't see
+  images (`model.list`'s `vision`) disables the button and says why. A message's
+  images show as thumbnails that open whole. Its footer holds the mode chip (Shift+Tab cycles
   ask → acceptEdits → plan → auto), the model menu (each model's window, price
   and key status; `model.list` loads as it opens), the effort menu and, before
   the send button, the context ring that opens the breakdown and usage. While a
