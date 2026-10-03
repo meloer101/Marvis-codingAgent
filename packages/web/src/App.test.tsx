@@ -128,7 +128,7 @@ describe('App', () => {
     expect(screen.getByText('left one')).toBeTruthy();
     expect(screen.getByText('right one')).toBeTruthy();
     // The panel and terminal toggles show on the focused pane only — the left one first.
-    const toggles = () => [...container.querySelectorAll('[data-pane]')].map((p) => p.querySelector('[aria-label="Side panel"]') !== null);
+    const toggles = () => [...container.querySelectorAll('[data-pane]')].map((p) => p.querySelector('[aria-label="Terminal"]') !== null);
     expect(toggles()).toEqual([true, false]);
     act(() => {
       fireEvent.pointerDown(container.querySelector('[data-pane="1"]')!);

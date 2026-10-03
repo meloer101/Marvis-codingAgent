@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Bell, BellOff } from 'lucide-react';
 
+import { footerIcon } from '@/components/Regions';
 import { notificationsOn, setNotificationsOn } from '@/lib/attention';
-import { cn } from '@/lib/utils';
 import { platform } from '@/platform';
 
 /**
@@ -43,12 +43,9 @@ export function NotifyToggle() {
       title={label}
       aria-label={label}
       aria-pressed={on}
-      className={cn(
-        'rounded-md p-1.5 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-50',
-        on ? 'text-primary' : 'text-muted-foreground',
-      )}
+      className={footerIcon}
     >
-      <Icon className="size-3.5" />
+      <Icon />
     </button>
   );
 }

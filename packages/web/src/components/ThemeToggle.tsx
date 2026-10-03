@@ -1,5 +1,6 @@
 import { Monitor, Moon, Sun } from 'lucide-react';
 
+import { footerIcon } from '@/components/Regions';
 import { nextTheme, setTheme, useTheme } from '@/lib/theme';
 import type { Theme } from '@/lib/theme';
 
@@ -23,12 +24,11 @@ export function ThemeToggle() {
     <button
       type="button"
       onClick={() => setTheme(nextTheme(theme))}
-      className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+      className={footerIcon}
       title={`Theme: ${LABELS[theme]} — click to switch`}
       aria-label={`Theme: ${LABELS[theme]}. Activate to switch.`}
     >
-      <Icon className="size-3.5" />
-      {LABELS[theme]}
+      <Icon />
     </button>
   );
 }

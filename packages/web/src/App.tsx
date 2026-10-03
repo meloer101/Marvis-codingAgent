@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Loader2, WifiOff, X } from 'lucide-react';
+import { LoaderCircle, WifiOff, X } from 'lucide-react';
 import type { SessionSummary } from '@harness-code/protocol';
 
 import { AddProjectDialog } from '@/components/AddProjectDialog';
@@ -148,15 +148,15 @@ function ConnectionBanner() {
   if (status === 'open' || status === 'closed') return null;
   if (status === 'unauthorized') {
     return (
-      <div className="flex items-center gap-2 border-b border-destructive/25 bg-destructive/10 px-4 py-2 text-xs text-destructive">
+      <div className="flex items-center gap-2 bg-destructive/10 px-5 py-2 text-xs text-destructive">
         <WifiOff className="size-3.5" />
         The server rejected this page's token — it has probably restarted. Open the URL that <code>hc web</code> printed.
       </div>
     );
   }
   return (
-    <div className="flex items-center gap-2 border-b border-brass/25 bg-brass-subtle/60 px-4 py-2 text-xs text-brass-strong">
-      <Loader2 className="size-3.5 animate-spin" />
+    <div className="flex items-center gap-2 bg-warning-subtle px-5 py-2 text-xs text-warning">
+      <LoaderCircle className="size-3.5 animate-spin" />
       {status === 'connecting' ? 'Connecting…' : 'Connection lost — reconnecting…'}
     </div>
   );
@@ -167,7 +167,7 @@ function ErrorBanner() {
   const error = useAppStore((s) => s.error);
   if (!error) return null;
   return (
-    <div className="flex items-center gap-2 border-b border-destructive/25 bg-destructive/10 px-4 py-2 text-xs text-destructive">
+    <div className="flex items-center gap-2 bg-destructive/10 px-5 py-2 text-xs text-destructive">
       <span className="flex-1">{error}</span>
       <button
         type="button"

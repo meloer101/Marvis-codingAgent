@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { KeyboardEvent, ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, KeyboardEvent, ReactNode } from 'react';
 import {
   Archive,
   ArchiveRestore,
@@ -9,8 +9,7 @@ import {
   Copy,
   FolderPlus,
   GitBranch,
-  Loader2,
-  MessageSquarePlus,
+  LoaderCircle,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -25,16 +24,18 @@ import {
 import type { SessionSummary, Workspace } from '@harness-code/protocol';
 
 import { NotifyToggle } from '@/components/NotifyToggle';
+import { SidebarCloser, SlideRegion, footerIcon } from '@/components/Regions';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { ContextActions, DropdownActions } from '@/components/ui/menu';
 import type { MenuAction } from '@/components/ui/menu';
 import { relativeTime } from '@/lib/format';
-import { routeToHash } from '@/lib/route';
+import { routeToHash, useRoute } from '@/lib/route';
 import { closePane, focusPane, openBeside, sessionHash } from '@/lib/split';
 import { loadSeen, markSeen, rowStatus, sidebarGroups } from '@/lib/sidebar';
 import type { RowStatus, SidebarGroup } from '@/lib/sidebar';
+import { useSidebarOpen } from '@/lib/sidebarOpen';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
@@ -99,27 +100,32 @@ export function SessionSidebar({
     platform.storage.set(COLLAPSED_KEY, JSON.stringify([...next]));
   };
 
+  const fresh = useFreshRows(sessions);
+  const route = useRoute();
+
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="flex items-baseline gap-2 px-4 pt-4 pb-3">
-        <span className="font-serif text-[17px] font-semibold tracking-[-0.01em]">
-          hc<span className="text-brass">·</span>web
+    <SlideRegion open={useSidebarOpen()} width="248px">
+      <aside aria-label="Sessions" className="flex h-full flex-col border-r bg-background">
+      <div className="flex h-11 shrink-0 items-center gap-1 pr-3 pl-2.5">
+        <SidebarCloser />
+        <span className="text-sm font-semibold">
+          hc <span className="font-normal text-faint">web</span>
         </span>
-        <span className="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">console</span>
-      </div>
-      <div className="flex flex-col gap-2 px-3 pb-2">
+        <div className="flex-1" />
         <button
           type="button"
           onClick={onNew}
           disabled={!connected}
-          className="flex w-full items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm font-medium shadow-xs transition-colors hover:bg-sidebar-accent disabled:pointer-events-none disabled:opacity-50"
+          title="New session (⇧⌘O)"
+          className="flex h-[26px] items-center gap-1 rounded-md bg-muted px-1.5 text-xs font-medium transition-colors hover:bg-muted/70 disabled:pointer-events-none disabled:opacity-40"
         >
-          <MessageSquarePlus className="size-4 text-primary" />
-          <span className="flex-1 text-left">New session</span>
-          <kbd className="font-mono text-[10px] text-muted-foreground">⇧⌘O</kbd>
+          <Plus className="size-3.5" />
+          New
         </button>
-        <label className="flex items-center gap-2 rounded-md border bg-background/60 px-2 py-1 focus-within:border-primary/45 focus-within:ring-2 focus-within:ring-primary/20">
-          <Search className="size-3.5 shrink-0 text-muted-foreground" />
+      </div>
+      <div className="px-2.5">
+        <label className="flex h-7 items-center gap-1.5 rounded-md bg-subtle pr-1.5 pl-2 focus-within:ring-2 focus-within:ring-ring/30">
+          <Search className="size-[13px] shrink-0 text-faint" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -129,13 +135,13 @@ export function SessionSidebar({
                 setQuery('');
               }
             }}
-            placeholder="Search sessions"
+            placeholder="Search"
             aria-label="Search sessions"
-            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-faint"
           />
           {query !== '' ? (
             <button type="button" aria-label="Clear search" onClick={() => setQuery('')}>
-              <X className="size-3.5 text-muted-foreground" />
+              <X className="size-3.5 text-faint" />
             </button>
           ) : (
             <button
@@ -143,7 +149,7 @@ export function SessionSidebar({
               onClick={() => sync.setPaletteOpen(true)}
               title="Command palette — every action and session"
               aria-label="Command palette"
-              className="rounded border bg-muted/60 px-1 font-mono text-[9px] leading-4 text-muted-foreground transition-colors hover:text-foreground"
+              className="font-mono text-[11px] text-faint transition-colors hover:text-foreground"
             >
               ⌘K
             </button>
@@ -151,11 +157,9 @@ export function SessionSidebar({
         </label>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 pt-1 pb-3">
+      <nav className="mt-3 flex-1 overflow-y-auto px-2 pb-3">
         {searching && groups.length === 0 && (
-          <p className="px-2 py-6 text-center font-serif text-[13px] text-muted-foreground italic">
-            No session matches “{query.trim()}”.
-          </p>
+          <p className="px-2 py-6 text-center text-[13px] text-muted-foreground">No session matches “{query.trim()}”.</p>
         )}
         {groups.map((group) => (
           <ProjectGroup
@@ -175,6 +179,7 @@ export function SessionSidebar({
                 pane={shown.indexOf(row.id)}
                 canOpenBeside={activeId !== null && row.id !== activeId}
                 status={rowStatus(row, seen[row.id], shown.includes(row.id))}
+                riseDelay={fresh.get(row.id)}
                 renaming={renaming === row.id}
                 onStartRename={() => setRenaming(row.id)}
                 onRename={(title) => {
@@ -192,41 +197,39 @@ export function SessionSidebar({
             type="button"
             onClick={() => sync.setAddProjectOpen(true)}
             disabled={!connected}
-            className="mt-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-50"
+            className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-faint transition-colors hover:bg-subtle hover:text-foreground disabled:opacity-40"
           >
-            <FolderPlus className="size-3.5" />
+            <FolderPlus className="size-[13px]" />
             Add project
           </button>
         )}
       </nav>
 
-      <div className="flex items-center justify-between border-t px-3 py-2">
-        <div className="flex items-center gap-0.5">
-          <ThemeToggle />
-          <NotifyToggle />
-          <a
-            href={routeToHash({ kind: 'stats' })}
-            title="Usage — tokens, cost and calls across sessions"
-            aria-label="Usage"
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          >
-            <ChartColumn className="size-3.5" />
-          </a>
-          <a
-            href={routeToHash({ kind: 'settings', section: 'permissions' })}
-            title="Settings — permissions, auto mode, memory, MCP servers"
-            aria-label="Settings"
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-          >
-            <Settings className="size-3.5" />
-          </a>
-        </div>
-        <span
-          className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground"
-          title={connected ? 'Connected' : 'Disconnected'}
+      <div className="flex h-10 shrink-0 items-center gap-0.5 pr-3.5 pl-2.5">
+        <ThemeToggle />
+        <NotifyToggle />
+        <a
+          href={routeToHash({ kind: 'stats' })}
+          title="Usage — tokens, cost and calls across sessions"
+          aria-label="Usage"
+          aria-current={route.kind === 'stats' ? 'page' : undefined}
+          className={footerIcon}
         >
-          <span className={cn('size-1.5 rounded-full', connected ? 'bg-success' : 'bg-brass')} />
-          {connected ? 'live' : 'offline'}
+          <ChartColumn />
+        </a>
+        <a
+          href={routeToHash({ kind: 'settings', section: 'permissions' })}
+          title="Settings — permissions, auto mode, memory, MCP servers"
+          aria-label="Settings"
+          aria-current={route.kind === 'settings' ? 'page' : undefined}
+          className={footerIcon}
+        >
+          <Settings />
+        </a>
+        <div className="flex-1" />
+        <span className="flex items-center gap-1.5 pr-1 text-[11px] text-faint">
+          <span className={cn('size-1.5 rounded-full', connected ? 'bg-success' : 'bg-warning-dot')} />
+          {connected ? 'Connected' : 'Offline'}
         </span>
       </div>
 
@@ -251,8 +254,29 @@ export function SessionSidebar({
           void sync.removeWorkspace(workspace.id);
         }}
       />
-    </aside>
+      </aside>
+    </SlideRegion>
   );
+}
+
+/**
+ * Sessions that turn up after the list first loaded, each with the delay its
+ * rise starts after: 140ms apart when several arrive together.
+ */
+function useFreshRows(sessions: readonly SessionSummary[]): ReadonlyMap<string, number> {
+  const known = useRef<Set<string> | null>(null);
+  const fresh = useRef(new Map<string, number>());
+  if (known.current === null) {
+    if (sessions.length > 0) known.current = new Set(sessions.map((s) => s.id));
+  } else {
+    let n = 0;
+    for (const s of sessions) {
+      if (known.current.has(s.id)) continue;
+      known.current.add(s.id);
+      fresh.current.set(s.id, n++ * 140);
+    }
+  }
+  return fresh.current;
 }
 
 function ProjectGroup({
@@ -278,34 +302,32 @@ function ProjectGroup({
     { label: 'Remove from list…', icon: <X />, onSelect: onRemove, separated: true },
   ];
   const hoverOnly =
-    'rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover/project:opacity-100 hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100';
+    'rounded p-0.5 text-faint opacity-0 transition-opacity group-hover/project:opacity-100 hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100';
   return (
-    <section className="mb-2">
-      <div className="group/project flex items-center gap-1 rounded-md pr-1 hover:bg-sidebar-accent/60">
+    <section className="mb-1 flex flex-col gap-px">
+      <div className="group/project flex items-center gap-0.5 pr-1">
         <button
           type="button"
           onClick={onToggle}
           aria-expanded={open}
           title={workspace.missing ? `${workspace.root} (missing)` : workspace.root}
-          className="flex min-w-0 flex-1 items-center gap-1 px-1.5 py-1 text-left"
+          className="flex min-w-0 flex-1 items-center gap-1 px-2 pt-2 pb-1 text-left"
         >
-          <ChevronRight
-            className={cn('size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')}
-          />
           <span
             className={cn(
-              'truncate font-mono text-[11px] font-medium tracking-wide text-muted-foreground uppercase',
+              'truncate text-[11px] font-medium tracking-[0.02em] text-faint transition-colors group-hover/project:text-muted-foreground',
               workspace.missing && 'line-through',
             )}
           >
             {workspace.name}
           </span>
+          {!open && <ChevronRight className="size-3 shrink-0 text-faint" />}
         </button>
         <a
           href={routeToHash({ kind: 'new', workspaceId: workspace.id })}
           aria-label={`New session in ${workspace.name}`}
           title={`New session in ${workspace.name}`}
-          className={hoverOnly}
+          className={cn(hoverOnly, 'mt-1')}
         >
           <Plus className="size-3.5" />
         </a>
@@ -313,24 +335,22 @@ function ProjectGroup({
           label={`${workspace.name} actions`}
           actions={actions}
           trigger={
-            <button type="button" className={hoverOnly}>
+            <button type="button" className={cn(hoverOnly, 'mt-1')}>
               <MoreHorizontal className="size-3.5" />
             </button>
           }
         />
       </div>
       {open && (
-        <ul className="mt-0.5 space-y-0.5">
+        <ul className="flex flex-col gap-px">
           {children}
-          {rows.length === 0 && archivedCount === 0 && (
-            <li className="py-1 pl-6 font-serif text-[12px] text-muted-foreground italic">No sessions yet</li>
-          )}
+          {rows.length === 0 && archivedCount === 0 && <li className="px-2 py-1 text-[12px] text-faint">No sessions yet</li>}
           {archivedCount > 0 && (
             <li>
               <button
                 type="button"
                 onClick={onToggleArchived}
-                className="flex items-center gap-1.5 py-0.5 pl-6 text-[11px] text-muted-foreground hover:text-foreground"
+                className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-faint hover:text-foreground"
               >
                 <Archive className="size-3" />
                 {archivedShown ? 'Hide archived' : `Archived (${archivedCount})`}
@@ -349,6 +369,7 @@ function SessionRow({
   pane,
   canOpenBeside,
   status,
+  riseDelay,
   renaming,
   onStartRename,
   onRename,
@@ -362,6 +383,8 @@ function SessionRow({
   pane: number;
   canOpenBeside: boolean;
   status: RowStatus;
+  /** It arrived after the list loaded: rise in, after this many ms. */
+  riseDelay: number | undefined;
   renaming: boolean;
   onStartRename: () => void;
   onRename: (title: string) => void;
@@ -387,7 +410,10 @@ function SessionRow({
 
   return (
     <ContextActions actions={actions}>
-      <li className="group/row relative">
+      <li
+        className={cn('group/row relative', riseDelay !== undefined && 'animate-rise')}
+        style={riseDelay ? ({ '--rise-delay': `${riseDelay}ms` } as CSSProperties) : undefined}
+      >
         <a
           href={sessionHash(row.id)}
           onClick={(e) => {
@@ -405,21 +431,22 @@ function SessionRow({
             onStartRename();
           }}
           title={canOpenBeside ? '⌥-click to open beside' : undefined}
+          aria-current={active ? 'page' : undefined}
           className={cn(
-            'flex items-center gap-2 rounded-md py-1.5 pr-2 pl-6 text-[13px] transition-colors hover:bg-sidebar-accent',
-            active && 'bg-sidebar-accent font-medium text-sidebar-accent-foreground',
-            !active && pane !== -1 && 'bg-sidebar-accent/50',
-            row.archived && 'text-muted-foreground',
+            'flex h-7 items-center gap-2 rounded-md px-2 text-[13px] text-muted-foreground transition-colors hover:bg-subtle hover:text-foreground',
+            active && 'bg-muted font-medium text-foreground hover:bg-muted',
+            !active && pane !== -1 && 'bg-subtle text-foreground',
+            row.archived && 'text-faint',
           )}
         >
-          {row.pinned && <Pin className="absolute left-2 size-3 text-muted-foreground" aria-label="Pinned" />}
+          {row.pinned && <Pin className="size-3 shrink-0 text-faint" aria-label="Pinned" />}
           {row.worktree && (
             <span className="flex shrink-0" title={`On ${row.worktree.branch}, in a worktree of its own`}>
-              <GitBranch className="size-3 text-muted-foreground" aria-label={`In a worktree, on ${row.worktree.branch}`} />
+              <GitBranch className="size-3 text-faint" aria-label={`In a worktree, on ${row.worktree.branch}`} />
             </span>
           )}
           <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled session'}</span>
-          <span className="shrink-0 group-hover/row:invisible">
+          <span className="flex shrink-0 items-center group-hover/row:invisible">
             <RowStatusMark status={status} mtimeMs={row.mtimeMs} />
           </span>
         </a>
@@ -430,7 +457,7 @@ function SessionRow({
             trigger={
               <button
                 type="button"
-                className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 hover:bg-background/60 hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100"
+                className="rounded p-0.5 text-faint opacity-0 transition-opacity group-hover/row:opacity-100 hover:text-foreground focus-visible:opacity-100 data-[state=open]:opacity-100"
               >
                 <MoreHorizontal className="size-3.5" />
               </button>
@@ -445,13 +472,13 @@ function SessionRow({
 function RowStatusMark({ status, mtimeMs }: { status: RowStatus; mtimeMs: number }) {
   switch (status) {
     case 'pending':
-      return <span className="block size-2 rounded-full bg-brass" title="Waiting for you" />;
+      return <span className="mx-[3px] block size-1.5 rounded-full bg-warning-dot" title="Waiting for you" />;
     case 'running':
-      return <Loader2 className="size-3.5 animate-spin text-primary" aria-label="Running" />;
+      return <LoaderCircle className="size-3 animate-spin text-primary" aria-label="Running" />;
     case 'unread':
-      return <span className="block size-2 rounded-full bg-primary" title="New since you last looked" />;
+      return <span className="mx-[3px] block size-1.5 rounded-full bg-primary" title="New since you last looked" />;
     case 'idle':
-      return <span className="font-mono text-[10px] text-muted-foreground">{relativeTime(mtimeMs)}</span>;
+      return <span className="font-mono text-[11px] text-faint">{relativeTime(mtimeMs)}</span>;
   }
 }
 
@@ -470,7 +497,7 @@ function RenameRow({ title, onDone, onCancel }: { title: string; onDone: (title:
     }
   };
   return (
-    <li className="px-1">
+    <li>
       <input
         autoFocus
         aria-label="Session title"
@@ -479,7 +506,7 @@ function RenameRow({ title, onDone, onCancel }: { title: string; onDone: (title:
         onKeyDown={onKeyDown}
         onBlur={() => onDone(value)}
         onFocus={(e) => e.target.select()}
-        className="w-full rounded-md border border-primary/45 bg-background px-2 py-1 pl-5 text-[13px] ring-2 ring-primary/20 outline-none"
+        className="h-7 w-full rounded-md bg-background px-2 text-[13px] ring-2 ring-ring/40 outline-none"
       />
     </li>
   );
@@ -506,7 +533,7 @@ function DeleteSessionDialog({
           }
         >
           <div className="flex flex-col gap-4 px-5 pt-3 pb-5">
-            <p className="truncate rounded-md border bg-muted/40 px-3 py-2 text-sm">{session.title}</p>
+            <p className="truncate rounded-md bg-subtle px-3 py-2 text-[13px]">{session.title}</p>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={onClose}>
                 Cancel
@@ -539,7 +566,7 @@ function RemoveProjectDialog({
           description="Its sessions and files stay where they are; add the project again to see them."
         >
           <div className="flex flex-col gap-4 px-5 pt-3 pb-5">
-            <p className="truncate rounded-md border bg-muted/40 px-3 py-2 font-mono text-xs">{workspace.root}</p>
+            <p className="truncate rounded-md bg-subtle px-3 py-2 font-mono text-xs">{workspace.root}</p>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={onClose}>
                 Cancel

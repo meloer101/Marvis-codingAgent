@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Folder, GitBranch, PanelRight, SquareTerminal, X } from 'lucide-react';
+import { GitBranch, SquareTerminal, X } from 'lucide-react';
 
 import { fmtTokens, fmtUSD } from '@harness-code/core/browser';
 import type { SessionWorktree } from '@harness-code/protocol';
 
+import { MainHeader, PanelOpener, SidebarOpener, headerIconButton } from '@/components/Regions';
 import { UsagePopover } from '@/components/UsagePanel';
-import { togglePanel, usePanel } from '@/lib/panel';
 import { toggleTerminal, useTerminalPanel } from '@/lib/terminalPanel';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { useAppStore } from '@/lib/store';
@@ -14,46 +14,48 @@ import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
 
 /**
- * Where the session runs and what it is called — the title renames in place —
- * and what it has spent so far, with the context breakdown behind it. What the
- * next message runs under (mode, model, effort) lives in the composer. In a
- * split, the pane without the focus is muted, and each pane has a close button.
+ * Where the session runs and what it is called — project / title, the title
+ * renaming in place — the branch of its worktree, and what it has spent so
+ * far, with the context breakdown behind it. What the next message runs under
+ * (mode, model, effort) lives in the composer. The corners hold the regions'
+ * toggles while those are closed. In a split, the pane without the focus is
+ * greyed, and each pane has a close button.
  */
-export function SessionHeader({ view, pane }: { view: SessionViewState; pane?: { focused: boolean; onClose: () => void } }) {
+export function SessionHeader({
+  view,
+  pane,
+}: {
+  view: SessionViewState;
+  pane?: { focused: boolean; index: number; onClose: () => void };
+}) {
   const workspace = useAppStore((s) => s.workspaces.find((w) => w.id === view.workspaceId));
   const title = useAppStore((s) => s.sessions.find((r) => r.id === view.id)?.title);
   const worktreeGone = useAppStore((s) => s.sessions.find((r) => r.id === view.id)?.worktree?.missing === true);
   return (
-    <header
-      className={cn(
-        'flex h-12 shrink-0 items-center gap-2 overflow-hidden border-b px-4 text-sm transition-colors',
-        pane && !pane.focused && 'bg-muted/40 text-muted-foreground',
+    <MainHeader className={cn('transition-colors', pane && !pane.focused && 'bg-subtle')}>
+      {(!pane || pane.index === 0) && <SidebarOpener workspaceId={view.workspaceId} />}
+      {workspace && (
+        <span className="max-w-40 shrink-0 truncate text-faint" title={workspace.root}>
+          {workspace.name}
+        </span>
       )}
-    >
-      {workspace && <ProjectChip name={workspace.name} root={workspace.root} />}
-      {view.worktree && <BranchChip worktree={view.worktree} gone={worktreeGone} />}
-      {workspace && title !== undefined && <span className="text-muted-foreground/60">/</span>}
+      {workspace && title !== undefined && <span className="text-faint">/</span>}
       {title !== undefined && <SessionTitle id={view.id} title={title} />}
+      {view.worktree && <BranchChip worktree={view.worktree} gone={worktreeGone} />}
       <div className="flex-1" />
       <SpendButton view={view} />
       {(!pane || pane.focused) && (
         <>
           <TerminalToggle />
-          <PanelToggle />
+          <PanelOpener />
         </>
       )}
       {pane && (
-        <button
-          type="button"
-          onClick={pane.onClose}
-          aria-label="Close this pane"
-          title="Close this pane"
-          className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <X className="size-4" />
+        <button type="button" onClick={pane.onClose} aria-label="Close this pane" title="Close this pane" className={headerIconButton}>
+          <X />
         </button>
       )}
-    </header>
+    </MainHeader>
   );
 }
 
@@ -67,43 +69,10 @@ function TerminalToggle() {
       aria-label="Terminal"
       aria-pressed={open}
       title={`${open ? 'Hide' : 'Show'} the terminal (Ctrl+\`)`}
-      className={cn(
-        'flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-        open && 'bg-accent text-foreground',
-      )}
+      className={headerIconButton}
     >
-      <SquareTerminal className="size-4" />
+      <SquareTerminal />
     </button>
-  );
-}
-
-/** Opens and closes the side panel (⌥⌘B). */
-function PanelToggle() {
-  const open = usePanel() !== null;
-  return (
-    <button
-      type="button"
-      onClick={togglePanel}
-      aria-label="Side panel"
-      aria-pressed={open}
-      title={`${open ? 'Hide' : 'Show'} changes (⌥⌘B)`}
-      className={cn(
-        'flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-        open && 'bg-accent text-foreground',
-      )}
-    >
-      <PanelRight className="size-4" />
-    </button>
-  );
-}
-
-/** Which project a session runs in. */
-export function ProjectChip({ name, root }: { name: string; root: string }) {
-  return (
-    <span className="flex min-w-0 shrink items-center gap-1.5 text-xs font-medium" title={root}>
-      <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="max-w-40 truncate">{name}</span>
-    </span>
   );
 }
 
@@ -111,10 +80,7 @@ export function ProjectChip({ name, root }: { name: string; root: string }) {
 function BranchChip({ worktree, gone }: { worktree: SessionWorktree; gone: boolean }) {
   return (
     <span
-      className={cn(
-        'flex min-w-0 shrink items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-primary',
-        gone && 'bg-muted text-muted-foreground',
-      )}
+      className={cn('flex min-w-0 shrink items-center gap-1 pl-2 text-faint', gone && 'line-through')}
       title={
         gone
           ? `Its worktree was removed when it was archived; ${worktree.branch} is checked out again when it next runs`
@@ -165,7 +131,7 @@ function SessionTitle({ id, title }: { id: string; title: string }) {
         onKeyDown={onKeyDown}
         onBlur={() => done(editing)}
         onFocus={(e) => e.target.select()}
-        className="h-7 w-full max-w-md min-w-0 rounded-md border border-primary/45 bg-background px-2 text-[13px] ring-2 ring-primary/20 outline-none"
+        className="h-7 w-full max-w-md min-w-0 rounded-md bg-background px-1.5 text-sm font-semibold ring-2 ring-ring/40 outline-none"
       />
     );
   }
@@ -174,7 +140,7 @@ function SessionTitle({ id, title }: { id: string; title: string }) {
       type="button"
       onClick={() => setEditing(title)}
       title="Rename"
-      className="min-w-0 cursor-text truncate rounded-md px-1.5 py-1 text-left text-[13px] font-medium transition-colors hover:bg-accent"
+      className="-mx-1 min-w-0 cursor-text truncate rounded-md px-1 py-0.5 text-left text-sm font-semibold transition-colors hover:bg-muted"
     >
       {title}
     </button>
@@ -191,7 +157,7 @@ function SpendButton({ view }: { view: SessionViewState }) {
         type="button"
         aria-label="Usage"
         title="Context and usage"
-        className="flex h-7 shrink-0 cursor-pointer items-center gap-3 rounded-md px-2 font-mono text-[11px] text-muted-foreground tabular-nums transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 data-[state=open]:bg-accent"
+        className="flex h-7 shrink-0 cursor-pointer items-center gap-3 rounded-md px-2 font-mono text-[11px] text-faint tabular-nums transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 data-[state=open]:bg-muted data-[state=open]:text-foreground"
       >
         <span>
           ↑{fmtTokens(usage.inputTokens)} ↓{fmtTokens(usage.outputTokens)}
