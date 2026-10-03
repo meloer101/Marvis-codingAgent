@@ -36,7 +36,7 @@ export function CodeBlock({
   return (
     <div className={cn('group/code relative my-2 overflow-hidden rounded-md border bg-muted/40', className)}>
       {lang && (
-        <div className="border-b px-3 py-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+        <div className="border-b px-3 py-1 text-[11px] font-medium tracking-[0.02em] text-faint">
           {lang}
         </div>
       )}

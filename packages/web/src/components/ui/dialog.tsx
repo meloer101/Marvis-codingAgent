@@ -22,21 +22,21 @@ export function DialogContent({
 }: ComponentProps<typeof DialogPrimitive.Content> & { title: ReactNode; description?: ReactNode }) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-foreground/25 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/30 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
       <DialogPrimitive.Content
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 flex max-h-[85vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-2xl outline-none',
+          'fixed top-1/2 left-1/2 z-50 flex max-h-[85vh] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-xl outline-none',
           className,
         )}
         {...props}
       >
         <div className="flex items-start gap-3 px-5 pt-5">
           <div className="min-w-0 flex-1">
-            <DialogPrimitive.Title className="font-serif text-base font-semibold tracking-[-0.01em]">
+            <DialogPrimitive.Title className="text-sm font-semibold">
               {title}
             </DialogPrimitive.Title>
             {description ? (
-              <DialogPrimitive.Description className="mt-1 text-xs text-muted-foreground">
+              <DialogPrimitive.Description className="mt-1 text-[13px] text-muted-foreground">
                 {description}
               </DialogPrimitive.Description>
             ) : (

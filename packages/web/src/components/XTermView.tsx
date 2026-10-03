@@ -22,7 +22,7 @@ export function XTermView({ id, visible, onTitle }: { id: string; visible: boole
     const el = host.current;
     if (!el) return;
     const term = new Terminal({
-      fontFamily: '"JetBrains Mono Variable", ui-monospace, monospace',
+      fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
       fontSize: 12,
       lineHeight: 1.2,
       cursorBlink: true,
@@ -84,7 +84,7 @@ export function XTermView({ id, visible, onTitle }: { id: string; visible: boole
   return <div ref={host} className="absolute inset-0 px-2 pt-1" style={{ display: visible ? 'block' : 'none' }} />;
 }
 
-/** The app's palette as an xterm theme: xterm wants sRGB, the tokens are OKLCH. */
+/** The app's palette as an xterm theme, in the sRGB form xterm wants. */
 function terminalTheme(): ITheme {
   const c = (token: string): string => tokenColor(token);
   const ansi = (n: number): string => c(`--ansi-${n}`);

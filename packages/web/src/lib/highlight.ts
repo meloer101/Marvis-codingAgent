@@ -72,8 +72,8 @@ function getHighlighter(): Promise<HighlighterCore> {
     const [{ createHighlighterCore }, { createJavaScriptRegexEngine }, light, dark] = await Promise.all([
       import('shiki/core'),
       import('shiki/engine/javascript'),
-      import('shiki/dist/themes/rose-pine-dawn.mjs'),
-      import('shiki/dist/themes/rose-pine-moon.mjs'),
+      import('shiki/dist/themes/github-light-default.mjs'),
+      import('shiki/dist/themes/github-dark-default.mjs'),
     ]);
     return createHighlighterCore({
       themes: [light.default, dark.default],
@@ -84,7 +84,7 @@ function getHighlighter(): Promise<HighlighterCore> {
   return highlighter;
 }
 
-const THEMES = { light: 'rose-pine-dawn', dark: 'rose-pine-moon' } as const;
+const THEMES = { light: 'github-light-default', dark: 'github-dark-default' } as const;
 
 /** The highlighter with `lang`'s grammar loaded, or null for an unsupported language. */
 async function highlighterFor(lang: string | undefined): Promise<{ h: HighlighterCore; name: string } | null> {

@@ -18,11 +18,11 @@ export function CopyButton({ text, label = 'Copy', className }: { text: string; 
       aria-label={label}
       title={copied ? 'Copied' : label}
       className={cn(
-        'rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+        'rounded-md p-1 text-faint transition-colors hover:bg-muted hover:text-foreground',
         className,
       )}
     >
-      {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+      {copied ? <Check className="size-[13px] text-success" /> : <Copy className="size-[13px]" />}
     </button>
   );
 }
