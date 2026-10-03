@@ -15,7 +15,21 @@ const SUGGEST_MS = 120;
 const INSPECT_MS = 250;
 
 /**
- * Add a project: a path field with directory completion, and — read from disk
+ * "Add project", from wherever it is offered: the system's folder chooser
+ * where there is one (`sync.addProject`), then the new session page of the
+ * project it added or found.
+ */
+export function useAddProject(): () => void {
+  const sync = useSync();
+  return () =>
+    void sync.addProject().then((workspace) => {
+      if (workspace) window.location.hash = routeToHash({ kind: 'new', workspaceId: workspace.id });
+    });
+}
+
+/**
+ * Add a project: a path field with directory completion — or a folder picked
+ * in the system's chooser, which opens it here when it wants a look — and, read from disk
  * before anything is started — what adding it means. A project's `.mcp.json`
  * starts its servers with every session and its settings can turn approvals
  * off, so when there is any of that the button says "Trust and add".
@@ -32,7 +46,9 @@ export function AddProjectDialog() {
 
 function AddProjectForm({ onDone }: { onDone: () => void }) {
   const sync = useSync();
-  const [path, setPath] = useState('');
+  const [path, setPath] = useState(() => useAppStore.getState().addProjectPath);
+  const canPick = useAppStore((s) => s.info?.capabilities?.pickFolder === true);
+  const picking = useAppStore((s) => s.pickingFolder);
   const [suggestions, setSuggestions] = useState<DirSuggestion[]>([]);
   const [active, setActive] = useState(-1);
   const [inspection, setInspection] = useState<WorkspaceInspection | null>(null);
@@ -124,7 +140,7 @@ function AddProjectForm({ onDone }: { onDone: () => void }) {
       description="Sessions run in the project's folder, with its settings, MCP servers and .env."
     >
       <div className="flex flex-col gap-3 overflow-y-auto px-5 pt-4 pb-5">
-        <div className="relative">
+        <div className="relative flex gap-1.5">
           <input
             autoFocus
             value={path}
@@ -134,8 +150,24 @@ function AddProjectForm({ onDone }: { onDone: () => void }) {
             spellCheck={false}
             aria-label="Project folder"
             aria-autocomplete="list"
-            className="w-full rounded-md bg-subtle px-3 py-2 font-mono text-[13px] outline-none placeholder:text-faint focus:ring-2 focus:ring-ring/30"
+            className="min-w-0 flex-1 rounded-md bg-subtle px-3 py-2 font-mono text-[13px] outline-none placeholder:text-faint focus:ring-2 focus:ring-ring/30"
           />
+          {canPick && (
+            <Button
+              variant="secondary"
+              className="h-auto"
+              disabled={picking}
+              onClick={() =>
+                void sync.pickFolder().then((picked) => {
+                  if (picked) setPath(picked);
+                })
+              }
+              title="Choose a folder in Finder"
+            >
+              {picking ? <LoaderCircle className="animate-spin" /> : <FolderOpen />}
+              Choose…
+            </Button>
+          )}
           {suggestions.length > 0 && (
             <ul
               role="listbox"

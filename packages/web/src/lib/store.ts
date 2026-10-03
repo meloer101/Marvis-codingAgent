@@ -52,6 +52,10 @@ export interface AppState {
   helpOpen: boolean;
   /** The "add project" dialog. */
   addProjectOpen: boolean;
+  /** The folder the dialog opens on ('' for an empty field): one picked in the system's chooser that wants a second look. */
+  addProjectPath: string;
+  /** The system's folder chooser is showing (`sync.addProject`). */
+  pickingFolder: boolean;
   /** The command palette (⌘K). */
   paletteOpen: boolean;
   /**
@@ -79,6 +83,8 @@ export const useAppStore = create<AppState>(() => ({
   archiveConflict: null,
   helpOpen: false,
   addProjectOpen: false,
+  addProjectPath: '',
+  pickingFolder: false,
   paletteOpen: false,
   request: null,
 }));

@@ -479,8 +479,57 @@ export class SessionSync {
     this.#store.setState({ helpOpen: open });
   }
 
-  setAddProjectOpen(open: boolean): void {
-    this.#store.setState({ addProjectOpen: open });
+  /** Open the add-project dialog — on `path`, when given — or close it. */
+  setAddProjectOpen(open: boolean, path = ''): void {
+    this.#store.setState({ addProjectOpen: open, addProjectPath: open ? path : '' });
+  }
+
+  /**
+   * "Add project" as on the desktop: the system's folder chooser (Finder's on
+   * a Mac), where the server can show one. A folder that needs no second look
+   * is added at once — or, already a project, found — and its workspace
+   * returned. One that brings MCP servers or settings worth reading, or can't
+   * be added, opens the dialog on it, to read before trusting it. Without a
+   * chooser, or when it fails, the dialog and its path field.
+   */
+  async addProject(): Promise<{ id: string } | null> {
+    if (!this.#store.getState().info?.capabilities?.pickFolder) {
+      this.setAddProjectOpen(true);
+      return null;
+    }
+    if (this.#store.getState().pickingFolder) return null;
+    this.#store.setState({ pickingFolder: true });
+    let path: string | null;
+    try {
+      ({ path } = await this.rpc.call('fs.pickDir'));
+    } catch {
+      this.setAddProjectOpen(true);
+      return null;
+    } finally {
+      this.#store.setState({ pickingFolder: false });
+    }
+    if (path === null) return null;
+    const inspection = await this.inspectPath(path);
+    if (inspection?.workspace) return inspection.workspace;
+    if (!inspection || inspection.problem || inspection.mcpServers.length > 0 || inspection.warnings.length > 0) {
+      this.setAddProjectOpen(true, path);
+      return null;
+    }
+    return this.addWorkspace(path, inspection.needsMarker ? { createMarker: true } : {});
+  }
+
+  /** Show the system's folder chooser; the folder picked, null when cancelled or when it can't be shown. */
+  async pickFolder(): Promise<string | null> {
+    if (this.#store.getState().pickingFolder) return null;
+    this.#store.setState({ pickingFolder: true });
+    try {
+      return (await this.rpc.call('fs.pickDir')).path;
+    } catch (err) {
+      this.#fail(err);
+      return null;
+    } finally {
+      this.#store.setState({ pickingFolder: false });
+    }
   }
 
   setPaletteOpen(open: boolean): void {

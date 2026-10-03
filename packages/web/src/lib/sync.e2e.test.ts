@@ -7,12 +7,12 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { loadPty, startServer } from '@harness-code/server';
-import type { RunningServer } from '@harness-code/server';
+import type { RunningServer, StartServerOptions } from '@harness-code/server';
 import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createStore } from 'zustand/vanilla';
@@ -39,6 +39,8 @@ const emptyState = (): AppState => ({
   archiveConflict: null,
   helpOpen: false,
   addProjectOpen: false,
+  addProjectPath: '',
+  pickingFolder: false,
   paletteOpen: false,
   request: null,
 });
@@ -51,9 +53,9 @@ afterEach(async () => {
 /** The calls the mock reel opens with, before its first prompt: lookups and a task list. */
 const LOOK_AROUND = ['glob', 'grep', 'read', 'todo'];
 
-async function boot(): Promise<{ server: RunningServer; cwd: string }> {
+async function boot(opts: Partial<StartServerOptions> = {}): Promise<{ server: RunningServer; cwd: string }> {
   const cwd = await mkdtemp(join(tmpdir(), 'hc-web-e2e-'));
-  const server = await startServer({ cwd, mock: true });
+  const server = await startServer({ ...opts, cwd, mock: true });
   cleanups.push(async () => {
     await server.close();
     await rm(cwd, { recursive: true, force: true });
@@ -550,6 +552,51 @@ describe('SessionSync ↔ hc web --mock', () => {
     } finally {
       process.env['SHELL'] = shell;
     }
+  });
+
+  it("adds a project through the system's folder chooser: at once when it needs no look, else the dialog on it", async () => {
+    const answers: Array<string | null> = [];
+    const { server } = await boot({ folderPicker: async () => ({ pick: async () => answers.shift() ?? null }) });
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'server info');
+    expect(a.store.getState().info?.capabilities.pickFolder).toBe(true);
+    const folder = async (name: string): Promise<string> => {
+      const dir = await realpath(await mkdtemp(join(tmpdir(), `hc-pick-${name}-`)));
+      cleanups.push(() => rm(dir, { recursive: true, force: true }));
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      return dir;
+    };
+
+    // Dismissed: nothing happens.
+    answers.push(null);
+    expect(await a.sync.addProject()).toBeNull();
+    expect(a.store.getState().addProjectOpen).toBe(false);
+
+    // A plain repository goes straight in; picked again, it is found, not added twice.
+    const plain = await folder('plain');
+    answers.push(plain);
+    const added = await a.sync.addProject();
+    expect(a.store.getState().workspaces.find((w) => w.id === added?.id)?.root).toBe(plain);
+    answers.push(plain);
+    expect((await a.sync.addProject())?.id).toBe(added!.id);
+    expect(a.store.getState().pickingFolder).toBe(false);
+
+    // One whose .mcp.json starts a server with every session opens the dialog on it, to read first.
+    const risky = await folder('risky');
+    await writeFile(join(risky, '.mcp.json'), JSON.stringify({ mcpServers: { fs: { command: 'npx', args: ['server-fs'] } } }));
+    answers.push(risky);
+    expect(await a.sync.addProject()).toBeNull();
+    expect(a.store.getState()).toMatchObject({ addProjectOpen: true, addProjectPath: risky });
+    expect(a.store.getState().workspaces.some((w) => w.root === risky)).toBe(false);
+  });
+
+  it('opens the add-project dialog where the server has no folder chooser', async () => {
+    const { server } = await boot({ folderPicker: async () => null });
+    const a = tab(server);
+    await until(() => a.store.getState().info, 'server info');
+    expect(a.store.getState().info?.capabilities.pickFolder).toBe(false);
+    expect(await a.sync.addProject()).toBeNull();
+    expect(a.store.getState()).toMatchObject({ addProjectOpen: true, addProjectPath: '' });
   });
 
   it('reports a bad token as unauthorized without retrying', async () => {

@@ -40,6 +40,7 @@ import {
 
 import type { PermissionMode } from '@harness-code/core';
 
+import { useAddProject } from '@/components/AddProjectDialog';
 import { EFFORT_LABELS, MODES } from '@/components/ComposerControls';
 import { relativeTime } from '@/lib/format';
 import { filterPalette } from '@/lib/palette';
@@ -191,6 +192,7 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
   const terminalOpen = useTerminalPanel().open;
   const panes = panesOf(useRoute());
   const workspaceId = view?.workspaceId;
+  const addProject = useAddProject();
 
   // The models to switch to: fresh each time the palette opens.
   useEffect(() => {
@@ -215,7 +217,7 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
         run: go(routeToHash({ kind: 'new', workspaceId: w.id })),
       });
     }
-    items.push({ id: 'add-project', group: 'New', label: 'Add project…', icon: FolderPlus, run: () => sync.setAddProjectOpen(true) });
+    items.push({ id: 'add-project', group: 'New', label: 'Add project…', icon: FolderPlus, run: addProject });
 
     if (view && activeId) {
       const id = activeId;

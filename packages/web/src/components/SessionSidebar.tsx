@@ -23,6 +23,7 @@ import {
 
 import type { SessionSummary, Workspace } from '@harness-code/protocol';
 
+import { useAddProject } from '@/components/AddProjectDialog';
 import { NotifyToggle } from '@/components/NotifyToggle';
 import { SidebarCloser, SlideRegion, footerIcon } from '@/components/Regions';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -101,6 +102,8 @@ export function SessionSidebar({
   };
 
   const fresh = useFreshRows(sessions);
+  const addProject = useAddProject();
+  const picking = useAppStore((s) => s.pickingFolder);
   const route = useRoute();
 
   return (
@@ -195,12 +198,12 @@ export function SessionSidebar({
         {!searching && (
           <button
             type="button"
-            onClick={() => sync.setAddProjectOpen(true)}
-            disabled={!connected}
+            onClick={addProject}
+            disabled={!connected || picking}
             className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-faint transition-colors hover:bg-subtle hover:text-foreground disabled:opacity-40"
           >
-            <FolderPlus className="size-[13px]" />
-            Add project
+            {picking ? <LoaderCircle className="size-[13px] animate-spin" /> : <FolderPlus className="size-[13px]" />}
+            {picking ? 'Choosing a folder…' : 'Add project'}
           </button>
         )}
       </nav>

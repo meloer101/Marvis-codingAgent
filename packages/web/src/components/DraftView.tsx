@@ -5,6 +5,7 @@ import { nextPermissionMode } from '@harness-code/core/browser';
 import type { ImageInput, PermissionMode, ReasoningEffort } from '@harness-code/core';
 import type { Workspace } from '@harness-code/protocol';
 
+import { useAddProject } from '@/components/AddProjectDialog';
 import { Composer } from '@/components/Composer';
 import { EffortPicker, ModeChip, ModelPicker, WorktreePicker } from '@/components/ComposerControls';
 import { ContextButton } from '@/components/UsagePanel';
@@ -209,7 +210,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
 
 /** The project a new session starts in; picking another opens its draft. "Add project…" is the last option. */
 function ProjectPicker({ workspaces, current }: { workspaces: Workspace[]; current: Workspace }) {
-  const sync = useSync();
+  const addProject = useAddProject();
   return (
     <span className="relative flex shrink-0 items-center" title={current.root}>
       <Folder className="pointer-events-none absolute left-2 size-[13px] text-muted-foreground" aria-hidden />
@@ -217,7 +218,7 @@ function ProjectPicker({ workspaces, current }: { workspaces: Workspace[]; curre
         aria-label="Project"
         value={current.id}
         onChange={(e) => {
-          if (e.target.value === ADD_PROJECT) sync.setAddProjectOpen(true);
+          if (e.target.value === ADD_PROJECT) addProject();
           else window.location.hash = routeToHash({ kind: 'new', workspaceId: e.target.value });
         }}
         className="h-[27px] max-w-44 cursor-pointer appearance-none truncate rounded-md bg-muted pr-7 pl-7 text-xs font-medium transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
