@@ -1,6 +1,6 @@
-# Evaluating and improving `hc`
+# Evaluating and improving `marvis`
 
-How `hc` is measured and how measurements turn into fixes. The method follows
+How `marvis` is measured and how measurements turn into fixes. The method follows
 Anthropic's [Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents),
 [Adding error bars to evals](https://www.anthropic.com/research/statistical-approach-to-model-evals),
 and Hamel Husain's [evals FAQ](https://hamel.dev/blog/posts/evals-faq/).
@@ -33,8 +33,8 @@ measure with paired CIs  ←──────────  change the harness (
 
 | suite | purpose | how it runs | gate |
 | --- | --- | --- | --- |
-| `regression` | things `hc` already does; should stay ~100% | cassette replay, free, deterministic | yes: `baseline.json` |
-| `capability` | things `hc` struggles with; starts low | live model, ≥5 trials | no, measured |
+| `regression` | things `marvis` already does; should stay ~100% | cassette replay, free, deterministic | yes: `baseline.json` |
+| `capability` | things `marvis` struggles with; starts low | live model, ≥5 trials | no, measured |
 | `heldout` | check a change generalizes | live, only right before a change lands | no |
 | Harbor `subset.txt` | real containerized tasks (Terminal-Bench 2.0) | `evals/harbor/run-subset.sh` | no |
 | Harbor `heldout.txt` | unseen Terminal-Bench tasks | `HC_BENCH_LIST=…/heldout.txt` | no |
@@ -112,7 +112,7 @@ pnpm eval --analyze latest --all-runs             # include passing runs (weekly
 evals/harbor/run-subset.sh && python3 evals/harbor/summarize.py
 ```
 
-`hc eval <flags>` is the same runner, for when `hc` is on your PATH; it spawns
+`marvis eval <flags>` is the same runner, for when `marvis` is on your PATH; it spawns
 `evals/dist/cli.js` from the checkout it finds, so it works only in one.
 
 ## Cadence

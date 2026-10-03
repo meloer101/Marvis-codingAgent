@@ -8,7 +8,7 @@ export { loadDotEnv };
  * Load `.env` once the command's options are known: the workspace's (`--cwd`)
  * first, then the invocation directory's, then the user's `~/.agent/.env`, each
  * only for what is still unset. Loading at import time read only the
- * invocation directory, so `hc agent --cwd ../other` ran with the wrong
+ * invocation directory, so `marvis agent --cwd ../other` ran with the wrong
  * project's settings.
  */
 export function loadDotEnvFor(

@@ -44,9 +44,9 @@ describe('attentionChanges', () => {
 describe('documentTitle', () => {
   it('counts sessions waiting on the user first, then shows work in progress', () => {
     expect(documentTitle([row('a', { pending: true }), row('b', { pending: true }), row('c', { running: true })])).toBe(
-      '(2) Waiting for you · hc web',
+      '(2) Waiting for you · Marvis',
     );
-    expect(documentTitle([row('a', { running: true })])).toBe('Working… · hc web');
-    expect(documentTitle([row('a')])).toBe('hc web');
+    expect(documentTitle([row('a', { running: true })])).toBe('Working… · Marvis');
+    expect(documentTitle([row('a')])).toBe('Marvis');
   });
 });

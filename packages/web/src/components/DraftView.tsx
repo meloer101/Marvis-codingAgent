@@ -250,7 +250,7 @@ function Welcome({ workspace }: { workspace: Workspace | undefined }) {
               What are we working on in <span>{workspace.name}</span>?
             </>
           ) : (
-            'hc web'
+            'Marvis'
           )}
         </h1>
         {workspace ? (

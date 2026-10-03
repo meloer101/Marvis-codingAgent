@@ -4,7 +4,7 @@
  * over MCP. The tool schemas are already the source of truth — this is a thin
  * bridge from `ToolSpec` to MCP's tool handlers.
  *
- * Permissions are deliberately NOT applied here: `hc mcp serve` hands the raw
+ * Permissions are deliberately NOT applied here: `marvis mcp serve` hands the raw
  * tools to whatever connects, exactly like running the binaries directly would.
  * The connecting agent owns its own gating.
  */

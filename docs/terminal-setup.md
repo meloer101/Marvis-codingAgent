@@ -1,6 +1,6 @@
 # Terminal setup
 
-The Ink TUI (`hc` with no prompt, or the interactive session) draws box-drawing
+The Ink TUI (`marvis` with no prompt, or the interactive session) draws box-drawing
 characters, gutters, and aligned columns. Those stay aligned only if your
 terminal and font agree on character width — especially for CJK text, where a
 wrong width estimate drifts the whole line by a column. This is a one-time

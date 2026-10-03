@@ -2,7 +2,7 @@
  * Trace aggregation — pure, no I/O.
  *
  * `summarizeTrace` folds one session's event stream into a row; `rollupStats`
- * folds many rows into the cross-session totals `hc stats` prints. Kept free of
+ * folds many rows into the cross-session totals `marvis stats` prints. Kept free of
  * the filesystem so both are trivially testable and the CLI owns the reading.
  *
  * Cost is only known for models with a pricing rule (`provider/capabilities.ts`);

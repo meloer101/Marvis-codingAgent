@@ -1,5 +1,5 @@
 /**
- * The projects one `hc web` hosts, remembered across restarts in
+ * The projects one `marvis web` hosts, remembered across restarts in
  * `~/.agent/web/workspaces.json`. A workspace's id is derived from its root
  * path, so the same directory is always the same workspace.
  */

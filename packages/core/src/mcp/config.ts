@@ -59,7 +59,7 @@ export const MCP_CONFIG_FILE = '.mcp.json';
 
 export interface LoadedMcpConfig {
   servers: McpServerConfig[];
-  /** Files actually read, in application order. For `hc doctor` / `hc mcp list`. */
+  /** Files actually read, in application order. For `marvis doctor` / `marvis mcp list`. */
   sources: string[];
 }
 

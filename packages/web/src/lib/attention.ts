@@ -31,7 +31,7 @@ export function attentionChanges(prev: SessionSummary[], next: SessionSummary[])
   return out;
 }
 
-const APP = 'hc web';
+const APP = 'Marvis';
 
 /** The tab title: how many sessions wait on the user, else whether any is working. */
 export function documentTitle(sessions: SessionSummary[]): string {

@@ -1,6 +1,6 @@
 # Design
 
-Visual system for the `hc web` console — **v3 "Hierarchy"** on the v2 **Graphite** tokens. Strategic context lives in [PRODUCT.md](PRODUCT.md); this file answers "how it looks". The reference frames are in the Figma file *Learning Project*, page "v3 · Hierarchy" (Session / Usage / Settings, light and dark, the collapsed states, a motion demo and the "v3 · Direction" rules). Source of truth in code: `packages/web/src/index.css` (tokens, motion), `packages/web/src/lib/theme.ts` (theme switching), `packages/web/src/components/Regions.tsx` (regions and their toggles).
+Visual system for the `marvis web` console — **v3 "Hierarchy"** on the v2 **Graphite** tokens. Strategic context lives in [PRODUCT.md](PRODUCT.md); this file answers "how it looks". The reference frames are in the Figma file *Learning Project*, page "v3 · Hierarchy" (Session / Usage / Settings, light and dark, the collapsed states, a motion demo and the "v3 · Direction" rules). Source of truth in code: `packages/web/src/index.css` (tokens, motion), `packages/web/src/lib/theme.ts` (theme switching), `packages/web/src/components/Regions.tsx` (regions and their toggles).
 
 ## Principles
 
@@ -69,7 +69,7 @@ No serif, no uppercase eyebrows.
 
 ## Components
 
-- **Sidebar:** brand row (toggle, **hc** web, a `muted` "+ New" button); a `subtle` search field with a ⌘K hint that opens the palette; project groups under an 11px medium faint label (+ and ⋯ on hover; a chevron when folded); session rows 28px, 13px secondary, the focused one `muted` fill + medium ink, hover `subtle`. A row's end shows the most urgent state: amber dot (waiting), blue spinner (running), blue dot (unread), else a mono faint time; ⋯ on hover. "Add project" faint below. Footer: theme, notifications, Usage, Settings as 14px icons (the page shown gets a `muted` fill), then "● Connected".
+- **Sidebar:** brand row (toggle, **Marvis**, a `muted` "+ New" button); a `subtle` search field with a ⌘K hint that opens the palette; project groups under an 11px medium faint label (+ and ⋯ on hover; a chevron when folded); session rows 28px, 13px secondary, the focused one `muted` fill + medium ink, hover `subtle`. A row's end shows the most urgent state: amber dot (waiting), blue spinner (running), blue dot (unread), else a mono faint time; ⋯ on hover. "Add project" faint below. Footer: theme, notifications, Usage, Settings as 14px icons (the page shown gets a `muted` fill), then "● Connected".
 - **Session header:** project (faint) / title (14 semibold, click to rename) / branch (git-branch icon, mono 11 faint) · spend (mono 11 faint, opens the usage popover) · terminal and panel toggles.
 - **User message:** a `muted` block, 14/1.57, edit / fork / copy at its top-right on hover.
 - **Turn:** an exploration line ("Read 2 files, searched for 1 pattern", 12 faint, chevron), text at 14/1.57, tool blocks; under the last reply a copy icon and "Regenerate" (12 faint).

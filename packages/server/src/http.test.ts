@@ -93,7 +93,7 @@ describe('static handler guards', () => {
     expect(res.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
   });
 
-  it('answers the health check that `hc web` uses to find a running server', async () => {
+  it('answers the health check that `marvis web` uses to find a running server', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/__hc/health`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ app: 'hc-web', bootId: 'b1' });

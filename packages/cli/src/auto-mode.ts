@@ -1,5 +1,5 @@
 /**
- * `hc auto-mode` helpers: print built-in rules, dump the effective config
+ * `marvis auto-mode` helpers: print built-in rules, dump the effective config
  * with `$defaults` expanded, critique custom rules, and reset user settings.
  */
 

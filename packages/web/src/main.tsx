@@ -16,7 +16,7 @@ if (!token) {
   createRoot(root).render(
     <div className="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
       <p>
-        No access token. Open the URL printed by <code className="font-mono">hc web</code> (it ends in{' '}
+        No access token. Open the URL printed by <code className="font-mono">marvis web</code> (it ends in{' '}
         <code className="font-mono">#token=…</code>).
       </p>
     </div>,

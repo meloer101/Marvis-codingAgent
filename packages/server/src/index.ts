@@ -1,7 +1,7 @@
 /**
- * `startServer` — the local `hc web` host: a `node:http` server that serves the
+ * `startServer` — the local `marvis web` host: a `node:http` server that serves the
  * SPA bundle and upgrades `/ws` to the RPC + event socket. It binds `127.0.0.1`
- * only and authenticates with the token it is given (`hc web` passes the one it
+ * only and authenticates with the token it is given (`marvis web` passes the one it
  * keeps in `~/.agent/web`) or a fresh random one; the token rides the URL
  * fragment so it never lands in logs (docs/web.md, "Security").
  *
@@ -52,7 +52,7 @@ export interface StartServerOptions {
   cwd: string;
   /**
    * Where the hosted workspaces are remembered; in memory (forgotten on close)
-   * when omitted. `hc web` passes `~/.agent/web/workspaces.json`.
+   * when omitted. `marvis web` passes `~/.agent/web/workspaces.json`.
    */
   workspaceStore?: WorkspaceStore;
   /** TCP port; `0` (the default) picks a free one. */
@@ -67,7 +67,7 @@ export interface StartServerOptions {
   buildConfig?: SessionConfigFactory;
   /** Override the static bundle directory (tests / non-standard layouts). */
   staticDir?: string;
-  /** The auth token; a fresh random one when omitted. `hc web` passes the persisted one. */
+  /** The auth token; a fresh random one when omitted. `marvis web` passes the persisted one. */
   token?: string;
   /** The folder chooser `fs.pickDir` shows (tests); the system's by default, when it has one. */
   folderPicker?: () => Promise<FolderPicker | null>;

@@ -1,6 +1,6 @@
 # Roadmap — 未完成的工作
 
-> `harness-code`（`hc`）唯一的待办文档，只列**还没做的**。已经能用的功能见
+> Marvis（命令 `marvis`，短别名 `hc`）唯一的待办文档，只列**还没做的**。已经能用的功能见
 > [`README.md`](../README.md) 和 [`architecture.md`](./architecture.md)，构建历史见 git log。
 > 某项做完后直接从本文删除；只做完一部分的，改写成剩余的部分。
 >
@@ -25,8 +25,8 @@
   （`subagents/run.ts`）。决定开启的话，要测量效果。*(S)*
 - **项目里的会话和 trace 要不要也移出仓库？** 现在只有"不是项目的目录"写到 `~/.agent/projects/`；在项目里仍写
   `<项目根>/.agent/{sessions,traces}`。本仓库的 `.gitignore` 忽略了它们，但别人的仓库不一定，`git add -A` 会把
-  会话日志（含工具输出）提交进去。Claude Code 和 codex 都把这类状态放在 home 下。改的话要让 `--resume`、`hc trace`、
-  `hc stats`、TUI 和 web 的会话列表同时读新旧两个位置。*(S–M)*
+  会话日志（含工具输出）提交进去。Claude Code 和 codex 都把这类状态放在 home 下。改的话要让 `--resume`、`marvis trace`、
+  `marvis stats`、TUI 和 web 的会话列表同时读新旧两个位置。*(S–M)*
 - **能力位覆盖要不要拆回独立的 `capabilities.yaml`？** 目前放在 `.agent/settings.json` 的
   `capabilities` 字段里，拆出来成本很低。
 
@@ -43,7 +43,7 @@
   支持；`edit.oldString.min(1)` 会被拒）。度量 parseError 率。*(S, 低优先)*
 - **[codex] 按模型的 harness 档案**：把 `capabilities.ts` 从"端点能力"扩展为"每个模型的 harness
   行为"，包括工具输出 token 预算、编辑工具形态、提示变体、预算/nudge 文案、自动压缩阈值、可用窗口
-  余量（`protocol/src/openai_models.rs`、`models-manager/models.json`）。`hc` 面向的模型强弱差异
+  余量（`protocol/src/openai_models.rs`、`models-manager/models.json`）。`marvis` 面向的模型强弱差异
   很大，这一项收益最明显。*(M)*
 - **原生 Messages（Anthropic 格式）provider**：Claude 现在只能经 OpenRouter 或代理访问。DeepSeek
   也有 `/anthropic` 端点（支持 thinking、tool use、图片，忽略 `cache_control`），dsh 默认走的就是
@@ -89,7 +89,7 @@
   以及经 `xargs` / `find -exec` 调起的 `grep` 仍会读到——前两个是只读白名单里的命令。*(S)*
 - **[codex] 可解释、可自测的规则**：支持对象形式的规则
   `{ rule, justification?, examples?: { match?, notMatch? } }`。justification 出现在 deny / ask 的
-  原因里（包括应该改用什么做法），examples 在规则加载时校验；再提供 `hc permissions check "<cmd>"`，
+  原因里（包括应该改用什么做法），examples 在规则加载时校验；再提供 `marvis permissions check "<cmd>"`，
   输出 JSON 裁决（`execpolicy/README.md`）。*(S–M)*
 - **"始终允许"的规则跨会话保留**：9-29 起"始终允许"只加该命令的前缀规则（`alwaysAllowFor`），但仍只在本会话
   有效。剩下：提供一个"并记住"的选项，把规则写入项目设置（写哪个文件、要不要 gitignore 需要先定），参考 codex
@@ -112,7 +112,7 @@
   依赖 I「持久化每回合的上下文记录」，否则 `--resume` 后会失效。*(M)*
 - **[codex] 上下文注入规则**：所有模型可见的注入都只追加、每项有上限（单项 ≤10K tokens，超过 1K
   tokens 的要额外审查），并且是带标记的类型化片段（codex 根 `AGENTS.md` 的 "Model visible context"
-  一节、`context-fragments/src/fragment.rs`）。落到 `hc`：一个带硬上限的共用片段 helper，加上
+  一节、`context-fragments/src/fragment.rs`）。落到 `marvis`：一个带硬上限的共用片段 helper，加上
   project memory 的**总**预算（现在只有每个文件 32 KiB 的上限）。*(S)*
 - **[codex] 模型可见的上下文预算**：只提醒一次的剩余 token 提示、`get_context_remaining` 工具、由
   模型发起的 `new_context` 换窗，提示文案按模型配置（`core/src/session/token_budget.rs`、
@@ -132,7 +132,7 @@
   有 3 个大任务（MIPS 解释器、MIPS 上的 Doom、细胞分割）到第 40 轮还在修 bug（#14）。用 `--ak max_turns=100`
   重跑这几个任务，看是回合上限卡住了还是本来就做不出来；同时留意更多回合会不会让其他任务"做完不停"（#8）。
   *(S)* — **measure**
-- **coding-e2e（`evals/e2e/`，9-29 建）**：19 个端到端编码任务，通过真实的 `hc agent` + deepseek-flash 运行，按最终状态由隐藏检查打分，另有 `claude -p` 评委判断"谎报完成"。每个版本都从"提交 + 补丁"冻结构建。
+- **coding-e2e（`evals/e2e/`，9-29 建）**：19 个端到端编码任务，通过真实的 `marvis agent` + deepseek-flash 运行，按最终状态由隐藏检查打分，另有 `claude -p` 评委判断"谎报完成"。每个版本都从"提交 + 补丁"冻结构建。
   - 首轮爬坡的目标是权限摩擦：被拒调用从 1.88 次/运行降到 0.81（占工具调用的 13.4% → 5.7%），pass 从 54/57 升到 57/57。
   - 剩余的被拒都是小类，候选改法：写重定向到临时目录（`… > /tmp/x`）视为安全；`time <cmd>` 按 `<cmd>` 判断。
   - pass 已经饱和，要继续用它衡量能力，需要更难的任务。
@@ -191,7 +191,7 @@
 | 摩擦 | 涉及轨迹 | 次数 | 说明 |
 | --- | --- | --- | --- |
 | `yolo` 模式下权限引擎硬拒绝合法命令 | **68/70** | 209 次，占全部 2075 次工具调用的 10.1% | `python -c` 91 次（48 条）、heredoc 解析不了 35 次（28 条）、`$(...)` 36 次（23 条）、`write` 写工作区外（`/tmp`）28 次（22 条）、管道到 `sh` 10 次、递归删除工作区内的目录 6 次（包括 agent 自己的 `scratch/`）。每次基本都要多花一轮改写。**9-25 已放宽**：`yolo` 下放行内联代码、`$(...)`、heredoc；文件工具可以读写系统临时目录；删除工作区内的目录不再被拒。管道到 shell 和其他破坏性命令仍在所有模式拒绝。下次 Harbor 运行时验证 |
-| 翻 harness 自己的文件（`.agent/`、`/opt/hc`、`/logs/agent`） | 12/70 | — | `hc` 把 `.agent/` 写在任务目录里，agent 一 `ls` 就看到；有的去翻自己的日志，有的去 grep `hc.mjs` 找"参考答案"。**9-25 已修**：不是项目的目录改写到 `~/.agent/projects/`，Harbor adapter 用 `HC_STATE_DIR` 把状态直接写进日志目录。下次 Harbor 运行时验证 |
+| 翻 harness 自己的文件（`.agent/`、`/opt/hc`、`/logs/agent`） | 12/70 | — | `marvis` 把 `.agent/` 写在任务目录里，agent 一 `ls` 就看到；有的去翻自己的日志，有的去 grep `hc.mjs` 找"参考答案"。**9-25 已修**：不是项目的目录改写到 `~/.agent/projects/`，Harbor adapter 用 `HC_STATE_DIR` 把状态直接写进日志目录。下次 Harbor 运行时验证 |
 | `grep` 工具的 `path` 指向单个文件时报 `ENOTDIR` | 1（第一批） | 2 次 | 容器里没有 `rg`，JS fallback 把文件路径当目录用。**已修复**，第二批没有再出现 |
 
 ## H · Agentic behavior quality
@@ -247,7 +247,7 @@
 ## Web
 
 目标：对齐 Claude Code 桌面端 / Codex（ChatGPT 桌面端的 Codex 模式）的基线体验，做到用户愿意替代终端的日常主力界面。
-浏览器优先，桌面壳最后做；一个 `hc web` 管多个项目。现状见 [`web.md`](./web.md)。硬约束：不改任何模型可见的内容
+浏览器优先，桌面壳最后做；一个 `marvis web` 管多个项目。现状见 [`web.md`](./web.md)。硬约束：不改任何模型可见的内容
 （工具 schema、system prompt、默认消息形状），否则 eval cassette 全部失效。
 
 - **MVP（M0–M5）10-03 已完成**：转录可读性、审查闭环（Changes / Files / Tasks 面板、行评论）和终端都已上线，现状见
@@ -281,6 +281,6 @@
   不设置 `user_id`（会把缓存分区）；不切 Responses API；不引入 DeepSeek tokenizer（现有
   `createTokenCalibrator` 用真实 usage 校准已经够用）。
 - **codex**：只有 Responses API 才有的机制（语法约束的 freeform 工具、远程压缩、WebSocket 增量请求、
-  `previous_response_id`）在 `hc` 面向的 Chat Completions 接口上不存在；规模化基建（Bazel、多平台
+  `previous_response_id`）在 `marvis` 面向的 Chat Completions 接口上不存在；规模化基建（Bazel、多平台
   沙箱后端、网络代理、V8 code mode、实时语音、企业托管配置）和本项目体量不匹配。
 - **跨会话记忆**：不做语义检索、自动去重合并、跨机器同步。

@@ -1,5 +1,5 @@
 /**
- * Headless agent run — the eval-suite counterpart to `hc agent`.
+ * Headless agent run — the eval-suite counterpart to `marvis agent`.
  *
  * `packages/cli/src/index.ts`'s `agent` action assembles a runnable `AgentLoop`
  * from a dozen core primitives, but that assembly is not exported and is welded

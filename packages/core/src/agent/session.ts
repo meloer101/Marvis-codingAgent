@@ -516,7 +516,7 @@ export interface SessionMeta {
   createdAt?: number;
   /** The working directory the session ran in. */
   cwd?: string;
-  /** The git worktree a frontend gave the session to work in (`hc web`), apart from the project's checkout. */
+  /** The git worktree a frontend gave the session to work in (`marvis web`), apart from the project's checkout. */
   worktree?: SessionWorktreeMeta;
 }
 

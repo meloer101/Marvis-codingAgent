@@ -23,7 +23,7 @@ import { FileOAuthStore, OAuthNeedsLoginError, createOAuthProvider } from './oau
 /**
  * Build the transport for a remote (http/sse) server. `sse` uses the older
  * transport; everything else uses streamable HTTP. An `authProvider` wires in
- * OAuth — token attach, silent refresh, and (in `hc mcp login`) the browser
+ * OAuth — token attach, silent refresh, and (in `marvis mcp login`) the browser
  * redirect.
  */
 export function buildAuthTransport(
@@ -39,7 +39,7 @@ export function buildAuthTransport(
 
 /**
  * The provider a plain connection uses: `consume` mode, so a missing/expired
- * token that cannot be refreshed fails with "run hc mcp login" rather than
+ * token that cannot be refreshed fails with "run marvis mcp login" rather than
  * trying to open a browser mid-run. Returns undefined when the server is
  * static-auth (an `Authorization` header, or `auth: "none"`).
  */
@@ -158,7 +158,7 @@ export class McpConnection {
     } catch (err) {
       this._state = 'failed';
       this._error = isAuthError(err)
-        ? `needs authorization — run: hc mcp login ${this.name}`
+        ? `needs authorization — run: marvis mcp login ${this.name}`
         : err instanceof Error
           ? err.message
           : String(err);

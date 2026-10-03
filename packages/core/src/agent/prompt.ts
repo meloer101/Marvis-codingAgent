@@ -1,5 +1,5 @@
 /**
- * The system prompt `hc agent` sends to the model.
+ * The system prompt `marvis agent` sends to the model.
  *
  * Kept deliberately small: one factual identity line, a handful of tagged
  * behavioral blocks (not a persona paragraph — current models are steered

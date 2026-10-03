@@ -5,9 +5,9 @@
 ### 开源的终端编码 Agent，运行于任意 OpenAI 兼容模型。
 
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![release](https://img.shields.io/github/v/release/meloer101/harness-code?color=success)](https://github.com/meloer101/harness-code/releases)
+[![release](https://img.shields.io/github/v/release/meloer101/Marvis-codingAgent?color=success)](https://github.com/meloer101/Marvis-codingAgent/releases)
 [![node](https://img.shields.io/badge/node-%E2%89%A5%2020.10-brightgreen.svg)](https://nodejs.org)
-[![stars](https://img.shields.io/github/stars/meloer101/harness-code?style=social)](https://github.com/meloer101/harness-code)
+[![stars](https://img.shields.io/github/stars/meloer101/Marvis-codingAgent?style=social)](https://github.com/meloer101/Marvis-codingAgent)
 
 </div>
 
@@ -22,10 +22,10 @@
 单个自包含的包，一条命令安装（Node ≥ 20.10）：
 
 ```bash
-npm install -g https://github.com/meloer101/harness-code/releases/download/v0.1.0/marvis-0.1.0.tgz
+npm install -g https://github.com/meloer101/Marvis-codingAgent/releases/download/v0.1.0/marvis-0.1.0.tgz
 ```
 
-装完即得 `marvis` 命令（及短别名 `hc`）。升级时用 [Releases](https://github.com/meloer101/harness-code/releases) 里最新的 URL 再跑一次这条命令。
+装完即得 `marvis` 命令（及短别名 `hc`）。升级时用 [Releases](https://github.com/meloer101/Marvis-codingAgent/releases) 里最新的 URL 再跑一次这条命令。
 
 ## 快速上手
 
@@ -83,7 +83,7 @@ Marvis 把和你协作中学到的东西持久化下来，跨会话、跨项目�
 
 ## 实测效果
 
-项目自带基准套件（在源码仓库里跑 `pnpm eval` 或 `hc eval`），运行完整循环——真实工具、真实权限引擎——针对固定任务，从提交进仓库的 cassette 回放，可离线逐位复现。任何任务掉出通过、或 token/成本涨超 15%，都会让这条命令失败。
+项目自带基准套件（在源码仓库里跑 `pnpm eval` 或 `marvis eval`），运行完整循环——真实工具、真实权限引擎——针对固定任务，从提交进仓库的 cassette 回放，可离线逐位复现。任何任务掉出通过、或 token/成本涨超 15%，都会让这条命令失败。
 
 在 `deepseek/deepseek-v4-flash` 上，每个任务运行 3 次：
 
@@ -200,8 +200,8 @@ evals             基准任务与固件
 ## 从源码构建
 
 ```bash
-git clone https://github.com/meloer101/harness-code.git
-cd harness-code
+git clone https://github.com/meloer101/Marvis-codingAgent.git
+cd Marvis-codingAgent
 pnpm install && pnpm build
 node packages/cli/dist/index.js --help    # 或：pnpm hc --help
 pnpm test

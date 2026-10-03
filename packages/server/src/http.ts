@@ -79,7 +79,7 @@ export interface StaticHandlerOptions {
    * bound). Omitted: no check (tests).
    */
   allowedHosts?: ReadonlySet<string>;
-  /** Body of `GET /__hc/health` — how `hc web` recognizes a server it can reuse. */
+  /** Body of `GET /__hc/health` — how `marvis web` recognizes a server it can reuse. */
   health?: () => unknown;
 }
 
@@ -189,9 +189,9 @@ async function sendFile(res: ServerResponse, path: string, headOnly: boolean): P
 }
 
 const UNBUILT_PAGE = `<!doctype html>
-<html><head><meta charset="utf-8"><title>hc web</title></head>
+<html><head><meta charset="utf-8"><title>Marvis</title></head>
 <body style="font-family: system-ui; padding: 2rem; color: #ddd; background: #111;">
-<h1>hc web</h1>
+<h1>Marvis</h1>
 <p>The server is running, but the web UI bundle has not been built yet.</p>
 <p>The WebSocket API at <code>/ws</code> is available.</p>
 </body></html>`;

@@ -112,7 +112,7 @@ export function SessionSidebar({
       <div className="flex h-11 shrink-0 items-center gap-1 pr-3 pl-2.5">
         <SidebarCloser />
         <span className="text-sm font-semibold">
-          hc <span className="font-normal text-faint">web</span>
+          Marvis
         </span>
         <div className="flex-1" />
         <button
@@ -565,7 +565,7 @@ function RemoveProjectDialog({
     <Dialog open={workspace !== null} onOpenChange={(open) => !open && onClose()}>
       {workspace && (
         <DialogContent
-          title={`Remove ${workspace.name} from hc web?`}
+          title={`Remove ${workspace.name} from Marvis?`}
           description="Its sessions and files stay where they are; add the project again to see them."
         >
           <div className="flex flex-col gap-4 px-5 pt-3 pb-5">

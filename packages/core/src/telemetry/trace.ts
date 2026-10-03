@@ -10,7 +10,7 @@
  *
  * Kept separate from the session log on purpose: the trace carries volatile,
  * lossy data (input summaries, byte counts, wall-clock timing) that has no place
- * in the resume-critical path, and `hc trace` / `hc stats` read it without ever
+ * in the resume-critical path, and `marvis trace` / `marvis stats` read it without ever
  * touching `loadSession`. The full tool *output* is deliberately not stored here
  * — the session log already has it, and duplicating multi-megabyte grep dumps
  * is a known context-blowup hazard; a byte count plus the error flag is enough

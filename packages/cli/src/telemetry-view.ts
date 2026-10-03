@@ -1,5 +1,5 @@
 /**
- * Renderers for `hc trace` (one session's timeline) and `hc stats` (totals
+ * Renderers for `marvis trace` (one session's timeline) and `marvis stats` (totals
  * across every recorded session). Both return a finished string so they can be
  * unit-tested without capturing stdout; the commands just `console.log` it.
  */
@@ -131,7 +131,7 @@ function fmtBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** The `hc stats` table. */
+/** The `marvis stats` table. */
 export function renderStats(r: StatsRollup): string {
   if (r.sessions === 0) return 'no recorded sessions under .agent/traces';
 

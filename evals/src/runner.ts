@@ -15,7 +15,7 @@ import { runAgentTask, runAssertion } from './harness.js';
 import type { Suite, Task } from './tasks.js';
 
 export interface RunConfig {
-  /** Where per-run trace jsonl files land (kept for `hc trace` debugging). */
+  /** Where per-run trace jsonl files land (kept for `marvis trace` debugging). */
   resultsDir: string;
   /** Override the task's `runs`. */
   runs?: number;
@@ -42,7 +42,7 @@ export interface RunConfig {
 export interface SingleRun {
   /** Outcome: `assert.mjs` held in the post-run workspace. */
   passed: boolean;
-  /** Trace id — `hc trace <id> --cwd <resultsDir>` / `pnpm eval --analyze`. */
+  /** Trace id — `marvis trace <id> --cwd <resultsDir>` / `pnpm eval --analyze`. */
   traceId: string;
   turns: number;
   inputTokens: number;
@@ -98,7 +98,7 @@ export async function runTask(task: Task, cfg: RunConfig): Promise<TaskResult> {
   const arm = cfg.label ? `${cfg.label}-` : '';
   const runs: SingleRun[] = [];
   const infraErrors: TaskResult['infraErrors'] = [];
-  // Traces land under `<resultsDir>/.agent/traces/` so `hc trace --cwd <resultsDir>` works.
+  // Traces land under `<resultsDir>/.agent/traces/` so `marvis trace --cwd <resultsDir>` works.
   const traceDir = join(cfg.resultsDir, '.agent');
   await mkdir(traceDir, { recursive: true });
 

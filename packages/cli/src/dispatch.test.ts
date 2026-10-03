@@ -17,7 +17,7 @@ function input(overrides: Partial<DispatchInput>): DispatchInput {
 }
 
 describe('decideFrontend', () => {
-  it('bare hc on a real terminal → tui', () => {
+  it('bare marvis on a real terminal → tui', () => {
     expect(decideFrontend(input({}))).toBe('tui');
   });
 

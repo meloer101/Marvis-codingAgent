@@ -1,6 +1,6 @@
-# hc web
+# marvis web
 
-`hc web` is the browser frontend: a local server (`packages/server`) that hosts
+`marvis web` is the browser frontend: a local server (`packages/server`) that hosts
 agent sessions for any number of projects, and a single-page app
 (`packages/web`) that talks to it over one WebSocket per tab. `packages/protocol` holds everything both sides share: frame
 and event types, the RPC method table (with zod schemas), and the event fold.
@@ -10,16 +10,16 @@ Planned work lives in [ROADMAP.md](./ROADMAP.md); the visual system in
 ## Running it
 
 ```bash
-hc web                 # serve the current directory; opens the browser
-hc web --cwd ~/proj    # another workspace
-hc web --mock          # scripted demo session, no API calls
-hc web --rotate-token  # replace the saved access token
+marvis web                 # serve the current directory; opens the browser
+marvis web --cwd ~/proj    # another workspace
+marvis web --mock          # scripted demo session, no API calls
+marvis web --rotate-token  # replace the saved access token
 ```
 
 - **Port 4317** by default, bound to `127.0.0.1` only. If it is taken by
   something else, any free port is used. An explicit `--port` must be free.
 - **One server for every project.** The server on the default port records
-  itself in `~/.agent/web/server.json`; running `hc web` again finds it (live
+  itself in `~/.agent/web/server.json`; running `marvis web` again finds it (live
   pid, and `GET /__hc/health` answers with the recorded boot id), adds the
   current directory to it as a project (`workspace.add`) and opens a new session
   there (`#token=…&w=<workspace>`) instead of starting a second server. The
@@ -31,11 +31,11 @@ hc web --rotate-token  # replace the saved access token
 **Development.** Run the server with the Vite dev server in front of it:
 
 ```bash
-hc web --no-open --dev-origin http://localhost:5173 --port 4317
+marvis web --no-open --dev-origin http://localhost:5173 --port 4317
 pnpm --filter @harness-code/web dev
 ```
 
-The page is served by Vite and proxies `/ws` to the hc server (`HC_WEB_PORT`
+The page is served by Vite and proxies `/ws` to the Marvis server (`HC_WEB_PORT`
 overrides the target port); `--dev-origin` lets that Origin through the
 handshake. Open the `dev:` URL the server prints.
 
@@ -155,7 +155,7 @@ the server with the same schemas the client is typed from.
 | `memory.list {workspaceId}` | the instruction files (`AGENTS.md`, `CLAUDE.md` in `~/.agent/` and at the project's root — or the `AGENTS.md` to write) and the memories in the global and project stores, each with what's wrong with it, if sessions skip it |
 | `memory.read` / `memory.write` / `memory.delete {workspaceId, target, text?}` | an instructions file or a memory (`{kind:'memory', scope, path}`): read, write (a memory must parse as one, in a scope that keeps its type; the store's `MEMORY.md` is written again) or delete (memories only) |
 | `mcp.list {workspaceId}` | the MCP servers in `~/.agent/.mcp.json` and the project's `.mcp.json`, as the files have them (`${VAR}`s unexpanded, no headers or env), which one of a name is used, and how each signs in — OAuth ones, whether tokens are stored |
-| `mcp.login {workspaceId, name}` | sign in to an OAuth server: answers with the page to authorize at, the callback caught on 127.0.0.1 as `hc mcp login` does, and an `mcp_login` push when it ends — or at once when the tokens it has still work. Sessions started afterwards connect with it |
+| `mcp.login {workspaceId, name}` | sign in to an OAuth server: answers with the page to authorize at, the callback caught on 127.0.0.1 as `marvis mcp login` does, and an `mcp_login` push when it ends — or at once when the tokens it has still work. Sessions started afterwards connect with it |
 | `mcp.logout {workspaceId, name}` | forget a server's tokens |
 | `stats.summary {workspaceId?, since?}` | every traced session started since then, in one project or all: each one's figures and the rollup across them — totals, averages, per model |
 | `session.slashCommands {id}` | the session's MCP prompt commands |

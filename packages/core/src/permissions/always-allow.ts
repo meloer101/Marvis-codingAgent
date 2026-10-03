@@ -60,7 +60,7 @@ const SUBCOMMAND = new Set([
   'cargo', 'go', 'rustup', 'docker', 'podman', 'kubectl', 'helm', 'gh', 'brew', 'apt', 'apt-get',
   'pip', 'pip3', 'uv', 'poetry', 'pipx', 'conda', 'mvn', 'gradle', 'gradlew', 'dotnet', 'swift',
   'terraform', 'aws', 'gcloud', 'az', 'composer', 'bundle', 'mix', 'flutter', 'dart',
-  'turbo', 'nx', 'systemctl', 'hc',
+  'turbo', 'nx', 'systemctl', 'hc', 'marvis',
 ]);
 
 /** Subcommands that run something else: the rule keeps that too (`pnpm run build`). */

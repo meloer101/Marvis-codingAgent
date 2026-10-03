@@ -245,7 +245,7 @@ export function App({
         store.pushNotice({
           kind: 'error',
           level: 'error',
-          text: `hc: ${err instanceof Error ? err.message : String(err)}`,
+          text: `marvis: ${err instanceof Error ? err.message : String(err)}`,
         });
         d({ type: 'TURN_END', live: buffer.snapshot() });
         buffer.reset();

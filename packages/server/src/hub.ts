@@ -1,5 +1,5 @@
 /**
- * `WorkspaceHub` — every project one `hc web` hosts. It owns a
+ * `WorkspaceHub` — every project one `marvis web` hosts. It owns a
  * `SessionRegistry` per workspace and is the one place that knows which
  * workspace a session belongs to.
  *
@@ -262,7 +262,7 @@ export class WorkspaceHub {
   async pickFolder(): Promise<{ path: string | null }> {
     const picker = await this.#picker();
     if (!picker) throw new InvalidRequestError('this machine has no folder chooser to show');
-    return { path: await picker.pick('Choose a project folder for hc web') };
+    return { path: await picker.pick('Choose a project folder for Marvis') };
   }
 
   #picker(): Promise<FolderPicker | null> {

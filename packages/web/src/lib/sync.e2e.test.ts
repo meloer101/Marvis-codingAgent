@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * End to end: the web client's `SessionSync` against a real `hc web --mock`
+ * End to end: the web client's `SessionSync` against a real `marvis web --mock`
  * server over a real socket — auth, create, send, the mock's three permission
  * asks, run end — plus a second "tab" that opens the session mid-ask and
  * answers it (pending ask survives a reload; first answer wins for everyone).
@@ -97,7 +97,7 @@ async function until<T>(read: () => T | undefined | null | false, what: string, 
   }
 }
 
-describe('SessionSync ↔ hc web --mock', () => {
+describe('SessionSync ↔ marvis web --mock', () => {
   it('queues a message sent mid-run; a second tab sees it, and Stop hands it back to the first', async () => {
     const { server } = await boot();
     const a = tab(server);
@@ -161,7 +161,7 @@ describe('SessionSync ↔ hc web --mock', () => {
     expect(bView()!.entries[0]).toMatchObject({ kind: 'user', text: 'set up a scratch file' });
     const bTools = () => bView()!.entries.flatMap((e) => (e.kind === 'assistant' ? e.tools : []));
     expect(bTools().map((t) => t.name)).toEqual([...LOOK_AROUND, 'bash', 'write']);
-    expect(bTools()[LOOK_AROUND.length]!.result?.content).toContain('hello from the hc web mock');
+    expect(bTools()[LOOK_AROUND.length]!.result?.content).toContain('hello from the marvis web mock');
     await b.sync.answerAsk(id!, ask2, 'once');
     await until(() => view()?.askId !== ask2, 'tab A sees ask #2 resolved');
 

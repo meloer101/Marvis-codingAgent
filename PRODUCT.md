@@ -6,11 +6,11 @@ brand
 
 ## Users
 
-开发者与技术型用户，在本机通过 `hc web` 打开的控制台里与 coding agent 协作：浏览会话、流式阅读模型的推理与工具调用、审批权限请求。使用场景是长时间、高专注度的桌面工作——界面会被盯着看几个小时，必须耐看、不吵闹。
+开发者与技术型用户，在本机通过 `marvis web` 打开的控制台里与 coding agent 协作：浏览会话、流式阅读模型的推理与工具调用、审批权限请求。使用场景是长时间、高专注度的桌面工作——界面会被盯着看几个小时，必须耐看、不吵闹。
 
 ## Product Purpose
 
-harness-code 是一个从零构建的 coding agent（provider 兼容层、agent loop、权限沙箱、MCP、skills、子代理、遥测与 eval）。Web 前端是它的展示与交互窗口：让 agent 的工作过程可读、可信、可干预。成功 = 用户愿意把它当作日常主力界面，而不是退回终端。
+Marvis 是一个从零构建的 coding agent（provider 兼容层、agent loop、权限沙箱、MCP、skills、子代理、遥测与 eval）。Web 前端是它的展示与交互窗口：让 agent 的工作过程可读、可信、可干预。成功 = 用户愿意把它当作日常主力界面，而不是退回终端。
 
 ## Brand Personality
 

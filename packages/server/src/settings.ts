@@ -385,7 +385,7 @@ export async function mcpLogin(
     let waiting = false;
     loginToServer(config, {
       storeRoot: authRoot(place),
-      returnTo: 'hc web',
+      returnTo: 'Marvis',
       log: () => {},
       onAuthorize: (url) => {
         waiting = true;

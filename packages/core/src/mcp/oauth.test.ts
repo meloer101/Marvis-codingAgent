@@ -43,13 +43,13 @@ describe('FileOAuthStore', () => {
 describe('createOAuthProvider', () => {
   const store = new FileOAuthStore('https://x/mcp', '/nonexistent-root-for-test');
 
-  it('consume mode refuses with a "hc mcp login" hint', async () => {
+  it('consume mode refuses with a "marvis mcp login" hint', async () => {
     const p = createOAuthProvider({ serverUrl: 'https://x/mcp', store, mode: 'consume', serverName: 'linear' });
     await expect(p.redirectToAuthorization(new URL('https://x/authorize'))).rejects.toBeInstanceOf(
       OAuthNeedsLoginError,
     );
     await expect(p.redirectToAuthorization(new URL('https://x/authorize'))).rejects.toThrow(
-      /hc mcp login linear/,
+      /marvis mcp login linear/,
     );
   });
 
@@ -137,7 +137,7 @@ describe('loginToServer (mock OAuth + MCP server)', () => {
       const tools = await conn.listTools();
       expect(tools).toEqual([]);
       expect(conn.state).toBe('failed');
-      expect(conn.error).toMatch(/hc mcp login mock/);
+      expect(conn.error).toMatch(/marvis mcp login mock/);
     } finally {
       await conn.close();
     }

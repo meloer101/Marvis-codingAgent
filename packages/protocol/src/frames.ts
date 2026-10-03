@@ -1,5 +1,5 @@
 /**
- * Wire-level frame shapes for the `hc web` WebSocket transport — one socket
+ * Wire-level frame shapes for the `marvis web` WebSocket transport — one socket
  * per tab, carrying both RPC and the event stream. Verbatim from docs/web.md,
  * "Transport".
  */

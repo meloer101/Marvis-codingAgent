@@ -2,7 +2,7 @@
  * `--mock` mode: a `SessionConfigFactory` backed by a `ScriptedProvider`
  * (`@harness-code/core`) that replays a fixed script instead of calling a real
  * model. Frontend development and demos cost nothing and stay deterministic
- * for screenshots (`hc web --mock`, docs/web.md "Running it").
+ * for screenshots (`marvis web --mock`, docs/web.md "Running it").
  *
  * The script, consumed across three sends, covers every UI surface: streamed
  * thinking + text, read-only lookups, a task list, a `bash` tool, `write` +
@@ -71,7 +71,7 @@ function mockScript(): ScriptedTurn[] {
           name: 'bash',
           input: {
             command:
-              'echo "hello from the hc web mock"; ' +
+              'echo "hello from the marvis web mock"; ' +
               "for i in 1 2 3; do sleep 0.25; printf '\\033[32m✓\\033[0m step %s of 3\\n' \"$i\"; done | tee /dev/null",
           },
         },

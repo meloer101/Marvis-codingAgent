@@ -351,7 +351,7 @@ export function Composer({
           placeholder={
             running
               ? 'Running… Enter: read at its next step · ⌥Enter: after this turn'
-              : `Ask hc to do something — / for commands${onSearchFiles ? ', @ for files' : ''}`
+              : `Ask Marvis to do something — / for commands${onSearchFiles ? ', @ for files' : ''}`
           }
           className="max-h-60 min-h-11 w-full resize-none bg-transparent px-3 pt-[11px] pb-3 text-sm leading-[1.57] outline-none placeholder:text-faint"
           disabled={disabled}

@@ -1,5 +1,5 @@
 /**
- * Talking to an `hc web` that is already running — how `hc web` in another
+ * Talking to an `marvis web` that is already running — how `marvis web` in another
  * directory adds that directory to it instead of starting a second server.
  * One short-lived socket per call, authenticated like any page.
  */
@@ -18,7 +18,7 @@ export function callRunningServer<M extends MethodName>(
   const origin = `http://127.0.0.1:${port}`;
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, { origin });
-    const timer = setTimeout(() => finish(new Error(`no answer from hc web on port ${port}`)), timeoutMs);
+    const timer = setTimeout(() => finish(new Error(`no answer from marvis web on port ${port}`)), timeoutMs);
     let done = false;
     const finish = (err: Error | null, result?: unknown): void => {
       if (done) return;
@@ -39,6 +39,6 @@ export function callRunningServer<M extends MethodName>(
       else if (frame.id === 2) finish(null, frame.result);
     });
     ws.on('error', (err) => finish(err));
-    ws.on('close', () => finish(new Error('hc web closed the connection')));
+    ws.on('close', () => finish(new Error('marvis web closed the connection')));
   });
 }

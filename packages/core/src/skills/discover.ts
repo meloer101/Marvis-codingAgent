@@ -4,7 +4,7 @@
  * Three roots, highest precedence first:
  *   1. `<projectRoot>/.agent/skills/<name>/SKILL.md`   (project)
  *   2. `~/.agent/skills/<name>/SKILL.md`               (user)
- *   3. `<packages/core>/skills/<name>/SKILL.md`         (builtin, ships with hc)
+ *   3. `<packages/core>/skills/<name>/SKILL.md`         (builtin, ships with Marvis)
  *
  * A name found in an earlier root shadows the same name in a later one, so a
  * project can override a builtin skill by putting its own next to it. A skill

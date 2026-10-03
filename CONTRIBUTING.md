@@ -66,7 +66,7 @@ runs), so a live-numbers baseline would trip the gate on its own recording.
 - **A sub-agent** — a `<name>.md` with `name` / `description` / optional `tools` /
   `model` frontmatter under `.agent/agents/`; builtins in `packages/core/agents/`.
 - **An MCP server** — add it to `.mcp.json` (see the README); `${ENV}`
-  interpolation handles static tokens, `hc mcp login` handles OAuth.
+  interpolation handles static tokens, `marvis mcp login` handles OAuth.
 
 ## Commits
 

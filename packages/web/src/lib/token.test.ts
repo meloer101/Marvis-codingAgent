@@ -23,7 +23,7 @@ describe('takeToken', () => {
     expect(replaced).toEqual(['/#/']);
   });
 
-  it('opens a new session in the workspace hc web just added', () => {
+  it('opens a new session in the workspace marvis web just added', () => {
     const { e, store, replaced } = env('#token=abc123&w=0f1e2d3c4b5a');
     expect(takeToken(e)).toBe('abc123');
     expect(store.get('hc.token')).toBe('abc123');

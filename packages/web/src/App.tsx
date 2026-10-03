@@ -150,7 +150,7 @@ function ConnectionBanner() {
     return (
       <div className="flex items-center gap-2 bg-destructive/10 px-5 py-2 text-xs text-destructive">
         <WifiOff className="size-3.5" />
-        The server rejected this page's token — it has probably restarted. Open the URL that <code>hc web</code> printed.
+        The server rejected this page's token — it has probably restarted. Open the URL that <code>marvis web</code> printed.
       </div>
     );
   }

@@ -4,7 +4,7 @@ import { resolveBudgets } from './budgets.js';
 
 describe('resolveBudgets', () => {
   it('uses settings.json when no flag is given — the regression this guards against', () => {
-    // Before resolveBudgets, `hc agent` forwarded only flags: this used to
+    // Before resolveBudgets, `marvis agent` forwarded only flags: this used to
     // silently fall through to the loop default of 50.
     const b = resolveBudgets({}, { maxTurns: 2 });
     expect(b.maxTurns).toBe(2);

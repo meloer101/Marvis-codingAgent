@@ -9,8 +9,8 @@
  *
  * Two modes:
  *   - `interactive` — `redirectToAuthorization` opens a browser. Used by
- *     `hc mcp login`.
- *   - `consume` (default) — `redirectToAuthorization` throws "run hc mcp login".
+ *     `marvis mcp login`.
+ *   - `consume` (default) — `redirectToAuthorization` throws "run marvis mcp login".
  *     Used everywhere else. Silent refresh still works here; only the
  *     browser-in-the-loop first authorization is refused.
  */
@@ -96,7 +96,7 @@ export class FileOAuthStore {
 export interface OAuthProviderOptions {
   serverUrl: string;
   store: FileOAuthStore;
-  /** `interactive` opens a browser; `consume` refuses with a "run hc mcp login" error. */
+  /** `interactive` opens a browser; `consume` refuses with a "run marvis mcp login" error. */
   mode: 'interactive' | 'consume';
   /** Loopback redirect URI. Required for `interactive`. */
   callbackUrl?: string;
@@ -109,7 +109,7 @@ export interface OAuthProviderOptions {
 
 export class OAuthNeedsLoginError extends Error {
   constructor(serverName: string) {
-    super(`needs authorization — run: hc mcp login ${serverName}`);
+    super(`needs authorization — run: marvis mcp login ${serverName}`);
     this.name = 'OAuthNeedsLoginError';
   }
 }

@@ -64,15 +64,15 @@ import {
 } from './auto-mode.js';
 
 const program = new Command();
-// `hc web` is the exception: it hosts several projects, so the server builds
+// `marvis web` is the exception: it hosts several projects, so the server builds
 // each its own environment (`projectEnv`) instead of this process-wide load.
 program.hook('preAction', (_program, action) => {
   if (action.name() !== 'web') loadDotEnvFor(action.opts()['cwd']);
 });
 
 program
-  .name('hc')
-  .description('harness-code: a coding agent you can read all of')
+  .name('marvis')
+  .description('Marvis: a coding agent you can read all of')
   .version(VERSION, '-v, --version');
 
 program
@@ -313,7 +313,7 @@ program
     },
   );
 
-/** `hc web`'s port unless `--port` says otherwise — fixed, so bookmarks and saved tabs keep working. */
+/** `marvis web`'s port unless `--port` says otherwise — fixed, so bookmarks and saved tabs keep working. */
 const DEFAULT_WEB_PORT = 4317;
 
 program
@@ -359,9 +359,9 @@ program
           try {
             const workspace = await server.callRunningServer(running.port, token, 'workspace.add', { path: cwd });
             url += `&w=${workspace.id}`; // the page opens a new session there
-            console.log(`hc web is already running; ${workspace.root} is one of its projects`);
+            console.log(`marvis web is already running; ${workspace.root} is one of its projects`);
           } catch (err) {
-            console.log(`hc web is already running, but couldn't add ${cwd}: ${(err as Error).message}`);
+            console.log(`marvis web is already running, but couldn't add ${cwd}: ${(err as Error).message}`);
             console.log('  (add it from the sidebar instead)');
           }
           console.log(`  ${url}`);
@@ -390,12 +390,12 @@ program
       try {
         running = await start(opts.port ?? DEFAULT_WEB_PORT);
       } catch (err) {
-        // The default port is taken (another workspace's hc web, another app):
+        // The default port is taken (another workspace's marvis web, another app):
         // any free port will do. An explicit --port is a hard requirement.
         if (opts.port !== undefined || (err as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw err;
         running = await start(0);
       }
-      // Only the server on the default port is the one `hc web` finds again.
+      // Only the server on the default port is the one `marvis web` finds again.
       const recorded = persistent && running.port === DEFAULT_WEB_PORT;
       if (recorded) {
         await server.writeInstance(stateDir, {
@@ -408,7 +408,7 @@ program
         });
       }
 
-      console.log(`hc web serving ${cwd}`);
+      console.log(`marvis web serving ${cwd}`);
       console.log(`  ${running.url}`);
       if (opts.devOrigin) console.log(`  dev: ${pageUrl(running.port, running.token)}`);
       if (opts.mock) console.log('  (mock mode — scripted responses, no API calls)');
@@ -456,7 +456,7 @@ mcp
       if (server && server.transport !== 'stdio') {
         const hasStatic = Object.keys(server.headers).some((h) => h.toLowerCase() === 'authorization');
         const authed = (await new FileOAuthStore(server.url).tokens()) !== undefined;
-        auth = hasStatic && server.auth !== 'oauth' ? '  [static token]' : authed ? '  [oauth ✓]' : '  [oauth — run: hc mcp login]';
+        auth = hasStatic && server.auth !== 'oauth' ? '  [static token]' : authed ? '  [oauth ✓]' : '  [oauth — run: marvis mcp login]';
       }
       console.log(
         `${mark} ${s.name} (${s.transport})  ${s.state}${auth}${s.error ? ` — ${s.error}` : ''}`,
@@ -739,10 +739,10 @@ program
     'after',
     `
 Examples:
-  hc eval                                       replay the regression suite and gate on the baseline
-  hc eval --live --suite capability --runs 5    measure against the real model (costs money)
-  hc eval --ablation verify-stop                paired A/B of a harness switch
-  hc eval --analyze latest                      digest the failing runs' transcripts
+  marvis eval                                       replay the regression suite and gate on the baseline
+  marvis eval --live --suite capability --runs 5    measure against the real model (costs money)
+  marvis eval --ablation verify-stop                paired A/B of a harness switch
+  marvis eval --analyze latest                      digest the failing runs' transcripts
 
 Every flag is listed in docs/EVALS.md.`,
   )
@@ -779,7 +779,7 @@ function errorMessageOf(err: unknown): string {
 }
 
 function fail(message: string): never {
-  process.stderr.write(`hc: ${message}\n`);
+  process.stderr.write(`marvis: ${message}\n`);
   process.exit(2);
 }
 
@@ -814,7 +814,7 @@ async function main(): Promise<void> {
   } catch (err) {
     earlyFailure?.(errorMessageOf(err));
     if (err instanceof ProviderError) {
-      process.stderr.write(`\nhc: ${err.message}\n`);
+      process.stderr.write(`\nmarvis: ${err.message}\n`);
       if (err.detail) process.stderr.write(`\x1b[2m${err.detail}\x1b[0m\n`);
       process.exit(1);
     }
@@ -829,7 +829,7 @@ async function main(): Promise<void> {
 process.on('unhandledRejection', (reason) => {
   earlyFailure?.(reason instanceof Error ? reason.message : String(reason));
   const msg = reason instanceof Error ? (reason.stack ?? reason.message) : String(reason);
-  process.stderr.write(`\nhc: unhandled rejection: ${msg}\n`);
+  process.stderr.write(`\nmarvis: unhandled rejection: ${msg}\n`);
   process.exit(1);
 });
 

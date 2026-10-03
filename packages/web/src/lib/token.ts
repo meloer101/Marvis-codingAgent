@@ -1,7 +1,7 @@
 /**
  * The server hands the auth token over as `#token=…` on the URL it prints. On
  * load we move it into `localStorage` — so reloads, new tabs and bookmarks keep
- * working (`hc web` keeps one token across restarts, on a fixed port, so the
+ * working (`marvis web` keeps one token across restarts, on a fixed port, so the
  * origin and the token both stay put) — and scrub it from the address bar so
  * it doesn't end up in screenshots, history, or a copied link.
  */
@@ -15,7 +15,7 @@ export interface TokenEnv {
 }
 
 export function takeToken(env: TokenEnv = defaultEnv()): string | null {
-  // `&w=<workspace>` rides along when `hc web` added a project to a running
+  // `&w=<workspace>` rides along when `marvis web` added a project to a running
   // server: the page opens on a new session there.
   const match = /^#token=([0-9a-fA-F]+)(?:&w=([0-9a-f]+))?$/.exec(env.location.hash);
   if (match?.[1]) {

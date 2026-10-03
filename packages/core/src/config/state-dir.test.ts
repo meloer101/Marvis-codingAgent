@@ -73,7 +73,7 @@ describe('state directory', () => {
         encoding: 'utf8',
       });
 
-    /** A repository with a commit, a sub-directory, and a worktree of it outside (under `home`, as `hc web` puts them). */
+    /** A repository with a commit, a sub-directory, and a worktree of it outside (under `home`, as `marvis web` puts them). */
     async function repoWithWorktree(): Promise<{ repo: string; wt: string }> {
       const repo = join(base, 'repo');
       await mkdir(join(repo, 'pkg'), { recursive: true });

@@ -94,7 +94,7 @@ export async function runRepl(config: AgentSessionConfig, sink: TextSink): Promi
       const result = await session!.runTurn(turnText);
       sink.turn(config.model.ref, result, session!.contextSnapshot);
     } catch (err) {
-      process.stderr.write(`\x1b[31mhc: ${err instanceof Error ? err.message : String(err)}\x1b[0m\n`);
+      process.stderr.write(`\x1b[31mmarvis: ${err instanceof Error ? err.message : String(err)}\x1b[0m\n`);
     } finally {
       inTurn = false;
       rl.prompt();

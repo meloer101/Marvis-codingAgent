@@ -1,6 +1,6 @@
 # Architecture
 
-How `harness-code` (`hc`) is put together, and why. This is the narrative
+How Marvis (the `marvis` command, short alias `hc`) is put together, and why. This is the narrative
 companion to the feature-by-feature [README](../README.md): it traces one turn
 end to end, names the module that owns each job, and explains the four *harness*
 concerns the project is really about — context engineering, permissions &
@@ -40,9 +40,9 @@ leaf of pure types shared by the web boundary.
 | Package | Role |
 | --- | --- |
 | `packages/core` | The whole engine — everything below. The only package with the agent logic. |
-| `packages/cli` | `hc` binary: one-shot (`hc "…"`, scriptable) and a readline REPL. |
+| `packages/cli` | `marvis` binary (alias `hc`): one-shot (`marvis "…"`, scriptable) and a readline REPL. |
 | `packages/tui` | Interactive terminal UI (Ink) — streaming markdown, tool cards, modals, slash commands. |
-| `packages/server` | Session host: `node:http` + a single `/ws` WebSocket carrying RPC and the event stream, origin/token auth, static serving. What `hc web` runs. |
+| `packages/server` | Session host: `node:http` + a single `/ws` WebSocket carrying RPC and the event stream, origin/token auth, static serving. What `marvis web` runs. |
 | `packages/web` | Browser UI (React 19 · Vite · Tailwind 4 · shadcn · zustand) over the server. Transport, session lifecycle and security: [web.md](./web.md). |
 | `packages/protocol` | Frame / event / method types + zod schemas + the shared event-fold logic. No node deps, so both server and browser import it. |
 | `evals` | Benchmark tasks, fixtures, cassettes, the runner, and the ablation harness. |
@@ -230,7 +230,7 @@ six modes: `ask`, `plan`, `acceptEdits`, `readOnly`, `yolo`, `auto`.
   denials — falls back to a human prompt. Project-level `autoMode` and
   `permissions.mode: "auto"` are stripped on load so a repo cannot self-authorize.
   Shift+Tab cycles `ask → acceptEdits → plan → [yolo] → [auto]`; `/permissions`
-  and `hc auto-mode` edit the user-level rule lists.
+  and `marvis auto-mode` edit the user-level rule lists.
 
 MCP tools ride this same engine (they can't self-report side effects, so they
 default to the `bash` tier: serial, non-read-only, asked).
@@ -263,7 +263,7 @@ folds into the session total. The sub-agent's system prompt shares the parent's
 cost), tool call (input summary, duration, output bytes, `denied` flag),
 compaction, sub-agent rollup, provider error, and run outcome. It is a *separate*
 file from the session log: the session log stays messages-only for `--resume`,
-the trace carries volatile numbers that `hc trace` / `hc stats` read without
+the trace carries volatile numbers that `marvis trace` / `marvis stats` read without
 touching it. Tool output bodies never enter the trace (byte count only) — copying
 multi-megabyte dumps here is a mistake that has bitten before.
 
@@ -301,7 +301,7 @@ Code's shapes so ecosystem MCP servers and skills drop in unchanged:
 ```
 
 That is the layout inside a project (a directory with `.git` or `.agent` above
-it). Run in a directory that is not one, `hc` keeps `sessions/`, `traces/` and
+it). Run in a directory that is not one, `marvis` keeps `sessions/`, `traces/` and
 `memory/` under `~/.agent/projects/<name>-<hash>/` instead, so it leaves no
 `.agent/` behind; `HC_STATE_DIR` sends `sessions/` and `traces/` anywhere — the
 Harbor adapter points it at the trial's log dir, so an agent working in a task

@@ -162,7 +162,7 @@ function AddProjectForm({ onDone }: { onDone: () => void }) {
                   if (picked) setPath(picked);
                 })
               }
-              title="Choose a folder in Finder"
+              title="Open the system's folder chooser"
             >
               {picking ? <LoaderCircle className="animate-spin" /> : <FolderOpen />}
               Choose…

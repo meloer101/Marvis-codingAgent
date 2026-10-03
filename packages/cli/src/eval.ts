@@ -1,5 +1,5 @@
 /**
- * `hc eval`: the eval suite, the same program as `pnpm eval`. The runner, its
+ * `marvis eval`: the eval suite, the same program as `pnpm eval`. The runner, its
  * tasks and their cassettes live in the repo's `evals/` and are spawned, never
  * imported, so none of it ships in the `hc` binary — which also means the
  * command works only where a source checkout can be found.
@@ -46,7 +46,7 @@ export function locateEvalRunner(starts: readonly string[]): { cli: string; root
     return {
       error:
         'the eval suite ships only in a source checkout of harness-code (its evals/ directory); ' +
-        'run hc eval from inside one',
+        'run marvis eval from inside one',
     };
   }
   const cli = join(root, 'evals', 'dist', 'cli.js');

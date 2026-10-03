@@ -10,7 +10,7 @@ export type AutoModeAvailability =
  * The classifier model is, in order: the user's explicit `autoMode.model`
  * (must resolve through the registry), the live session model
  * (`sessionModelRef`, accepted without a lookup), and only when there is no
- * session — e.g. `hc auto-mode critique` — `settings.model`.
+ * session — e.g. `marvis auto-mode critique` — `settings.model`.
  *
  * `settings.model` must not win over the session model: it always carries the
  * built-in default and may come from a project file, so preferring it would

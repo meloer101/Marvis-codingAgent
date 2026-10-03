@@ -106,7 +106,7 @@ export interface WorkspaceDefaults {
  */
 export type ModelInfo = ModelDescription;
 
-/** A project `hc web` hosts sessions for. */
+/** A project `marvis web` hosts sessions for. */
 export interface Workspace {
   /** Stable: derived from the root path. */
   id: string;

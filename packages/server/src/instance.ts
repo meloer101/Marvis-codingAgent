@@ -1,11 +1,11 @@
 /**
- * The long-lived side of `hc web`: a token that survives restarts and a record
+ * The long-lived side of `marvis web`: a token that survives restarts and a record
  * of the running server, both under `~/.agent/web/`.
  *
  *  - **Token.** One per user, in `token` (0600, directory 0700), so a bookmark
  *    or an open tab keeps working when the server restarts. It is as powerful
  *    as the user's shell (a client can switch a session to yolo), so it never
- *    leaves this directory except in the URL `hc web` prints; `rotateToken`
+ *    leaves this directory except in the URL `marvis web` prints; `rotateToken`
  *    replaces it.
  *  - **Instance.** `server.json` records the running server's pid, port and
  *    boot id; `findRunningInstance` checks the pid and asks the server's

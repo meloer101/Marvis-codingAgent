@@ -121,9 +121,9 @@ const pkg = {
   optionalDependencies,
   license: 'MIT',
   author: 'Jacoy',
-  homepage: 'https://github.com/meloer101/harness-code#readme',
-  repository: { type: 'git', url: 'git+https://github.com/meloer101/harness-code.git' },
-  bugs: { url: 'https://github.com/meloer101/harness-code/issues' },
+  homepage: 'https://github.com/meloer101/Marvis-codingAgent#readme',
+  repository: { type: 'git', url: 'git+https://github.com/meloer101/Marvis-codingAgent.git' },
+  bugs: { url: 'https://github.com/meloer101/Marvis-codingAgent/issues' },
   keywords: ['ai', 'agent', 'coding-agent', 'cli', 'llm', 'mcp', 'deepseek', 'openai-compatible'],
 };
 await writeFile(resolve(outDir, 'package.json'), `${JSON.stringify(pkg, null, 2)}\n`);

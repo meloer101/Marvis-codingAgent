@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { findEvalsCheckout, locateEvalRunner } from './eval.js';
 
-describe('hc eval: finding the checkout', () => {
+describe('marvis eval: finding the checkout', () => {
   let dir: string;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'hc-eval-'));

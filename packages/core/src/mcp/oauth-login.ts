@@ -1,5 +1,5 @@
 /**
- * The interactive half of MCP OAuth: `hc mcp login <server>`.
+ * The interactive half of MCP OAuth: `marvis mcp login <server>`.
  *
  * Stands up a loopback HTTP server to catch the redirect, kicks off the SDK's
  * auth flow (which opens a browser), waits for the `?code=`, finishes the token

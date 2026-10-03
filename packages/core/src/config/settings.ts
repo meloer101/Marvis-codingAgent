@@ -114,7 +114,7 @@ export const SETTINGS_FILE = 'settings.json';
 
 export interface LoadedSettings {
   settings: Settings;
-  /** Files that were actually read, in application order. For `hc doctor`. */
+  /** Files that were actually read, in application order. For `marvis doctor`. */
   sources: string[];
 }
 
