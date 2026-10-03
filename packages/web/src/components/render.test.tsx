@@ -108,6 +108,26 @@ describe('tool renderers', () => {
     expect(container.textContent).toContain('"q": "x"');
   });
 
+  it("shows a write over a file as what changed in it, ask and card alike", async () => {
+    const before = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
+    const after = before.replace('line 10\n', 'line ten\n');
+    const { container } = render(<>{toolPreview('write', { path: 'a.txt', content: after }, { before })}</>);
+    await screen.findByText('replaces the file');
+    expect(container.textContent).toContain('@@ -7,7 +7,7 @@');
+    expect(container.textContent).not.toContain('line 1line 2'); // only the hunk, not the whole file
+    cleanup();
+
+    const view = toolView({
+      id: 'w',
+      name: 'write',
+      input: { path: 'a.txt', content: after },
+      running: false,
+      result: { content: 'Wrote', display: { before } },
+    });
+    const card = render(<>{view.body}</>);
+    expect(await card.findByText('@@ -7,7 +7,7 @@')).toBeTruthy();
+  });
+
   it('previews an edit ask as a diff', async () => {
     const { container } = render(
       <>{toolPreview('edit', { path: 'docs/a.md', oldString: 'old line', newString: 'new line' })}</>,

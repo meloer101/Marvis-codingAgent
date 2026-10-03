@@ -1,4 +1,4 @@
-import { diffLines, diffWordsWithSpace } from 'diff';
+import { diffLines, diffWordsWithSpace, structuredPatch } from 'diff';
 
 import type { Token } from './highlight';
 
@@ -57,6 +57,20 @@ export function editDiff(oldString: string, newString: string, startLine?: numbe
   }
   markWordChanges(lines);
   return { lines, added, removed };
+}
+
+/**
+ * A file replaced whole — a `write` over one whose prior text is known — as
+ * hunks with three lines of context, numbered from the file, the way `git
+ * diff` shows it.
+ */
+export function replaceDiff(before: string, after: string): LineDiff {
+  const { hunks } = structuredPatch('', '', before, after, undefined, undefined, { context: 3 });
+  return parsePatch(
+    hunks
+      .map((h) => `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@\n${h.lines.join('\n')}\n`)
+      .join(''),
+  );
 }
 
 /** A `write` call's content as an all-added diff (the prior content isn't in the call); it is the whole file. */

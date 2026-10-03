@@ -36,6 +36,8 @@ export type WireEvent =
       forcedByRule?: boolean;
       /** What "always allow" would cover; absent when it isn't offered. */
       alwaysAllow?: string;
+      /** A `write` over an existing file: the file as it is (text, up to 128 KB), to show what would change. */
+      before?: string;
     }
   | { type: 'plan'; planId: string; title: string; body: string; yesMode?: PermissionMode }
   | { type: 'resolved'; requestId: string; by: 'user' | 'abort' }

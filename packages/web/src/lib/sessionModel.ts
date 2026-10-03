@@ -215,6 +215,7 @@ export class SessionModel {
             reason: event.reason,
             ...(event.forcedByRule ? { forcedByRule: true } : {}),
             ...(event.alwaysAllow ? { alwaysAllow: event.alwaysAllow } : {}),
+            ...(event.before !== undefined ? { before: event.before } : {}),
           },
         });
         this.#state = { ...this.#state, askId: event.askId };
@@ -335,6 +336,7 @@ export function stateFromSnapshot(
           reason: s.pendingAsk.reason,
           ...(s.pendingAsk.forcedByRule ? { forcedByRule: true } : {}),
           ...(s.pendingAsk.alwaysAllow ? { alwaysAllow: s.pendingAsk.alwaysAllow } : {}),
+          ...(s.pendingAsk.before !== undefined ? { before: s.pendingAsk.before } : {}),
         }
       : null,
     pendingPlan: s.pendingPlan

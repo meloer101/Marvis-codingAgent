@@ -254,8 +254,7 @@
   [`web.md`](./web.md)。
 - **P1 10-03 已完成**：每会话 git worktree、运行中插话（steering）、分屏、块级暂存/还原，见 [`web.md`](./web.md)。
 - **MVP 之后**：P2 图片附件（provider 加 image 内容块）、rewind / 编辑历史消息 / fork、后台进程、
-  统计与 trace 视图、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）、覆盖已有文件的 `write` 显示真实
-  diff（要 write 记下旧内容）、子代理的调用和工具耗时落盘（现在只在实时视图里有）；P3 桌面壳。
+  统计与 trace 视图、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）；P3 桌面壳。
 
 ## Other
 

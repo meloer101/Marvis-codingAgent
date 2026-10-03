@@ -25,6 +25,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { readFile, stat } from 'node:fs/promises';
 
 import type {
   AgentEvent,
@@ -37,7 +38,16 @@ import type {
   SlashCommandInfo,
   Usage,
 } from '@harness-code/core';
-import { AttachmentError, alwaysAllowFor, loadTranscript, sessionTitleFrom, updateSessionMeta } from '@harness-code/core';
+import {
+  AttachmentError,
+  MAX_DISPLAY_BEFORE_BYTES,
+  alwaysAllowFor,
+  assertInsideWorkspace,
+  isSensitivePath,
+  loadTranscript,
+  sessionTitleFrom,
+  updateSessionMeta,
+} from '@harness-code/core';
 import type { AlwaysAllow, SessionMetaPatch, SessionWorktreeMeta, SteeringInput } from '@harness-code/core';
 import type {
   QueuedMessage,
@@ -129,6 +139,8 @@ interface PendingAsk {
   forcedByRule?: boolean;
   /** What "always allow" adds and how it reads; absent when it isn't offered. */
   always?: AlwaysAllow;
+  /** A `write` over an existing file: the file as it is now. */
+  before?: string;
   resolve: (decision: PermissionDecision) => void;
 }
 
@@ -355,14 +367,15 @@ export class SessionHost {
     this.#metaWrite = write.catch(() => {});
   }
 
-  readonly ask = (req: {
+  readonly ask = async (req: {
     toolName: string;
     input: unknown;
     reason: string;
     forcedByRule?: boolean;
     signal?: AbortSignal;
-  }): Promise<PermissionDecision> =>
-    new Promise<PermissionDecision>((resolve) => {
+  }): Promise<PermissionDecision> => {
+    const before = req.toolName === 'write' ? await this.#fileToReplace(req.input) : undefined;
+    return new Promise<PermissionDecision>((resolve) => {
       // A run aborted mid-stream can still reach its next tool call (not every
       // provider stops on the signal). Its signal has already fired, so a
       // listener would never hear it: refuse now, or the ask waits forever.
@@ -379,6 +392,7 @@ export class SessionHost {
         reason: req.reason,
         ...(req.forcedByRule ? { forcedByRule: true } : {}),
         ...(always ? { always } : {}),
+        ...(before !== undefined ? { before } : {}),
         resolve,
       });
       if (this.#asks.length === 1) this.#announceAsk();
@@ -397,6 +411,27 @@ export class SessionHost {
         { once: true },
       );
     });
+  };
+
+  /**
+   * The file a `write` asked about would replace, as it is now — a text file
+   * in the session's workspace (or the scratch dir), not a secret, up to
+   * `MAX_DISPLAY_BEFORE_BYTES` — for the approver to see what would change.
+   */
+  async #fileToReplace(input: unknown): Promise<string | undefined> {
+    const path = (input as { path?: unknown } | null)?.path;
+    if (typeof path !== 'string' || !this.#cwd || isSensitivePath(path)) return undefined;
+    try {
+      const abs = await assertInsideWorkspace(this.#cwd, path, { allowScratch: true });
+      if (isSensitivePath(abs)) return undefined;
+      const info = await stat(abs);
+      if (!info.isFile() || info.size > MAX_DISPLAY_BEFORE_BYTES) return undefined;
+      const buf = await readFile(abs);
+      return buf.subarray(0, 8192).includes(0) ? undefined : buf.toString('utf8');
+    } catch {
+      return undefined; // a new file, or one it may not touch: the dock shows the content
+    }
+  }
 
   readonly confirm = (
     req: { title: string; body: string },
@@ -460,6 +495,7 @@ export class SessionHost {
       reason: head.reason,
       ...(head.forcedByRule ? { forcedByRule: true } : {}),
       ...(head.always ? { alwaysAllow: head.always.label } : {}),
+      ...(head.before !== undefined ? { before: head.before } : {}),
     });
   }
 
@@ -751,6 +787,7 @@ export class SessionHost {
         reason: this.#pendingAsk.reason,
         ...(this.#pendingAsk.forcedByRule ? { forcedByRule: true } : {}),
         ...(this.#pendingAsk.always ? { alwaysAllow: this.#pendingAsk.always.label } : {}),
+        ...(this.#pendingAsk.before !== undefined ? { before: this.#pendingAsk.before } : {}),
       };
     }
     if (this.#queue.length > 0) snapshot.queue = this.#queue.map((q) => ({ ...q }));

@@ -105,6 +105,8 @@ export interface PendingAsk {
   forcedByRule?: boolean;
   /** What "always allow" would cover ("`npm test` commands"); absent when it isn't offered. */
   alwaysAllow?: string;
+  /** A `write` over an existing file: the file as it is now, to show what would change. */
+  before?: string;
 }
 
 export interface PendingPlan {

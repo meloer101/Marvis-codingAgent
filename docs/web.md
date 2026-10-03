@@ -167,8 +167,10 @@ same way, per call. A flush carrying more than 16 KB keeps its tail, cut at a
 line start and marked `…`; clients keep the last 32 KB of a call's output
 (`appendOutput`) and drop it when the result arrives. `tool_call_end` carries
 `durationMs`, the time the tool ran, permission prompt excluded (none for a
-denied call, which never ran); it isn't recorded, so a transcript read back from
-disk has no durations.
+denied call, which never ran). The session log keeps it with the call
+(`RecordedToolCall`), along with a `task`'s sub-agent calls — their long
+strings cut to 4,000 characters — and both come back with the transcript in
+its `tool_display` items; none of it is the model's history.
 
 ## Session lifecycle
 
@@ -430,19 +432,21 @@ The token is as powerful as the user's shell — a client can switch a session t
   gives the exit code of a failure (or the timeout) and the duration. Terminal
   colours are kept and other escapes dropped (`lib/ansi.ts`). `edit` and `write`
   cards show a unified diff (`components/DiffView.tsx`, `lib/diff.ts`) with the
-  file's line numbers — a `write` is the whole file; an `edit` with one
-  replacement reports where it starts as `ToolResult.display.startLine`, which
-  never reaches the model, is recorded with the call and comes back with the
-  transcript as a `tool_display` item — Shiki colours for the file's language,
+  file's line numbers — a `write` over a file shows what changed in it, in
+  hunks (`replaceDiff`), from the text it replaced (`ToolResult.display.before`,
+  up to 128 KB), a new one the whole file; an `edit` with one replacement
+  reports where it starts as `display.startLine`. `display` never reaches the
+  model, is recorded with the call and comes back with the transcript as a
+  `tool_display` item — Shiki colours for the file's language,
   and, within a removed line paired with the added one that replaced it, the
   words that changed. Past 400 lines a button shows the rest. A `task` card
   shows the sub-agent's calls as it makes them (`subagent_event`, the task
   tool's `onSubagentEvent`: starts and ends only), lookups folded as in a turn,
-  open while it works; they aren't recorded, so a transcript read back from
-  disk has the prompt and the report only. The sub-agent's `⤷` progress
-  notices, which the TUI prints, get no row. Permission asks
-  and plan reviews dock above the composer instead of opening modals
-  (`components/PendingDock.tsx`).
+  open while it works, and again when the transcript is read back from disk.
+  The sub-agent's `⤷` progress notices, which the TUI prints, get no row.
+  Permission asks and plan reviews dock above the composer instead of opening
+  modals (`components/PendingDock.tsx`); the ask for a `write` over a file
+  carries the file as it is (`before`), so the dock shows what would change.
 - **Copy and retry.** A finished turn's reply (its text, as markdown) and each
   message can be copied from a button that shows on hover. After a run that
   failed or was stopped — its error notice ends the transcript — or a message

@@ -221,6 +221,33 @@ describe('SessionHost', () => {
     expect(host.pending).toBe(false);
   });
 
+  it('shows the file a write would replace with its ask; a new file has none', async () => {
+    const { host, cwd } = await makeHost(
+      [
+        { toolCalls: [{ name: 'write', input: { path: 'old.txt', content: 'new\n' } }] },
+        { toolCalls: [{ name: 'write', input: { path: 'fresh.txt', content: 'x' } }] },
+        { text: 'done' },
+      ],
+      { mode: 'ask' },
+    );
+    await writeFile(join(cwd, 'old.txt'), 'old\n');
+    const first = firstEvent(host, 'ask');
+    host.send('go');
+    const ask = await first;
+    expect(ask).toMatchObject({ toolName: 'write', before: 'old\n' });
+    expect((await host.snapshot()).pendingAsk).toMatchObject({ before: 'old\n' });
+    const second = new Promise<WireEvent>((resolve) =>
+      host.addListener((f) => {
+        if (f.t === 'evt' && f.event.type === 'ask' && f.event.askId !== ask.askId) resolve(f.event);
+      }),
+    );
+    host.answerAsk(ask.askId, 'deny');
+    const next = await second;
+    expect(next).toMatchObject({ toolName: 'write' });
+    expect('before' in next).toBe(false);
+    host.abort();
+  });
+
   it('"always" allows the asked kind of command, so the next one like it is not asked', async () => {
     const { host, events } = await makeHost(
       [

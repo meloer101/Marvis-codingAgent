@@ -130,7 +130,7 @@ export function PendingDock({ view }: { view: SessionViewState }) {
   );
 
   if (pendingAsk && askId) {
-    const preview = toolPreview(pendingAsk.toolName, pendingAsk.input);
+    const preview = toolPreview(pendingAsk.toolName, pendingAsk.input, { before: pendingAsk.before });
     return (
       <div
         ref={ref}

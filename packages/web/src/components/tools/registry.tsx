@@ -187,7 +187,7 @@ const renderers: Record<string, Renderer> = {
       summary: <Mono>{str(input, 'path') ?? ''}</Mono>,
       meta: (
         <Suspense fallback={null}>
-          <WriteDiffMeta content={content} />
+          <WriteDiffMeta tool={tool} content={content} />
         </Suspense>
       ),
       body: (
@@ -331,7 +331,7 @@ export function toolView(tool: ToolItem, renderCalls?: RenderCalls): ToolView {
 }
 
 /** What the permission dock shows for a call that hasn't run yet. */
-export function toolPreview(toolName: string, input: unknown): ReactNode {
+export function toolPreview(toolName: string, input: unknown, opts: { before?: string | undefined } = {}): ReactNode {
   const r = rec(input);
   switch (toolName) {
     case 'edit':
@@ -348,7 +348,7 @@ export function toolPreview(toolName: string, input: unknown): ReactNode {
     case 'write':
       return (
         <Suspense fallback={diffFallback}>
-          <WritePreviewPanel path={str(r, 'path') ?? ''} content={str(r, 'content') ?? ''} />
+          <WritePreviewPanel path={str(r, 'path') ?? ''} content={str(r, 'content') ?? ''} before={opts.before} />
         </Suspense>
       );
     case 'bash':

@@ -293,6 +293,8 @@ export interface SessionSnapshot {
     reason: string;
     forcedByRule?: boolean;
     alwaysAllow?: string;
+    /** A `write` over an existing file: the file as it is now. */
+    before?: string;
   };
   pendingPlan?: { planId: string; title: string; body: string; yesMode?: PermissionMode };
   /** Messages waiting for the run to end, oldest first; absent when none. */

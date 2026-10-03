@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { diffSides, editDiff, lineSegments, lineTokens, parsePatch, patchHunks, writeDiff } from './diff';
+import { diffSides, editDiff, lineSegments, lineTokens, parsePatch, patchHunks, replaceDiff, writeDiff } from './diff';
 
 describe('editDiff', () => {
   it('marks changed lines and keeps shared ones as context', () => {
@@ -154,5 +154,17 @@ describe('patchHunks', () => {
     expect(patchHunks(patch)).toEqual(['@@ -1 +1 @@\n-a\n+b\n', '@@ -9 +9 @@\n-c\n+d\n\\ No newline at end of file\n']);
     expect(parsePatch(patch).lines.filter((l) => l.kind === 'hunk')).toHaveLength(2);
     expect(patchHunks('')).toEqual([]);
+  });
+});
+
+describe('replaceDiff', () => {
+  it('shows a replaced file as hunks with three lines of context, numbered from the file', () => {
+    const before = Array.from({ length: 30 }, (_, i) => `l${i + 1}`).join('\n') + '\n';
+    const after = before.replace('l2\n', 'L2\n').replace('l28\n', 'L28\n');
+    const d = replaceDiff(before, after);
+    expect(d.lines.filter((l) => l.kind === 'hunk').map((l) => l.text)).toEqual(['@@ -1,5 +1,5 @@', '@@ -25,6 +25,6 @@']);
+    expect(d).toMatchObject({ added: 2, removed: 2 });
+    expect(d.lines.find((l) => l.kind === 'add' && l.text === 'L28')?.newNo).toBe(28);
+    expect(replaceDiff(before, before).lines).toEqual([]);
   });
 });
