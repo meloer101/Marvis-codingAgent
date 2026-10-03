@@ -389,6 +389,14 @@ class Connection {
         this.#host(id).setEffort(effort);
         return undefined;
       }
+      case 'session.rewind': {
+        const { id, userMessage } = params as MethodParams<'session.rewind'>;
+        return this.#host(id).rewind(userMessage);
+      }
+      case 'session.fork': {
+        const { id, userMessage } = params as MethodParams<'session.fork'>;
+        return hub.fork(id, userMessage).then((forkId) => ({ id: forkId }));
+      }
       case 'session.compact': {
         const { id } = params as MethodParams<'session.compact'>;
         return this.#host(id).compact();

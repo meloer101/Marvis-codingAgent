@@ -13,6 +13,7 @@ import type {
   Notice,
   PermissionMode,
   ReasoningEffort,
+  TranscriptItem,
   Usage,
 } from '@harness-code/core';
 
@@ -42,6 +43,8 @@ export type WireEvent =
     }
   | { type: 'plan'; planId: string; title: string; body: string; yesMode?: PermissionMode }
   | { type: 'resolved'; requestId: string; by: 'user' | 'abort' }
+  /** The conversation was rewound (`session.rewind`): the transcript as it stands now. */
+  | { type: 'rewound'; transcript: TranscriptItem[] }
   // state changes not otherwise visible
   /** The messages waiting — for the run to end, or (`steer`) its next step — the whole queue, after every change. */
   | { type: 'queue'; queue: QueuedMessage[] }

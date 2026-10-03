@@ -9,6 +9,7 @@
  * tests and `--mock` can substitute a `ScriptedProvider`.
  */
 
+import { randomUUID } from 'node:crypto';
 import { access, readdir, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -21,7 +22,7 @@ import {
   tracePath,
   updateSessionMeta,
 } from '@harness-code/core';
-import { listSessionIds, loadTranscript, readSessionMeta, readSessionSummary } from '@harness-code/core';
+import { forkSession, listSessionIds, loadTranscript, readSessionMeta, readSessionSummary } from '@harness-code/core';
 import type {
   AgentSessionConfig,
   EffortOptions,
@@ -32,6 +33,7 @@ import type {
   SessionWorktreeMeta,
 } from '@harness-code/core';
 import type { PushEvent, SessionSnapshot, SessionSummary, SessionWorktree } from '@harness-code/protocol';
+import { userEntryMessageIndexes } from '@harness-code/protocol';
 
 import { GitCommandError } from './git.js';
 import { BusyError, ConflictError, InvalidRequestError, SessionHost } from './host.js';
@@ -474,6 +476,65 @@ export class SessionRegistry {
     const row = await this.#summary(id, this.#nextRev());
     if (!row) throw new SessionPreviewNotFoundError(id);
     return row;
+  }
+
+  /**
+   * Start a new session with session `id`'s conversation — whole, or as far as
+   * just before its `userMessage`-th user message — and the model, mode and
+   * effort it last ran with; titled as its fork. One in a worktree forks into
+   * a worktree of its own, branched from the other's branch (what it had
+   * committed). Resolves with the new id; the source need not be idle.
+   */
+  async fork(id: string, userMessage?: number): Promise<string> {
+    if (!(await this.has(id))) throw new SessionPreviewNotFoundError(id);
+    let keep: number | undefined;
+    if (userMessage !== undefined) {
+      keep = userEntryMessageIndexes(await loadTranscript(this.#agentDir, id))[userMessage];
+      if (keep === undefined) throw new InvalidRequestError(`there is no user message ${userMessage} to fork at`);
+    }
+    const [meta, summary] = await Promise.all([
+      readSessionMeta(this.#agentDir, id),
+      readSessionSummary(this.#agentDir, id).catch(() => null),
+    ]);
+    const title = `${summary?.title ?? 'Session'} · fork`;
+    let worktree: SessionWorktreeMeta | undefined;
+    let cwd: string | undefined;
+    if (meta?.worktree) {
+      try {
+        const made = await createWorktree(this.#cwd, {
+          base: meta.worktree.branch,
+          hint: summary?.title ?? '',
+          ...(this.#home ? { home: this.#home } : {}),
+        });
+        ({ meta: worktree, cwd } = made);
+      } catch (err) {
+        const why = err instanceof Error ? err.message : String(err);
+        throw new InvalidRequestError(`couldn't make the fork a worktree: ${why}`);
+      }
+    }
+    const forkId = randomUUID();
+    try {
+      await forkSession(this.#agentDir, id, forkId, keep);
+      await updateSessionMeta(
+        this.#agentDir,
+        forkId,
+        {
+          title,
+          ...(meta?.model ? { model: meta.model } : {}),
+          ...(meta?.mode ? { mode: meta.mode } : {}),
+          ...(meta?.effort ? { effort: meta.effort } : {}),
+          ...(cwd ? { cwd } : meta?.cwd && !meta.worktree ? { cwd: meta.cwd } : {}),
+          ...(worktree ? { worktree } : {}),
+        },
+        { createdAt: Date.now() },
+      );
+    } catch (err) {
+      if (worktree) await this.#dropWorktree(worktree);
+      await rm(sessionPath(this.#agentDir, forkId), { force: true });
+      throw err;
+    }
+    this.#announce(forkId);
+    return forkId;
   }
 
   /**

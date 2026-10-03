@@ -52,6 +52,8 @@ async function makeHost(
     capabilities?: Partial<ModelCapabilities>;
     /** Other models `setModel` can switch to, by ref. */
     models?: Record<string, Partial<ModelCapabilities>>;
+    /** Log the session (rewinding needs the log). */
+    recorder?: boolean;
   } = {},
 ): Promise<Fixture> {
   const cwd = await mkdtemp(join(tmpdir(), 'hc-host-'));
@@ -75,7 +77,7 @@ async function makeHost(
         subagents: false,
         mcp: false,
         memory: false,
-        recorder: false,
+        recorder: opts.recorder === true,
         trace: false,
         projectMemory: null,
       }),
@@ -741,6 +743,32 @@ describe('SessionHost queue', () => {
     await asked;
     await registry.close(host.id);
     expect(events().filter((e) => e.type === 'run_start')).toHaveLength(1);
+  });
+});
+
+describe('SessionHost rewind', () => {
+  it('takes the conversation back to before a user message and sends the transcript as it stands', async () => {
+    const { host, events } = await makeHost([{ text: 'one' }, { text: 'two' }, { text: 'three' }], { recorder: true });
+    let settled = runSettled(host);
+    await host.send('first');
+    await settled;
+    settled = runSettled(host);
+    await host.send('second');
+    await settled;
+
+    await host.rewind(1); // back to before "second"
+    const rewound = events().find((e) => e.type === 'rewound');
+    const texts = (rewound?.type === 'rewound' ? rewound.transcript : []).flatMap((t) =>
+      t.type === 'message' ? t.message.content.flatMap((b) => (b.type === 'text' ? [b.text] : [])) : [],
+    );
+    expect(texts).toEqual(['first', 'one']);
+    await expect(host.rewind(5)).rejects.toBeInstanceOf(InvalidRequestError);
+
+    settled = runSettled(host);
+    void host.send('again');
+    await expect(host.rewind(0)).rejects.toBeInstanceOf(BusyError);
+    await settled;
+    expect((await host.snapshot()).transcript.filter((t) => t.type === 'message')).toHaveLength(4);
   });
 });
 

@@ -405,6 +405,14 @@ export class WorkspaceHub {
     return row;
   }
 
+  /** Fork session `id` (`SessionRegistry.fork`) in its own workspace; resolves with the new id. */
+  async fork(id: string, userMessage?: number): Promise<string> {
+    const registry = await this.#registryOf(id);
+    const forkId = await registry.fork(id, userMessage);
+    for (const [workspace, entry] of this.#entries) if (entry.registry === registry) this.#sessionIndex.set(forkId, workspace);
+    return forkId;
+  }
+
   async delete(id: string): Promise<void> {
     const registry = await this.#registryOf(id);
     const { worktree } = await registry.checkoutOf(id);

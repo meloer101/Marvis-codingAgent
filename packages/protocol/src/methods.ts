@@ -658,6 +658,23 @@ export const methods = {
   'session.setEffort': method<{ id: string; effort: ReasoningEffort }, void>(
     z.object({ id: sessionIdSchema, effort: reasoningEffortSchema }),
   ),
+  /**
+   * Take the conversation back to just before its `userMessage`-th user
+   * message (0-based, as the transcript shows them): what came after leaves
+   * the model's history and the transcript (a `rewound` event carries the new
+   * one); files the agent changed stay as they are. `busy` while a run goes.
+   */
+  'session.rewind': method<{ id: string; userMessage: number }, void>(
+    z.object({ id: sessionIdSchema, userMessage: z.number().int().min(0) }),
+  ),
+  /**
+   * Start a new session with this one's conversation — whole, or as far as
+   * just before its `userMessage`-th user message. A session in a worktree
+   * forks into a worktree of its own, branched from the other's branch.
+   */
+  'session.fork': method<{ id: string; userMessage?: number }, { id: string }>(
+    z.object({ id: sessionIdSchema, userMessage: z.number().int().min(0).optional() }),
+  ),
   'session.compact': method<
     { id: string },
     { tokensBefore: number; tokensAfter: number } | null

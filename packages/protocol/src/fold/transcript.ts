@@ -11,6 +11,25 @@ import type { ImageInput, Notice, ToolDisplay, TranscriptItem } from '@harness-c
 import type { Entry, ToolItem } from './reducer.js';
 
 /**
+ * Where each `user` entry `entriesFromTranscript` makes comes from: the index,
+ * among the transcript's messages, of the message it was read off — what
+ * `session.rewind` and `session.fork` count user messages by.
+ */
+export function userEntryMessageIndexes(items: readonly TranscriptItem[]): number[] {
+  const out: number[] = [];
+  let index = 0;
+  for (const item of items) {
+    if (item.type !== 'message') continue;
+    const { message } = item;
+    if (message.role === 'user' && message.content.some((b) => b.type === 'image' || (b.type === 'text' && b.text !== ''))) {
+      out.push(index);
+    }
+    index++;
+  }
+  return out;
+}
+
+/**
  * Rebuild display entries from the persisted transcript: one `assistant` entry
  * per assistant message, tool results (which ride in the next `user` message)
  * attached back onto their tool cards — with what they carried for display,

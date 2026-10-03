@@ -57,6 +57,7 @@ import type {
   SkillInfo,
   WireEvent,
 } from '@harness-code/protocol';
+import { userEntryMessageIndexes } from '@harness-code/protocol';
 
 /** The current run's events plus enough history to serve a reconnect gap. */
 const RING_CAPACITY = 5000;
@@ -565,6 +566,21 @@ export class SessionHost {
       if (err instanceof AttachmentError) throw new InvalidRequestError(err.message);
       throw err;
     }
+  }
+
+  /**
+   * Take the conversation back to just before its `userMessage`-th user
+   * message (as the transcript shows them), and send every client the
+   * transcript as it now stands (`rewound`). Not while a run goes.
+   */
+  async rewind(userMessage: number): Promise<void> {
+    if (this.#busy) throw new BusyError('the session is running; stop it first');
+    const session = this.#requireSession();
+    const keep = userEntryMessageIndexes(await this.#loadTranscript())[userMessage];
+    if (keep === undefined) throw new InvalidRequestError(`there is no user message ${userMessage} to rewind to`);
+    await session.rewind(keep);
+    this.#emit({ type: 'rewound', transcript: await this.#loadTranscript() });
+    this.#onSummaryChange?.();
   }
 
   /** Take a queued message back before it goes; null when it is no longer queued. */

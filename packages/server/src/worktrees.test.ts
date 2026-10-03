@@ -224,6 +224,32 @@ describe('a session in a worktree', () => {
     expect(git(root, 'branch', '--list', worktree.branch)).toBe('');
   });
 
+  it("forks into a worktree of its own, branched from the other's branch", async () => {
+    const root = await repo();
+    const home = await tempDir('hc-wt-home-');
+    const hub = new WorkspaceHub({ store: memoryWorkspaceStore(), setup: setups, sweepMs: 0, home, pty: null });
+    cleanups.push(() => hub.shutdown());
+    const workspaceId = await hub.init(root);
+    const { snapshot } = await hub.start({ workspaceId, text: 'Add a feature', worktree: { base: 'main' } });
+    await runToEnd(hub, snapshot.id);
+    const source = snapshot.worktree!;
+    await writeFile(join(source.path, 'done.txt'), 'x\n');
+    git(source.path, 'add', '.');
+    git(source.path, 'commit', '-q', '-m', 'progress');
+
+    const forkId = await hub.fork(snapshot.id);
+    const fork = await hub.preview(forkId);
+    expect(fork.worktree?.branch).not.toBe(source.branch);
+    expect(fork.worktree?.base).toBe(source.branch);
+    expect(await readFile(join(fork.worktree!.path, 'done.txt'), 'utf8')).toBe('x\n');
+    expect(fork.transcript.filter((t) => t.type === 'message')).toHaveLength(2);
+    expect((await hub.list()).find((r) => r.id === forkId)?.title).toBe('Add a feature · fork');
+
+    // As far as before its first message: an empty conversation.
+    const empty = await hub.fork(snapshot.id, 0);
+    expect((await hub.preview(empty)).transcript).toEqual([]);
+  });
+
   it('leaves nothing behind when the session fails to start', async () => {
     const root = await repo();
     const home = await tempDir('hc-wt-home-');
