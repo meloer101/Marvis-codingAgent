@@ -46,7 +46,22 @@ export interface ToolResultBlock {
   isError?: boolean;
 }
 
-export type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock;
+/** The image formats a message can carry (what vision endpoints accept). */
+export const IMAGE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
+export type ImageMediaType = (typeof IMAGE_MEDIA_TYPES)[number];
+
+/**
+ * An image the user put in a message, base64-encoded. Only a model with
+ * `capabilities.vision` sees it; to any other the provider sends `[image]`.
+ */
+export interface ImageBlock {
+  type: 'image';
+  mediaType: ImageMediaType;
+  /** Base64, no `data:` prefix. */
+  data: string;
+}
+
+export type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock | ImageBlock;
 
 export type AssistantBlock = TextBlock | ThinkingBlock | ToolUseBlock;
 

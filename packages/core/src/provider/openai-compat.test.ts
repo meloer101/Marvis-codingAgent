@@ -403,6 +403,30 @@ describe('OpenAICompatProvider errors', () => {
 });
 
 describe('message translation', () => {
+  it('sends images as image_url parts ahead of the text, or [image] to a model that cannot see them', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'image', mediaType: 'image/png', data: 'iVBOR' },
+          { type: 'text', text: 'what is this?' },
+        ],
+      },
+    ];
+    expect(toOpenAIMessages(undefined, messages, { ...DEFAULT_CAPABILITIES, vision: true })).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBOR' } },
+          { type: 'text', text: 'what is this?' },
+        ],
+      },
+    ]);
+    expect(toOpenAIMessages(undefined, messages, DEFAULT_CAPABILITIES)).toEqual([
+      { role: 'user', content: '[image]\nwhat is this?' },
+    ]);
+  });
+
   it('emits tool results before any new user text', async () => {
     const messages: Message[] = [
       { role: 'user', content: [{ type: 'text', text: 'read a.ts' }] },

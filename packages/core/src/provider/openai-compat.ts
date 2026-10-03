@@ -24,6 +24,7 @@ import {
 } from './types.js';
 import type {
   AssistantBlock,
+  ImageBlock,
   Message,
   ModelRequest,
   ModelResponse,
@@ -833,10 +834,24 @@ export function toOpenAIMessages(
         });
       }
       const text = msg.content
-        .filter((b) => b.type === 'text')
-        .map((b) => (b as { text: string }).text)
+        .flatMap((b) => (b.type === 'text' ? [b.text] : b.type === 'image' && !caps.vision ? ['[image]'] : []))
         .join('\n');
-      if (text !== '') out.push({ role: 'user', content: text });
+      const images = caps.vision ? msg.content.filter((b): b is ImageBlock => b.type === 'image') : [];
+      if (images.length > 0) {
+        // Images first, as the user put them ahead of what they wrote about them.
+        out.push({
+          role: 'user',
+          content: [
+            ...images.map((img) => ({
+              type: 'image_url' as const,
+              image_url: { url: `data:${img.mediaType};base64,${img.data}` },
+            })),
+            ...(text !== '' ? [{ type: 'text' as const, text }] : []),
+          ],
+        });
+      } else if (text !== '') {
+        out.push({ role: 'user', content: text });
+      }
       return;
     }
 
@@ -1371,9 +1386,12 @@ interface OpenAICompletion {
   }>;
 }
 
+/** A part of a user message's content, when it carries images. */
+export type OpenAIContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
+
 export interface OpenAIMessage {
   role: 'system' | 'developer' | 'user' | 'assistant' | 'tool';
-  content: string | null;
+  content: string | null | OpenAIContentPart[];
   /** Replayed reasoning for endpoints that require it back (DeepSeek V4). */
   reasoning_content?: string;
   tool_call_id?: string;

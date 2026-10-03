@@ -181,6 +181,8 @@ export interface ModelCapabilities {
   maxOutputTokens: number;
   /** Endpoint rejects `temperature` (some reasoning models do). */
   fixedTemperature?: boolean;
+  /** Model takes images in user messages (OpenAI `image_url` content parts). */
+  vision?: boolean;
   /** Use `developer` instead of `system` for the system message. */
   developerRole?: boolean;
   /**
@@ -303,6 +305,7 @@ const RULES: CapabilityRule[] = [
     match: /^(o[1-9]|gpt-5)/i,
     caps: {
       reasoning: true,
+      vision: true,
       fixedTemperature: true,
       developerRole: true,
       contextWindow: 200_000,
@@ -315,6 +318,7 @@ const RULES: CapabilityRule[] = [
     provider: 'openai',
     match: /^gpt-4o/i,
     caps: {
+      vision: true,
       contextWindow: 128_000,
       maxOutputTokens: 16_384,
       promptCache: 'implicit',
@@ -389,7 +393,7 @@ const RULES: CapabilityRule[] = [
   {
     provider: 'openrouter',
     match: /^anthropic\//i,
-    caps: { contextWindow: 200_000, maxOutputTokens: 32_000, promptCache: 'explicit' },
+    caps: { contextWindow: 200_000, maxOutputTokens: 32_000, promptCache: 'explicit', vision: true },
   },
   { provider: 'openrouter', match: /.*/, caps: { contextWindow: 128_000 } },
 ];
@@ -424,6 +428,8 @@ const PROVIDER_DEFAULTS: Record<string, Partial<ModelCapabilities>> = {
  */
 const FAMILY_DEFAULTS: ReadonlyArray<{ match: RegExp; caps: Partial<ModelCapabilities> }> = [
   { match: /deepseek/i, caps: { textToolCallSalvage: true } },
+  // Vision-language variants say so in their names (qwen-vl, glm-4v, llava, pixtral…).
+  { match: /(^|[-_/.])(vl|vision)([-_.:]|$)|llava|pixtral|glm-4v/i, caps: { vision: true } },
 ];
 
 /** User overrides, keyed as `provider/model`, `provider/*`, or `*`. */

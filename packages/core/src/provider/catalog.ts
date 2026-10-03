@@ -32,6 +32,8 @@ export interface ModelDescription {
   defaultEffort?: ReasoningEffort;
   /** $/MTok, when known. */
   pricing?: Pricing;
+  /** It takes images in messages. */
+  vision?: boolean;
   /** Why it can't be used as configured (typically a missing API key); absent when it can. */
   problem?: string;
 }
@@ -78,6 +80,7 @@ export function describeModel(
     effortLevels: [...levels],
     ...(initial ? { defaultEffort: initial } : {}),
     ...(caps.pricing ? { pricing: caps.pricing } : {}),
+    ...(caps.vision ? { vision: true } : {}),
     ...(problem ? { problem } : {}),
   };
 }

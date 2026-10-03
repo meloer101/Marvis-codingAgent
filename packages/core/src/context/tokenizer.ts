@@ -77,6 +77,13 @@ export interface FlattenableRequest {
   tools?: readonly { description: string; inputSchema: unknown }[];
 }
 
+/**
+ * Roughly what an image costs a vision model — Claude's ~1.6K for a
+ * 1092×1092 image, GPT-4o's high-detail tiles — counted per image on top of
+ * the text, which carries it as `[image]`.
+ */
+export const IMAGE_TOKENS = 1_600;
+
 function flattenMessageText(m: Message): string {
   return m.content
     .map((b) =>
@@ -84,9 +91,17 @@ function flattenMessageText(m: Message): string {
         ? b.text
         : b.type === 'tool_result'
           ? b.content
-          : JSON.stringify(b.input),
+          : b.type === 'image'
+            ? '[image]'
+            : JSON.stringify(b.input),
     )
     .join('\n');
+}
+
+function imageCount(messages: readonly Message[]): number {
+  let n = 0;
+  for (const m of messages) for (const b of m.content) if (b.type === 'image') n++;
+  return n;
 }
 
 /**
@@ -109,7 +124,7 @@ export function estimateRequestTokens(
   req: FlattenableRequest,
   count: TokenCounter = heuristicTokenCount,
 ): number {
-  return count(flattenRequestText(req));
+  return count(flattenRequestText(req)) + imageCount(req.messages) * IMAGE_TOKENS;
 }
 
 /**
@@ -121,5 +136,5 @@ export function estimateMessageTokens(
   messages: readonly Message[],
   count: TokenCounter = heuristicTokenCount,
 ): number {
-  return count(messages.map(flattenMessageText).join('\n'));
+  return count(messages.map(flattenMessageText).join('\n')) + imageCount(messages) * IMAGE_TOKENS;
 }

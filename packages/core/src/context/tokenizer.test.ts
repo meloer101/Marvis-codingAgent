@@ -127,3 +127,16 @@ describe('createTokenCalibrator', () => {
     expect(cal.count(text)).toBe(heuristicTokenCount(text));
   });
 });
+
+describe('images in the estimate', () => {
+  it('counts an image at a fixed weight, on top of its text', async () => {
+    const { IMAGE_TOKENS, estimateMessageTokens } = await import('./tokenizer.js');
+    const text = estimateMessageTokens([{ role: 'user', content: [{ type: 'text', text: 'look' }] }]);
+    const withImage = estimateMessageTokens([
+      { role: 'user', content: [{ type: 'image', mediaType: 'image/png', data: 'x'.repeat(100_000) }, { type: 'text', text: 'look' }] },
+    ]);
+    // The base64 itself never counts as text.
+    expect(withImage - text).toBeGreaterThanOrEqual(IMAGE_TOKENS);
+    expect(withImage - text).toBeLessThan(IMAGE_TOKENS + 10);
+  });
+});

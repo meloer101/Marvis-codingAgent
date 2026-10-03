@@ -21,6 +21,7 @@ import {
 } from '../provider/types.js';
 import type {
   ContentBlock,
+  ImageBlock,
   Message,
   ModelRequest,
   ModelResponse,
@@ -119,7 +120,7 @@ export type AgentEvent =
    * (`AgentLoopOptions.takeInput`): after a step's tool results, or in place of
    * the run ending. For display: frontends show it where it was read.
    */
-  | { type: 'user_input'; text: string; attachments?: string[] }
+  | { type: 'user_input'; text: string; attachments?: string[]; images?: Array<Omit<ImageBlock, 'type'>> }
   | { type: 'stop'; reason: AgentStopReason };
 
 /**

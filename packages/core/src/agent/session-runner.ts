@@ -98,8 +98,8 @@ import {
 } from './session.js';
 import { TraceRecorder } from '../telemetry/trace.js';
 import { ToolOutputStore } from '../context/tool-output.js';
-import { addUsage } from '../provider/types.js';
-import type { ContentBlock, Message, SystemSegment, Usage } from '../provider/types.js';
+import { IMAGE_MEDIA_TYPES, addUsage } from '../provider/types.js';
+import type { ContentBlock, ImageBlock, Message, SystemSegment, Usage } from '../provider/types.js';
 import { ProviderRegistry } from '../provider/router.js';
 import type { ResolvedModel } from '../provider/router.js';
 import { effortOptions, estimateCostUSD, mapEffort } from '../provider/capabilities.js';
@@ -177,11 +177,21 @@ export function skillInvocation(name: string, args = ''): string {
 /** Past this, a file is for the agent to read in parts, not to attach whole. */
 export const MAX_ATTACHMENT_BYTES = 256 * 1024;
 
+/** An image put in a message: base64, no `data:` prefix. */
+export type ImageInput = Omit<ImageBlock, 'type'>;
+
+/** At most this many images in one message. */
+export const MAX_IMAGES = 8;
+/** Past this (decoded), an image is too big to send. */
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
 /** A message the user sent while a run was going, for the run to take in (`runTurn`'s `takeInput`). */
 export interface SteeringInput {
   text: string;
   /** Workspace files read into it, as for a message's (checked when it was sent). */
   attachments?: readonly string[];
+  /** Images in it (checked when it was sent). */
+  images?: readonly ImageInput[];
 }
 
 // ---------------------------------------------------------------------------
@@ -991,6 +1001,27 @@ export class AgentSession {
   }
 
   /**
+   * Refuse images the session can't send: the model doesn't see images, too
+   * many, too big, or not a format it takes. Throws `AttachmentError`.
+   */
+  checkImages(images: readonly ImageInput[]): void {
+    if (images.length === 0) return;
+    if (!this.#model.capabilities.vision) {
+      throw new AttachmentError(`${this.#model.ref} can't see images; switch to a model that can`);
+    }
+    if (images.length > MAX_IMAGES) throw new AttachmentError(`At most ${MAX_IMAGES} images in a message`);
+    for (const img of images) {
+      if (!(IMAGE_MEDIA_TYPES as readonly string[]).includes(img.mediaType)) {
+        throw new AttachmentError(`Can't send a ${img.mediaType} image: PNG, JPEG, GIF or WebP only`);
+      }
+      const bytes = Math.floor((img.data.length * 3) / 4);
+      if (bytes > MAX_IMAGE_BYTES) {
+        throw new AttachmentError(`An image is ${Math.round(bytes / 1024 / 1024)} MB; ${MAX_IMAGE_BYTES / 1024 / 1024} MB at most`);
+      }
+    }
+  }
+
+  /**
    * Read the files attached to a message with the `read` tool — they enter the
    * read ledger like any read, recorded so a resumed session remembers them —
    * and return one block per file for the front of the message.
@@ -1015,7 +1046,8 @@ export class AgentSession {
 
   /**
    * Run one turn with `input`, then stop. Returns the full accumulated history.
-   * `attachments` are workspace files read into the message ahead of its text.
+   * `attachments` are workspace files read into the message ahead of its text,
+   * `images` go between them and the text.
    * `takeInput` hands over what the user said since (steering) whenever the
    * loop can take it in — after a step's tool results, or as the run would end.
    */
@@ -1024,10 +1056,13 @@ export class AgentSession {
     opts?: {
       signal?: AbortSignal;
       attachments?: readonly string[];
+      images?: readonly ImageInput[];
       takeInput?: () => readonly SteeringInput[];
     },
   ): Promise<AgentRunResult> {
     if (this.#closed) throw new Error('AgentSession is closed');
+    const images = opts?.images ?? [];
+    this.checkImages(images);
     const attached = opts?.attachments?.length ? await this.#readAttachments(opts.attachments) : [];
 
     let effectiveText = input;
@@ -1046,7 +1081,11 @@ export class AgentSession {
 
     const userMessage: Message = {
       role: 'user',
-      content: [...attached.map((text) => ({ type: 'text' as const, text })), { type: 'text', text: effectiveText }],
+      content: [
+        ...attached.map((text) => ({ type: 'text' as const, text })),
+        ...images.map((img) => ({ type: 'image' as const, ...img })),
+        { type: 'text', text: effectiveText },
+      ],
     };
     await this.#recorder?.recordMessage(userMessage);
 
@@ -1117,8 +1156,19 @@ export class AgentSession {
       }
     }
     const text = items.map((i) => i.text).join('\n\n');
-    this.#onEvent({ type: 'user_input', text, ...(files.length > 0 ? { attachments: files } : {}) });
-    return [...attached.map((t) => ({ type: 'text' as const, text: t })), { type: 'text', text }];
+    // Checked when sent; a model switched since that can't see them gets `[image]`.
+    const images = items.flatMap((i) => i.images ?? []);
+    this.#onEvent({
+      type: 'user_input',
+      text,
+      ...(files.length > 0 ? { attachments: files } : {}),
+      ...(images.length > 0 ? { images } : {}),
+    });
+    return [
+      ...attached.map((t) => ({ type: 'text' as const, text: t })),
+      ...images.map((img) => ({ type: 'image' as const, ...img })),
+      { type: 'text', text },
+    ];
   }
 
   /** Manually compact history now. Returns the token savings, or null when nothing compacted. */

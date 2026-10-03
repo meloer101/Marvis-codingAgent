@@ -502,6 +502,21 @@ describe('AgentSession', () => {
     expect(texts.at(-1)).toBe('also look at @b.txt\n\nand be brief');
   });
 
+  it('puts images in the message for a model that sees them, and refuses them for one that does not', async () => {
+    const provider = new ScriptedProvider([{ text: 'a cat' }]);
+    const seeing = await createSession({ model: sessionModel(provider, { vision: true }) });
+    const image = { mediaType: 'image/png' as const, data: 'iVBORw0KGgo=' };
+    await seeing.session.runTurn('what is this?', { images: [image] });
+    expect(provider.requests[0]!.messages[0]!.content).toEqual([
+      { type: 'image', ...image },
+      { type: 'text', text: 'what is this?' },
+    ]);
+
+    const blind = await createSession({ model: sessionModel(new ScriptedProvider([{ text: 'x' }])) });
+    await expect(blind.session.runTurn('what is this?', { images: [image] })).rejects.toThrow(/can't see images/);
+    expect(() => seeing.session.checkImages([{ mediaType: 'image/tiff' as never, data: 'x' }])).toThrow(/PNG, JPEG/);
+  });
+
   it('a resumed session remembers what was attached', async () => {
     const cwd = await tempDir();
     const agentDir = join(cwd, '.agent');
