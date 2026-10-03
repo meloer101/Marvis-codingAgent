@@ -42,6 +42,7 @@ import {
 } from './git.js';
 import { WorkspaceNotFoundError } from './hub.js';
 import { WorkspacePathError } from './paths.js';
+import { TerminalNotFoundError } from './terminals.js';
 import { suggestDirs } from './inspect.js';
 import type { WorkspaceHub } from './hub.js';
 import { SessionPreviewNotFoundError } from './registry.js';
@@ -134,6 +135,8 @@ class Connection {
   readonly #subs = new Map<string, () => void>();
   /** Stops forwarding session-list pushes; set once the socket authenticates. */
   #unwatch: (() => void) | undefined;
+  /** Terminals this socket receives the output of. */
+  readonly #terminals = new Map<string, () => void>();
 
   constructor(
     private readonly ws: WebSocket,
@@ -145,6 +148,8 @@ class Connection {
     ws.on('close', () => {
       for (const unsub of this.#subs.values()) unsub();
       this.#subs.clear();
+      for (const detach of this.#terminals.values()) detach();
+      this.#terminals.clear();
       this.#unwatch?.();
     });
     // A socket-level error just means the peer went away; teardown runs on 'close'.
@@ -240,6 +245,42 @@ class Connection {
       case 'fs.search': {
         const { workspaceId, query, limit } = params as MethodParams<'fs.search'>;
         return hub.searchFiles(workspaceId, query, limit);
+      }
+      case 'terminal.list':
+        return hub.terminals.list((params as MethodParams<'terminal.list'>).workspaceId);
+      case 'terminal.create': {
+        const { workspaceId, cols, rows } = params as MethodParams<'terminal.create'>;
+        return hub.createTerminal(workspaceId, cols, rows);
+      }
+      case 'terminal.attach': {
+        const { id } = params as MethodParams<'terminal.attach'>;
+        this.#terminals.get(id)?.();
+        const { detach, ...attached } = hub.terminals.attach(id, (out) => this.#send({ t: 'term', id, ...out }));
+        this.#terminals.set(id, detach);
+        return attached;
+      }
+      case 'terminal.detach': {
+        const { id } = params as MethodParams<'terminal.detach'>;
+        this.#terminals.get(id)?.();
+        this.#terminals.delete(id);
+        return undefined;
+      }
+      case 'terminal.input': {
+        const { id, data } = params as MethodParams<'terminal.input'>;
+        hub.terminals.input(id, data);
+        return undefined;
+      }
+      case 'terminal.resize': {
+        const { id, cols, rows } = params as MethodParams<'terminal.resize'>;
+        hub.terminals.resize(id, cols, rows);
+        return undefined;
+      }
+      case 'terminal.close': {
+        const { id } = params as MethodParams<'terminal.close'>;
+        this.#terminals.get(id)?.();
+        this.#terminals.delete(id);
+        hub.terminals.close(id);
+        return undefined;
       }
       case 'fs.list': {
         const { workspaceId, dir } = params as MethodParams<'fs.list'>;
@@ -468,6 +509,7 @@ function mapError(err: unknown): { code: ErrorCode; message: string } {
   if (err instanceof SessionPreviewNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof WorkspaceNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof WorkspacePathError) return { code: 'bad_request', message: err.message };
+  if (err instanceof TerminalNotFoundError) return { code: 'not_found', message: err.message };
   if (err instanceof GitCommandError) return { code: 'bad_request', message: err.message };
   const message = err instanceof Error ? err.message : String(err);
   return { code: 'internal', message };

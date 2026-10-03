@@ -100,6 +100,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       models: [],
       modes: launch.defaults.modes,
       editors: await hub.editors(),
+      capabilities: { terminal: await hub.terminals.available() },
     };
   };
 
@@ -270,6 +271,8 @@ export { attachWsServer } from './ws.js';
 export type { WsServerOptions } from './ws.js';
 export { createStaticHandler, resolveStaticDir } from './http.js';
 export { mockConfigFactory } from './mock.js';
+export { TerminalManager, loadPty } from './terminals.js';
+export type { Pty, SpawnPty } from './terminals.js';
 export {
   clearInstance,
   findRunningInstance,

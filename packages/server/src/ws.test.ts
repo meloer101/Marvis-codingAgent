@@ -17,6 +17,7 @@ import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { startServer, type RunningServer } from './index.js';
+import { loadPty } from './terminals.js';
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -67,6 +68,7 @@ class Client {
   private readonly pending = new Map<number, (frame: ServerFrame) => void>();
   readonly events: ServerFrame[] = [];
   readonly pushes: PushEvent[] = [];
+  readonly terms: Array<Extract<ServerFrame, { t: 'term' }>> = [];
 
   private constructor(private readonly ws: WebSocket) {
     ws.on('message', (data: Buffer) => {
@@ -77,6 +79,10 @@ class Client {
       }
       if (frame.t === 'push') {
         this.pushes.push(frame.event);
+        return;
+      }
+      if (frame.t === 'term') {
+        this.terms.push(frame);
         return;
       }
       this.pending.get(frame.id)?.(frame);
@@ -126,6 +132,9 @@ class Client {
     this.ws.close();
   }
 }
+
+/** Terminals need node-pty, which may not load everywhere. */
+const ptyLoads = (await loadPty()) !== null;
 
 function wsUrl(server: RunningServer): string {
   return `ws://127.0.0.1:${server.port}/ws`;
@@ -271,6 +280,42 @@ describe('ws transport', () => {
       error: { code: 'bad_request' },
     });
     client.close();
+  });
+
+  it.skipIf(!ptyLoads)('runs a terminal: output to the sockets attached to it, the list to every tab', async () => {
+    const shell = process.env['SHELL'];
+    process.env['SHELL'] = '/bin/sh';
+    try {
+      const server = await boot();
+      const origin = `http://127.0.0.1:${server.port}`;
+      const a = await Client.open(wsUrl(server), origin);
+      const b = await Client.open(wsUrl(server), origin);
+      await a.call('auth', { token: server.token });
+      await b.call('auth', { token: server.token });
+      const info = (await a.call('server.info')) as { result: { capabilities: { terminal: boolean } } };
+      expect(info.result.capabilities.terminal).toBe(true);
+      const workspaceId = ((await a.call('workspace.list')) as { result: Array<{ id: string }> }).result[0]!.id;
+
+      const created = (await a.call('terminal.create', { workspaceId, cols: 80, rows: 24 })) as { result: { id: string } };
+      const { id } = created.result;
+      expect(await a.call('terminal.attach', { id })).toMatchObject({ ok: true, result: { scrollback: expect.any(String) } });
+      await a.call('terminal.input', { id, data: 'echo hi-from-$((40+2)); exit 5\r' });
+      const deadline = Date.now() + 5000;
+      while (!a.terms.some((f) => 'exitCode' in f) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      const printed = a.terms.flatMap((f) => ('data' in f ? [f.data] : [])).join('');
+      expect(printed).toContain('hi-from-42');
+      expect(a.terms.at(-1)).toEqual({ t: 'term', id, exitCode: 5 });
+      // B never attached: no output, but it learns the list.
+      expect(b.terms).toEqual([]);
+      expect(b.pushes.some((p) => p.type === 'terminals' && p.terminals.some((t) => t.id === id))).toBe(true);
+
+      await a.call('terminal.close', { id });
+      expect(await a.call('terminal.input', { id, data: 'x' })).toMatchObject({ ok: false, error: { code: 'not_found' } });
+      a.close();
+      b.close();
+    } finally {
+      process.env['SHELL'] = shell;
+    }
   });
 
   it('serves server.info once authed', async () => {

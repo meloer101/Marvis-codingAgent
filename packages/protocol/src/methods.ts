@@ -39,6 +39,22 @@ export interface ServerInfo {
   modes: PermissionMode[];
   /** The editors on this machine a file can be opened in (`editor.open`). */
   editors: EditorInfo[];
+  capabilities: {
+    /** Terminals can be opened (`terminal.*`): node-pty loaded on this machine. */
+    terminal: boolean;
+  };
+}
+
+/** A terminal running in a workspace (`terminal.*`). */
+export interface TerminalInfo {
+  id: string;
+  workspaceId: string;
+  /** The shell's name ("zsh"); a client shows the title the shell sets, when it sets one. */
+  title: string;
+  cwd: string;
+  createdAt: number;
+  /** The shell's exit code, once it has exited; the terminal stays until closed. */
+  exitCode?: number;
 }
 
 export type EditorId = 'vscode' | 'cursor' | 'zed';
@@ -305,6 +321,8 @@ const sessionIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, 'not a sessio
 /** Workspace ids are hex digests. */
 const workspaceIdSchema = z.string().regex(/^[0-9a-f]{1,64}$/, 'not a workspace id');
 const pathSchema = z.string().min(1).max(4096);
+const terminalIdSchema = z.string().regex(/^[a-z0-9-]{1,64}$/, 'not a terminal id');
+const terminalSizeSchema = z.number().int().min(1).max(1000);
 /** The files a git change applies to: workspace-relative paths. */
 const gitPathsSchema = z.object({
   workspaceId: workspaceIdSchema,
@@ -353,6 +371,34 @@ export const methods = {
   'fs.search': method<{ workspaceId: string; query: string; limit?: number }, FileMatch[]>(
     z.object({ workspaceId: workspaceIdSchema, query: z.string().max(512), limit: z.number().int().min(1).max(200).optional() }),
   ),
+  /** The terminals open in a workspace, oldest first. */
+  'terminal.list': method<{ workspaceId: string }, TerminalInfo[]>(z.object({ workspaceId: workspaceIdSchema })),
+  /** Start the user's shell in the workspace's root, sized `cols` × `rows`. */
+  'terminal.create': method<{ workspaceId: string; sessionId?: string; cols: number; rows: number }, TerminalInfo>(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      sessionId: sessionIdSchema.optional(),
+      cols: terminalSizeSchema,
+      rows: terminalSizeSchema,
+    }),
+  ),
+  /**
+   * Receive a terminal's output on this socket (`{t:'term'}` frames), starting
+   * with what it kept of the output so far.
+   */
+  'terminal.attach': method<{ id: string }, { scrollback: string; exitCode?: number }>(
+    z.object({ id: terminalIdSchema }),
+  ),
+  'terminal.detach': method<{ id: string }, void>(z.object({ id: terminalIdSchema })),
+  /** Keystrokes and pastes, as the terminal would get them. */
+  'terminal.input': method<{ id: string; data: string }, void>(
+    z.object({ id: terminalIdSchema, data: z.string().max(1024 * 1024) }),
+  ),
+  'terminal.resize': method<{ id: string; cols: number; rows: number }, void>(
+    z.object({ id: terminalIdSchema, cols: terminalSizeSchema, rows: terminalSizeSchema }),
+  ),
+  /** End the shell (if it still runs) and forget the terminal. */
+  'terminal.close': method<{ id: string }, void>(z.object({ id: terminalIdSchema })),
   /**
    * A workspace folder's entries (`dir` relative to its root, `''` for the
    * root): folders first. What `.gitignore` leaves out and secrets aren't listed.

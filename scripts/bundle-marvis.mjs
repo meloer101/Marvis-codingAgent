@@ -56,6 +56,9 @@ const stubDevtools = {
 };
 
 const version = await readVersion();
+/** The native modules the bundle leaves external, at the versions the server is built against. */
+const serverPkg = JSON.parse(await readFile(resolve(root, 'packages/server/package.json'), 'utf8'));
+const optionalDependencies = { 'node-pty': serverPkg.optionalDependencies['node-pty'] };
 
 // Start from a clean release dir so a stale file can never ship.
 await rm(outDir, { recursive: true, force: true });
@@ -69,6 +72,9 @@ await build({
   target: 'node20',
   outfile,
   plugins: [stubDevtools],
+  // Native (terminals in `marvis web`): installed as an optional dependency of
+  // the package below; the server runs without terminals when it can't load.
+  external: ['node-pty'],
   // Some transitive deps use CJS `require` at runtime; give the ESM output one.
   banner: {
     js: [
@@ -112,6 +118,7 @@ const pkg = {
   bin: { marvis: 'dist/bundle/marvis.mjs', hc: 'dist/bundle/marvis.mjs' },
   files: ['dist', 'skills', 'agents', 'memory', 'README.md', 'LICENSE'],
   engines: { node: '>=20.10' },
+  optionalDependencies,
   license: 'MIT',
   author: 'Jacoy',
   homepage: 'https://github.com/meloer101/harness-code#readme',

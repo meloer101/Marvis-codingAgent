@@ -34,6 +34,7 @@ import type {
   PushEvent,
   SessionSnapshot,
   SessionSummary,
+  TerminalInfo,
   Workspace,
   WorkspaceDefaults,
   WorkspaceInspection,
@@ -49,6 +50,8 @@ import { inspectDirectory } from './inspect.js';
 import { SessionPreviewNotFoundError, SessionRegistry } from './registry.js';
 import type { RegistryListener, SessionConfigFactory } from './registry.js';
 import { workspacePath } from './paths.js';
+import { TerminalManager, loadPty } from './terminals.js';
+import type { SpawnPty } from './terminals.js';
 import { workspaceId } from './workspaces.js';
 import type { WorkspaceRecord, WorkspaceStore } from './workspaces.js';
 
@@ -81,6 +84,8 @@ export interface WorkspaceHubOptions {
   home?: string;
   /** The editors files can be opened in (tests); found on the machine by default. */
   editors?: () => Promise<Editor[]>;
+  /** How terminals start (tests); node-pty by default, when it loads. */
+  pty?: SpawnPty | null;
 }
 
 /** A request named a workspace this server doesn't host. The WS layer maps it to `not_found`. */
@@ -111,6 +116,8 @@ export class WorkspaceHub {
   readonly #sessionIndex = new Map<string, string>();
   readonly #files = new FileIndex();
   readonly #findEditors: () => Promise<Editor[]>;
+  /** Every workspace's terminals. */
+  readonly terminals: TerminalManager;
   #editors: Promise<Editor[]> | undefined;
   #rev = 0;
   readonly #sweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -121,6 +128,10 @@ export class WorkspaceHub {
     this.#idleMs = opts.idleMs;
     this.#home = opts.home;
     this.#findEditors = opts.editors ?? (() => detectEditors());
+    this.terminals = new TerminalManager({
+      spawn: opts.pty !== undefined ? opts.pty : loadPty(),
+      onChange: (workspace) => this.#forward(workspace, { type: 'terminals', workspaceId: workspace, terminals: this.terminals.list(workspace) }),
+    });
     const sweepMs = opts.sweepMs ?? DEFAULT_SWEEP_MS;
     if (sweepMs > 0) {
       this.#sweepTimer = setInterval(() => this.sweep(), sweepMs);
@@ -200,6 +211,13 @@ export class WorkspaceHub {
   #editorList(): Promise<Editor[]> {
     this.#editors ??= this.#findEditors().catch(() => []);
     return this.#editors;
+  }
+
+  /** Start a terminal in workspace `id`'s root. */
+  async createTerminal(id: string, cols: number, rows: number): Promise<TerminalInfo> {
+    const entry = this.#present(id);
+    if (!entry) throw new InvalidRequestError('the project folder is missing');
+    return this.terminals.create(id, entry.record.root, cols, rows);
   }
 
   /** Workspace `id`'s changes against HEAD. */
@@ -288,6 +306,7 @@ export class WorkspaceHub {
     if (this.#entries.size === 1) throw new InvalidRequestError('the last workspace stays');
     if (entry.registry.hasRunning()) throw new BusyError(`a session in ${nameOf(entry.record.root)} is running`);
     this.#entries.delete(id);
+    this.terminals.closeWorkspace(id);
     for (const [session, workspace] of this.#sessionIndex) if (workspace === id) this.#sessionIndex.delete(session);
     await this.#save();
     await entry.registry.shutdown();
@@ -369,6 +388,7 @@ export class WorkspaceHub {
 
   async shutdown(): Promise<void> {
     if (this.#sweepTimer) clearInterval(this.#sweepTimer);
+    this.terminals.shutdown();
     const entries = [...this.#entries.values()];
     await Promise.all(entries.map((e) => e.registry.shutdown()));
     await Promise.all(entries.map((e) => e.setup.dispose?.()));

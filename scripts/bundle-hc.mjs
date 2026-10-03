@@ -32,7 +32,9 @@ const result = await build({
   format: 'esm',
   target: 'node20',
   outfile,
-  external: ['@harness-code/tui'],
+  // node-pty is native (terminals in `hc web`): never bundled; the server
+  // runs without terminals when it can't load.
+  external: ['@harness-code/tui', 'node-pty'],
   // The dynamic `import('@harness-code/tui')` becomes a runtime require that
   // will throw ERR_MODULE_NOT_FOUND in the container; the CLI catches it. Keep
   // esbuild from trying to resolve it at build time.
