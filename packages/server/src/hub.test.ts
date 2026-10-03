@@ -295,3 +295,35 @@ describe('session update / delete', () => {
     await expect(hub.delete(id)).rejects.toBeInstanceOf(SessionPreviewNotFoundError);
   });
 });
+
+describe('WorkspaceHub stats', () => {
+  it("adds up the sessions' traces, per workspace or all, and gives one session's timeline", async () => {
+    const traced: WorkspaceSetupFactory = async (root) => ({
+      ...(await setups(root)),
+      buildConfig: async (o): Promise<AgentSessionConfig> => ({
+        ...(await (await setups(root)).buildConfig(o)),
+        trace: true,
+      }),
+    });
+    const [a, b] = [await project('a'), await project('b')];
+    const hub = new WorkspaceHub({ store: memoryWorkspaceStore(), setup: traced, sweepMs: 0 });
+    cleanups.push(() => hub.shutdown());
+    const aId = await hub.init(a);
+    const bId = (await hub.add(b)).id;
+    const one = await hub.start({ workspaceId: aId, text: 'hello' });
+    await runToEnd(hub, one.snapshot.id);
+    const two = await hub.start({ workspaceId: bId, text: 'there' });
+    await runToEnd(hub, two.snapshot.id);
+
+    const all = await hub.stats();
+    expect(all.rollup).toMatchObject({ sessions: 2, totalTurns: 2 });
+    expect(all.sessions.map((s) => s.workspaceId).sort()).toEqual([aId, bId].sort());
+    expect((await hub.stats(aId)).sessions.map((s) => s.id)).toEqual([one.snapshot.id]);
+    expect((await hub.stats(undefined, Date.now() + 60_000)).rollup.sessions).toBe(0);
+
+    const trace = await hub.trace(one.snapshot.id);
+    expect(trace.events.map((e) => e.type)).toEqual(['run_start', 'context', 'model_call', 'run_end']);
+    expect(trace.summary).toMatchObject({ id: one.snapshot.id, turns: 1 });
+  });
+});
+

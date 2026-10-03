@@ -389,6 +389,12 @@ class Connection {
         this.#host(id).setEffort(effort);
         return undefined;
       }
+      case 'session.trace':
+        return hub.trace((params as MethodParams<'session.trace'>).id);
+      case 'stats.summary': {
+        const { workspaceId, since } = params as MethodParams<'stats.summary'>;
+        return hub.stats(workspaceId, since);
+      }
       case 'session.rewind': {
         const { id, userMessage } = params as MethodParams<'session.rewind'>;
         return this.#host(id).rewind(userMessage);

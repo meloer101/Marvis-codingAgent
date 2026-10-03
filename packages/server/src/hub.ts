@@ -20,7 +20,7 @@
 import { mkdir, realpath, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
-import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir } from '@harness-code/core';
+import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir, rollupStats } from '@harness-code/core';
 import type { EffortOptions, PermissionMode } from '@harness-code/core';
 import type {
   DirEntry,
@@ -35,6 +35,8 @@ import type {
   PushEvent,
   SessionSnapshot,
   SessionSummary,
+  SessionTrace,
+  StatsSummary,
   TerminalInfo,
   Workspace,
   WorkspaceDefaults,
@@ -403,6 +405,23 @@ export class WorkspaceHub {
     const row = await registry.update(id, patch);
     if (worktree) this.terminals.closeUnder(worktree.path);
     return row;
+  }
+
+  /** Session `id`'s trace, from whichever workspace has it. */
+  async trace(id: string): Promise<SessionTrace> {
+    return (await this.#registryOf(id)).trace(id);
+  }
+
+  /** What the traces of workspace `id`'s sessions — or every workspace's — add up to, from `since` on. */
+  async stats(id?: string, since?: number): Promise<StatsSummary> {
+    const entries = id !== undefined ? [this.#entries.get(id) ?? this.#throwMissing(id)] : [...this.#entries.values()];
+    const sessions = (await Promise.all(entries.map((e) => e.registry.stats(since)))).flat();
+    sessions.sort((a, b) => b.startedAt - a.startedAt);
+    return { rollup: rollupStats(sessions), sessions };
+  }
+
+  #throwMissing(id: string): never {
+    throw new WorkspaceNotFoundError(id);
   }
 
   /** Fork session `id` (`SessionRegistry.fork`) in its own workspace; resolves with the new id. */

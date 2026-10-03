@@ -15,6 +15,9 @@ import { z } from 'zod';
 import type {
   ContextSnapshot,
   ImageInput,
+  StatsRollup,
+  TraceEvent,
+  TraceSummary,
   ModelDescription,
   PermissionMode,
   ReasoningEffort,
@@ -273,6 +276,22 @@ export interface SessionWorktree {
   cwd: string;
   /** It was removed (archiving does that); the session's next run checks the branch out again. */
   missing?: boolean;
+}
+
+/** One session's trace, folded (`stats.summary`), with the workspace it belongs to. */
+export type SessionStats = TraceSummary & { workspaceId: string };
+
+/** What every session's trace adds up to (`stats.summary`), and each one's. */
+export interface StatsSummary {
+  rollup: StatsRollup;
+  /** Newest first. */
+  sessions: SessionStats[];
+}
+
+/** One session's trace (`session.trace`): every event, and what they add up to. */
+export interface SessionTrace {
+  events: TraceEvent[];
+  summary: TraceSummary;
 }
 
 /** What `session.send` did: started a run, or queued the message behind the one going. */
@@ -674,6 +693,15 @@ export const methods = {
    */
   'session.fork': method<{ id: string; userMessage?: number }, { id: string }>(
     z.object({ id: sessionIdSchema, userMessage: z.number().int().min(0).optional() }),
+  ),
+  /** A session's trace — model calls, tool calls, compactions, runs — and its summary; empty when it has none. */
+  'session.trace': method<{ id: string }, SessionTrace>(z.object({ id: sessionIdSchema })),
+  /**
+   * What the recorded sessions' traces add up to — tokens, cost, calls, by
+   * model — in one workspace or all of them, from `since` (epoch ms) on.
+   */
+  'stats.summary': method<{ workspaceId?: string; since?: number }, StatsSummary>(
+    z.object({ workspaceId: workspaceIdSchema.optional(), since: z.number().int().min(0).optional() }),
   ),
   'session.compact': method<
     { id: string },

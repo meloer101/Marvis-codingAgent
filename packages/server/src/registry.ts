@@ -22,7 +22,16 @@ import {
   tracePath,
   updateSessionMeta,
 } from '@harness-code/core';
-import { forkSession, listSessionIds, loadTranscript, readSessionMeta, readSessionSummary } from '@harness-code/core';
+import {
+  forkSession,
+  listSessionIds,
+  listTraceIds,
+  loadTranscript,
+  readSessionMeta,
+  readSessionSummary,
+  readTrace,
+  summarizeTrace,
+} from '@harness-code/core';
 import type {
   AgentSessionConfig,
   EffortOptions,
@@ -32,7 +41,14 @@ import type {
   SessionMeta,
   SessionWorktreeMeta,
 } from '@harness-code/core';
-import type { PushEvent, SessionSnapshot, SessionSummary, SessionWorktree } from '@harness-code/protocol';
+import type {
+  PushEvent,
+  SessionSnapshot,
+  SessionStats,
+  SessionSummary,
+  SessionTrace,
+  SessionWorktree,
+} from '@harness-code/protocol';
 import { userEntryMessageIndexes } from '@harness-code/protocol';
 
 import { GitCommandError } from './git.js';
@@ -476,6 +492,25 @@ export class SessionRegistry {
     const row = await this.#summary(id, this.#nextRev());
     if (!row) throw new SessionPreviewNotFoundError(id);
     return row;
+  }
+
+  /** Session `id`'s trace and what it adds up to; empty when it has none (tracing off, nothing run yet). */
+  async trace(id: string): Promise<SessionTrace> {
+    if (!(await this.has(id))) throw new SessionPreviewNotFoundError(id);
+    const events = await readTrace(this.#agentDir, id).catch(() => []);
+    return { events, summary: summarizeTrace(id, events) };
+  }
+
+  /** Every traced session of this workspace started at or after `since`, folded, newest first. */
+  async stats(since = 0): Promise<SessionStats[]> {
+    const out: SessionStats[] = [];
+    for (const { id } of await listTraceIds(this.#agentDir)) {
+      const events = await readTrace(this.#agentDir, id).catch(() => null);
+      if (!events?.length) continue;
+      const summary = summarizeTrace(id, events);
+      if (summary.startedAt >= since) out.push({ ...summary, workspaceId: this.#workspaceId });
+    }
+    return out;
   }
 
   /**
