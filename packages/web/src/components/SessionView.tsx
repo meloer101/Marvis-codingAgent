@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
-import { Loader2 } from 'lucide-react';
+import { LoaderCircle } from 'lucide-react';
 
 import { nextPermissionMode } from '@harness-code/core/browser';
 import type { ImageInput, PermissionMode } from '@harness-code/core';
 
 import { Composer } from '@/components/Composer';
-import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerControls';
+import { EffortPicker, ModeChip, ModelPicker, WhereChip } from '@/components/ComposerControls';
 import { PendingDock } from '@/components/PendingDock';
 import { QueuedMessages } from '@/components/QueuedMessages';
 import { TaskDock } from '@/components/TaskDock';
@@ -32,6 +32,8 @@ const FALLBACK_MODES: readonly PermissionMode[] = ['ask', 'acceptEdits', 'plan',
 /** One pane of a split view: whether it has the focus, and closing it. */
 export interface PaneProps {
   focused: boolean;
+  /** Its place in the split, from the left. */
+  index: number;
   onClose: () => void;
 }
 
@@ -148,8 +150,8 @@ export function SessionView({ id, onNewSession, pane }: { id: string; onNewSessi
 
   if (!view) {
     return (
-      <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
+      <div className="flex flex-1 items-center justify-center gap-2 text-[13px] text-muted-foreground">
+        <LoaderCircle className="size-3.5 animate-spin text-primary" />
         Loading session…
       </div>
     );
@@ -160,7 +162,7 @@ export function SessionView({ id, onNewSession, pane }: { id: string; onNewSessi
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <SessionHeader view={view} {...(pane ? { pane } : {})} />
         <Transcript view={view} actions={actions} />
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-6 pt-2 pb-5">
+        <div className="mx-auto flex w-full max-w-[700px] flex-col gap-2 px-5 pt-2 pb-4">
           <TaskDock view={view} />
           <PendingDock view={view} />
           <QueuedMessages
@@ -283,6 +285,7 @@ function SessionComposer({
       onRestored={() => sync.takeRestored(id)}
       controls={
         <>
+          <WhereChip worktree={view.worktree} />
           <ModeChip mode={view.mode} modes={modes} onChange={setMode} {...control('mode')} />
           <ModelPicker
             modelRef={view.modelRef}

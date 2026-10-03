@@ -40,7 +40,7 @@ export function SessionArea({
                 key={id}
                 id={id}
                 onNewSession={onNewSession}
-                {...(panes.length > 1 ? { pane: { focused: i === focused, onClose: () => closePane(i) } } : {})}
+                {...(panes.length > 1 ? { pane: { focused: i === focused, index: i, onClose: () => closePane(i) } } : {})}
               />
             </div>
           ))}

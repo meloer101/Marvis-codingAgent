@@ -81,7 +81,7 @@ export function DiffView({
     [diff],
   );
   return (
-    <div ref={ref} className={cn('max-h-96 overflow-auto font-mono text-[11px] leading-relaxed', className)}>
+    <div ref={ref} className={cn('max-h-96 overflow-auto py-1 font-mono text-xs leading-[1.55]', className)}>
       <table className="w-full border-collapse">
         <tbody>
           {shown.map((line, i) => {
@@ -116,7 +116,7 @@ export function DiffView({
         <button
           type="button"
           onClick={() => setAll(true)}
-          className="w-full px-3 py-1.5 text-left text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+          className="w-full px-3 py-1.5 text-left text-faint transition-colors hover:bg-muted hover:text-foreground"
         >
           Show all {diff.lines.length.toLocaleString()} lines ({hidden.toLocaleString()} more)
         </button>
@@ -148,7 +148,7 @@ const Row = memo(function Row({
   const segments = useMemo(() => lineSegments(line.text, tokens, line.changes), [line, tokens]);
   if (line.kind === 'hunk') {
     return (
-      <tr className="group/hunk bg-primary/5 text-muted-foreground">
+      <tr className="group/hunk text-faint">
         <td colSpan={(oldCol ? 1 : 0) + (newCol ? 1 : 0) + (signCol ? 2 : 1)} className="px-2 py-0.5 select-none">
           {actions ? (
             <div className="flex items-center gap-2">
@@ -166,8 +166,8 @@ const Row = memo(function Row({
     <tr
       data-line={line.newNo}
       className={cn(
-        line.kind === 'add' && 'bg-success/10',
-        line.kind === 'del' && 'bg-destructive/10',
+        line.kind === 'add' && 'bg-diff-add',
+        line.kind === 'del' && 'bg-diff-del',
         focused && 'bg-primary/10',
       )}
     >
@@ -176,8 +176,8 @@ const Row = memo(function Row({
       {signCol && (
         <td
           className={cn(
-            'w-5 px-1 text-center align-top select-none',
-            line.kind === 'add' ? 'text-success' : line.kind === 'del' ? 'text-destructive' : 'text-muted-foreground',
+            'w-[22px] text-center align-top select-none',
+            line.kind === 'add' ? 'text-success' : line.kind === 'del' ? 'text-destructive' : 'text-faint',
           )}
         >
           {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ' '}
@@ -208,7 +208,7 @@ const Row = memo(function Row({
 
 function LineNo({ n, onClick }: { n: number | undefined; onClick?: () => void }) {
   return (
-    <td className="w-px px-1.5 text-right align-top text-muted-foreground/70 tabular-nums select-none">
+    <td className="w-8 min-w-8 pl-1.5 text-right align-top text-faint tabular-nums select-none">
       {onClick && n !== undefined ? (
         <button
           type="button"

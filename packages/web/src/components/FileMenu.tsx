@@ -27,7 +27,7 @@ export function FileMenu({
     <ul
       role="listbox"
       aria-label="Files"
-      className="absolute bottom-full left-0 z-10 mb-2 max-h-64 w-full overflow-y-auto rounded-xl border bg-popover p-1 shadow-xl"
+      className="absolute bottom-full left-0 z-10 mb-2 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover p-1 shadow-xl"
     >
       {files.map((f, i) => {
         const slash = f.path.lastIndexOf('/');

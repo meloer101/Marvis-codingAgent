@@ -1,5 +1,5 @@
 /**
- * How full the context is and what the session has cost: a ring in the
+ * How full the context is and what the session has cost: a meter in the
  * composer's footer, and the breakdown behind it in a popover.
  */
 
@@ -13,43 +13,24 @@ import type { ModelInfo } from '@harness-code/protocol';
 import { contextLevel, fmtWindow } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-const LEVEL_STROKE = { ok: 'stroke-primary/70', warn: 'stroke-brass', danger: 'stroke-destructive' } as const;
-const LEVEL_FILL = { ok: 'bg-primary/60', warn: 'bg-brass', danger: 'bg-destructive' } as const;
+const LEVEL_FILL = { ok: 'bg-faint', warn: 'bg-warning-dot', danger: 'bg-destructive' } as const;
 
-/** A ring filled to the context ratio; empty (dashed) before the first turn has measured it. */
-export function ContextRing({ context, size = 16 }: { context: ContextSnapshot | undefined; size?: number }) {
-  const r = (size - 3) / 2;
-  const c = 2 * Math.PI * r;
+/** A short bar filled to the context ratio; empty before the first turn has measured it. */
+export function ContextMeter({ context }: { context: ContextSnapshot | undefined }) {
   const ratio = context ? Math.min(1, Math.max(0, context.ratio)) : 0;
   const level = context ? contextLevel(context.ratio) : 'ok';
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90" aria-hidden>
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        strokeWidth={2}
-        className="stroke-border"
-        {...(context ? {} : { strokeDasharray: '2 2' })}
-      />
+    <span className="relative block h-[3px] w-7 shrink-0 overflow-hidden rounded-[2px] bg-muted" aria-hidden>
       {context && (
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeDasharray={`${c * ratio} ${c}`}
-          className={cn('transition-[stroke-dasharray] duration-300', LEVEL_STROKE[level])}
+        <span
+          className={cn('absolute inset-y-0 left-0 rounded-[2px] transition-[width] duration-300', LEVEL_FILL[level])}
+          style={{ width: `${Math.max(ratio * 100, 4)}%` }}
         />
       )}
-    </svg>
+    </span>
   );
 }
 
-/** The ring as a footer button opening the usage breakdown. */
 export function ContextButton({
   context,
   usage,
@@ -85,11 +66,11 @@ export function ContextButton({
             ? `Context ${pct}% full — ${fmtTokens(context.usedTokens)} of ${fmtTokens(context.windowTokens)}`
             : 'Context — measured after the first reply'
         }
-        className="flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-1.5 font-mono text-[11px] text-muted-foreground tabular-nums transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 data-[state=open]:bg-accent"
+        className="flex h-7 cursor-pointer items-center gap-1.5 rounded-md pr-2 pl-1.5 font-mono text-[11px] text-faint tabular-nums transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 data-[state=open]:bg-muted"
       >
-        <ContextRing context={context} />
+        <ContextMeter context={context} />
         {pct !== null && (
-          <span className={cn(level === 'danger' && 'text-destructive', level === 'warn' && 'text-brass')}>{pct}%</span>
+          <span className={cn(level === 'danger' && 'text-destructive', level === 'warn' && 'text-warning')}>{pct}%</span>
         )}
       </button>
     </UsagePopover>
@@ -176,7 +157,7 @@ export function UsageDetails({
         ) : (
           <p className="text-muted-foreground">Nothing spent yet.</p>
         )}
-        <p className="truncate font-mono text-[10px] text-muted-foreground" title={modelRef}>
+        <p className="truncate font-mono text-[11px] text-muted-foreground" title={modelRef}>
           {modelRef}
         </p>
       </section>
@@ -202,7 +183,7 @@ function ContextBreakdownView({ context }: { context: ContextSnapshot }) {
         <span>
           {fmtTokens(context.usedTokens)} <span className="text-muted-foreground">of {fmtTokens(context.windowTokens)}</span>
         </span>
-        <span className={cn(level === 'danger' && 'text-destructive', level === 'warn' && 'text-brass')}>{pct}%</span>
+        <span className={cn(level === 'danger' && 'text-destructive', level === 'warn' && 'text-warning')}>{pct}%</span>
       </div>
       <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
         <span className={cn('h-full rounded-full', LEVEL_FILL[level])} style={{ width: `${Math.min(100, pct)}%` }} />
@@ -220,7 +201,7 @@ function ContextBreakdownView({ context }: { context: ContextSnapshot }) {
 }
 
 function Heading({ children }: { children: string }) {
-  return <h3 className="font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">{children}</h3>;
+  return <h3 className="text-[11px] font-medium tracking-[0.02em] text-faint">{children}</h3>;
 }
 
 function Stat({ label, value, muted }: { label: string; value: string; muted?: boolean }) {

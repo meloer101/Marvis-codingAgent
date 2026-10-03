@@ -22,7 +22,7 @@ export function ImageThumbs({ images, onRemove }: { images: readonly ImageInput[
               type="button"
               onClick={() => setOpen(i)}
               aria-label={`Image ${i + 1}`}
-              className="block size-14 overflow-hidden rounded-md border bg-muted/40 transition-shadow hover:shadow-sm focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+              className="block size-14 overflow-hidden rounded-md bg-subtle transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
             >
               <img src={imageSrc(img)} alt="" className="size-full object-cover" />
             </button>
@@ -31,7 +31,7 @@ export function ImageThumbs({ images, onRemove }: { images: readonly ImageInput[
                 type="button"
                 onClick={() => onRemove(i)}
                 aria-label={`Remove image ${i + 1}`}
-                className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-xs transition-colors hover:text-foreground"
+                className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full bg-background text-muted-foreground shadow-sm transition-colors hover:text-foreground"
               >
                 <X className="size-2.5" />
               </button>

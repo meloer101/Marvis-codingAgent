@@ -12,7 +12,6 @@ import { FileSearch, Server } from 'lucide-react';
 import { describeToolInput } from '@harness-code/core/browser';
 import type { ToolItem } from '@harness-code/protocol';
 
-import { CodeBlock } from '@/components/CodeBlock';
 import { Markdown } from '@/components/Markdown';
 import { TodoList } from '@/components/TodoList';
 import { TerminalOutput } from '@/components/tools/TerminalOutput';
@@ -59,6 +58,8 @@ const num = (r: Rec, k: string): number | undefined => (typeof r[k] === 'number'
 
 /** Small diffs open by default; big ones stay folded (line-count heuristic, no `diff` import). */
 const OPEN_DIFF_LINES = 40;
+/** Command output this short shows without a click. */
+const OPEN_OUTPUT_LINES = 8;
 
 function roughLineCount(...parts: string[]): number {
   return parts.reduce((n, p) => n + p.split('\n').length, 0);
@@ -70,7 +71,7 @@ function Output({ tool }: { tool: ToolItem }) {
   return (
     <pre
       className={cn(
-        'max-h-80 overflow-auto px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap',
+        'max-h-80 overflow-auto px-3 pt-2 pb-2.5 font-mono text-xs leading-[1.55] whitespace-pre-wrap text-muted-foreground',
         tool.result?.isError && 'text-destructive',
       )}
     >
@@ -87,11 +88,11 @@ function Mono({ children }: { children: ReactNode }) {
 function OpenFileBar({ path, line }: { path: string; line?: number | undefined }) {
   if (!path) return null;
   return (
-    <div className="flex justify-end border-t px-2 py-1">
+    <div className="pointer-events-none absolute right-1.5 bottom-1.5 opacity-0 transition-opacity group-hover/card:pointer-events-auto group-hover/card:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
       <button
         type="button"
         onClick={() => openFile(path, line)}
-        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        className="flex items-center gap-1 rounded-md bg-background px-1.5 py-0.5 text-[11px] text-muted-foreground shadow-xs transition-colors hover:text-foreground"
       >
         <FileSearch className="size-3" />
         Open file{line ? ` at line ${line}` : ''}
@@ -107,7 +108,7 @@ function OpenProcessBar({ id }: { id: string }) {
       <button
         type="button"
         onClick={() => openProcess(id)}
-        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-faint transition-colors hover:bg-muted hover:text-foreground"
       >
         <Server className="size-3" />
         Show {id}’s output
@@ -125,7 +126,7 @@ function Badge({ tone, children }: { tone: 'destructive' | 'primary'; children: 
   return (
     <span
       className={cn(
-        'shrink-0 rounded px-1.5 font-mono text-[10px]',
+        'shrink-0 rounded px-1.5 font-mono text-[11px]',
         tone === 'destructive' && 'bg-destructive/10 text-destructive',
         tone === 'primary' && 'bg-primary/10 text-primary',
       )}
@@ -136,13 +137,13 @@ function Badge({ tone, children }: { tone: 'destructive' | 'primary'; children: 
 }
 
 function Duration({ ms }: { ms: number }) {
-  return <span className="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums">{fmtDuration(ms)}</span>;
+  return <span className="shrink-0 font-mono text-[11px] text-faint tabular-nums">{fmtDuration(ms)}</span>;
 }
 
 /** Output only when it's an error — for tools whose body is something else. */
 function ErrorOutput({ tool }: { tool: ToolItem }) {
   return tool.result?.isError ? (
-    <div className="border-t">
+    <div>
       <Output tool={tool} />
     </div>
   ) : null;
@@ -185,7 +186,8 @@ const renderers: Record<string, Renderer> = {
         </>
       ),
       body: output && output !== '(no output)' ? <TerminalOutput text={output} error={failed && exitCode === undefined && !timedOut} /> : null,
-      defaultOpen: failed,
+      // What a command printed is the point of running it: a short output shows, a long one waits to be opened.
+      defaultOpen: failed || roughLineCount(output) <= OPEN_OUTPUT_LINES,
     };
   },
 
@@ -197,7 +199,7 @@ const renderers: Record<string, Renderer> = {
     const output = rest.join('\n');
     return {
       summary: <Mono>{id}</Mono>,
-      meta: tool.result && !tool.result.isError ? <span className="shrink-0 text-[10px] text-muted-foreground">{status.replace(/^bg\d+ /, '').replace(/\.$/, '')}</span> : undefined,
+      meta: tool.result && !tool.result.isError ? <span className="shrink-0 text-[11px] text-faint">{status.replace(/^bg\d+ /, '').replace(/\.$/, '')}</span> : undefined,
       body: tool.result?.isError ? <Output tool={tool} /> : output && output !== '(no new output)' ? <TerminalOutput text={output} /> : null,
       defaultOpen: false,
     };
@@ -205,7 +207,7 @@ const renderers: Record<string, Renderer> = {
 
   bash_kill: (tool, input) => ({
     summary: <Mono>{str(input, 'id') ?? ''}</Mono>,
-    meta: tool.result ? <span className="shrink-0 text-[10px] text-muted-foreground">{tool.result.content.replace(/^bg\d+ /, '').replace(/\.$/, '')}</span> : undefined,
+    meta: tool.result ? <span className="shrink-0 text-[11px] text-faint">{tool.result.content.replace(/^bg\d+ /, '').replace(/\.$/, '')}</span> : undefined,
     body: tool.result?.isError ? <Output tool={tool} /> : null,
     defaultOpen: false,
   }),
@@ -320,12 +322,12 @@ const renderers: Record<string, Renderer> = {
       meta: (
         <>
           {str(input, 'subagent_type') && (
-            <span className="shrink-0 rounded bg-muted px-1.5 font-mono text-[10px] text-muted-foreground">
+            <span className="shrink-0 rounded bg-muted px-1.5 font-mono text-[11px] text-muted-foreground">
               {str(input, 'subagent_type')}
             </span>
           )}
           {calls.length > 0 && (
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums">
+            <span className="shrink-0 font-mono text-[11px] text-faint tabular-nums">
               {calls.length} {calls.length === 1 ? 'call' : 'calls'}
             </span>
           )}
@@ -350,7 +352,7 @@ const renderers: Record<string, Renderer> = {
       <div className="px-3 py-2">
         <Markdown text={str(input, 'plan') ?? ''} className="text-xs" />
         {tool.result?.content && (
-          <p className="mt-2 border-t pt-2 text-[11px] text-muted-foreground">{tool.result.content}</p>
+          <p className="mt-2 pt-1 text-[11px] text-faint">{tool.result.content}</p>
         )}
       </div>
     ),
@@ -367,7 +369,7 @@ function genericView(tool: ToolItem): ToolView {
           {JSON.stringify(tool.input, null, 2)}
         </pre>
         {tool.result?.content && (
-          <div className="border-t">
+          <div>
             <Output tool={tool} />
           </div>
         )}
@@ -404,11 +406,15 @@ export function toolPreview(toolName: string, input: unknown, opts: { before?: s
         </Suspense>
       );
     case 'bash':
-      return <CodeBlock code={str(r, 'command') ?? ''} lang="bash" className="my-0" />;
+      return (
+        <pre className="max-h-40 overflow-auto rounded-md bg-background px-2.5 py-[7px] font-mono text-xs leading-[1.55] whitespace-pre-wrap">
+          $ {str(r, 'command') ?? ''}
+        </pre>
+      );
     default: {
       const summary = describeToolInput(toolName, input);
       return summary ? (
-        <pre className="max-h-40 overflow-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-xs whitespace-pre-wrap">
+        <pre className="max-h-40 overflow-auto rounded-md bg-background px-2.5 py-[7px] font-mono text-xs whitespace-pre-wrap">
           {summary}
         </pre>
       ) : null;

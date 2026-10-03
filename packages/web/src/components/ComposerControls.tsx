@@ -8,14 +8,13 @@ import type { ReactNode } from 'react';
 import {
   AlertTriangle,
   Check,
-  ChevronDown,
   Eye,
   Folder,
   Gauge,
   GitBranch,
   Hand,
   ListChecks,
-  Loader2,
+  LoaderCircle,
   PencilLine,
   Sparkles,
   Zap,
@@ -71,12 +70,12 @@ export const EFFORT_LABELS: Record<ReasoningEffort, string> = {
 };
 
 const triggerClass =
-  'flex h-7 max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-default disabled:opacity-50 data-[state=open]:bg-accent data-[state=open]:text-foreground [&_svg]:size-3.5 [&_svg]:shrink-0';
+  'flex h-[26px] max-w-full min-w-0 cursor-pointer items-center gap-[5px] rounded-md px-1.5 text-xs text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-default disabled:opacity-50 data-[state=open]:bg-muted data-[state=open]:text-foreground [&_svg]:size-[13px] [&_svg]:shrink-0';
 const contentClass =
   'z-50 max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] min-w-48 overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95';
 const itemClass =
   'relative flex cursor-default items-start gap-2 rounded-md py-1.5 pr-2 pl-7 text-[13px] outline-none select-none data-[disabled]:opacity-55 data-[highlighted]:bg-accent';
-const labelClass = 'px-2 pt-1.5 pb-1 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase';
+const labelClass = 'px-2 pt-1.5 pb-1 text-[11px] font-medium tracking-[0.02em] text-faint';
 
 /** Open it from outside (a `/model` command), and hear when it opens or closes. */
 export interface MenuControl {
@@ -162,7 +161,7 @@ export function ModeChip({
       onChange={(m) => onChange(m as PermissionMode)}
       {...control}
       trigger={
-        <span className={cn('-mx-2 flex h-7 items-center gap-1.5 rounded-md px-2', meta.tone)}>
+        <span className={cn('-mx-1.5 flex h-[26px] items-center gap-[5px] rounded-md px-1.5', meta.tone)}>
           <Icon />
           <span>{meta.label}</span>
         </span>
@@ -228,16 +227,12 @@ export function ModelPicker({
       {...(disabledReason ? { disabled: true } : {})}
       wide
       trigger={
-        <>
-          <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-          <span className="truncate font-mono">{modelName(modelRef)}</span>
-          <ChevronDown className="opacity-60" />
-        </>
+        <span className="truncate font-mono text-[11px]">{modelName(modelRef)}</span>
       }
     >
       {list === undefined ? (
         <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" /> Loading models…
+          <LoaderCircle className="size-3.5 animate-spin" /> Loading models…
         </div>
       ) : (
         list.map((m) => (
@@ -265,7 +260,7 @@ function ModelRow({ model }: { model: ModelInfo }) {
       <span className="flex items-baseline gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-xs">{model.ref}</span>
         {model.pricing && (
-          <span className="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums" title="Input / output, per million tokens">
+          <span className="shrink-0 font-mono text-[11px] text-faint tabular-nums" title="Input / output, per million tokens">
             {model.pricing.inputPerMTok === 0 && model.pricing.outputPerMTok === 0
               ? 'free'
               : `${fmtRate(model.pricing.inputPerMTok)} / ${fmtRate(model.pricing.outputPerMTok)}`}
@@ -273,7 +268,7 @@ function ModelRow({ model }: { model: ModelInfo }) {
         )}
       </span>
       {model.problem ? (
-        <span className="flex items-start gap-1 text-[11px] text-brass-strong" title={model.problem}>
+        <span className="flex items-start gap-1 text-[11px] text-warning" title={model.problem}>
           <AlertTriangle className="mt-px size-3 shrink-0" />
           <span className="line-clamp-2">{model.problem}</span>
         </span>
@@ -325,6 +320,19 @@ export function EffortPicker({
   );
 }
 
+/** Where a session works, said in its composer: its project folder, or its own worktree. */
+export function WhereChip({ worktree }: { worktree?: { branch: string } | undefined }) {
+  return (
+    <span
+      title={worktree ? `In a worktree of its own, on ${worktree.branch}` : 'In the project folder — its edits land in your checkout'}
+      className="flex h-[26px] shrink-0 items-center gap-[5px] px-1.5 text-xs text-muted-foreground [&_svg]:size-[13px]"
+    >
+      {worktree ? <GitBranch /> : <Folder />}
+      {worktree ? 'Worktree' : 'Local'}
+    </span>
+  );
+}
+
 /**
  * Where a new session works: in the project folder, or in a git worktree of
  * its own on a new branch off one of the repository's branches. Not shown
@@ -362,7 +370,7 @@ export function WorktreePicker({
       }}
       wide
       trigger={
-        <span className={cn('-mx-2 flex h-7 min-w-0 items-center gap-1.5 rounded-md px-2', worktree && 'bg-primary/10 text-primary hover:bg-primary/15')}>
+        <span className={cn('-mx-1.5 flex h-[26px] min-w-0 items-center gap-[5px] rounded-md px-1.5', worktree && 'bg-primary/10 text-primary hover:bg-primary/15')}>
           {worktree ? <GitBranch /> : <Folder />}
           <span className="shrink-0">{worktree ? 'Worktree' : 'Local'}</span>
           {worktree && <span className="max-w-28 truncate font-mono text-[11px] opacity-80">{place.base}</span>}
@@ -382,14 +390,14 @@ export function WorktreePicker({
       <DropdownMenu.Label className={labelClass}>New worktree, branched from</DropdownMenu.Label>
       {list === undefined ? (
         <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" /> Loading branches…
+          <LoaderCircle className="size-3.5 animate-spin" /> Loading branches…
         </div>
       ) : (
         list.map((b) => (
           <Choice key={b} value={`wt:${b}`}>
             <GitBranch className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate font-mono text-xs">{b}</span>
-            {b === current && <span className="shrink-0 text-[10px] text-muted-foreground">current</span>}
+            {b === current && <span className="shrink-0 text-[11px] text-faint">current</span>}
           </Choice>
         ))
       )}

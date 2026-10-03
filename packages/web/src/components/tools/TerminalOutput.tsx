@@ -50,7 +50,10 @@ function Text({ text, error = false }: { text: string; error?: boolean }) {
   const spans = useMemo(() => (hasAnsi(text) ? parseAnsi(text) : null), [text]);
   return (
     <pre
-      className={cn('px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap', error && 'text-destructive')}
+      className={cn(
+        'px-3 pt-2 pb-2.5 font-mono text-xs leading-[1.55] whitespace-pre-wrap text-muted-foreground',
+        error && 'text-destructive',
+      )}
     >
       {spans
         ? spans.map((s, i) =>

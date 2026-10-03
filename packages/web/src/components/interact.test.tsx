@@ -274,6 +274,8 @@ describe('PendingDock', () => {
 
   it('passes typed feedback along with a deny', () => {
     const sync = renderDock(dockView());
+    expect(screen.queryByRole('textbox')).toBeNull(); // the note waits to be asked for
+    fireEvent.click(screen.getByRole('button', { name: 'Add a note' }));
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'too risky' } });
     fireEvent.click(screen.getByText(/Deny/));
     expect(sync.answerAsk).toHaveBeenCalledWith('s1', 'a1', 'deny', 'too risky');
@@ -281,6 +283,7 @@ describe('PendingDock', () => {
 
   it('ignores shortcut keys typed into the feedback box', () => {
     const sync = renderDock(dockView());
+    fireEvent.click(screen.getByRole('button', { name: 'Add a note' }));
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'y' });
     expect(sync.answerAsk).not.toHaveBeenCalled();
   });
@@ -314,6 +317,7 @@ describe('PendingDock', () => {
     const onWindowKey = vi.fn();
     window.addEventListener('keydown', onWindowKey);
     const sync = renderDock(dockView());
+    fireEvent.click(screen.getByRole('button', { name: 'Add a note' }));
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'not on main' } });
     fireEvent.keyDown(box, { key: 'Escape' });

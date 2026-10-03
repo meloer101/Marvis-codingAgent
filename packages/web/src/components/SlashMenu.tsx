@@ -30,7 +30,7 @@ export function SlashMenu({
   if (commands.length === 0) return null;
 
   return (
-    <ul className="absolute bottom-full left-0 z-10 mb-2 max-h-64 w-full overflow-y-auto rounded-xl border bg-popover p-1 shadow-xl">
+    <ul className="absolute bottom-full left-0 z-10 mb-2 max-h-64 w-full overflow-y-auto rounded-lg border bg-popover p-1 shadow-xl">
       {commands.map((c, i) => (
         <li
           key={`${c.source}:${c.name}`}
@@ -47,7 +47,7 @@ export function SlashMenu({
         >
           <span className="font-mono text-[13px] text-primary">/{c.name}</span>
           <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{c.hint}</span>
-          <span className="shrink-0 rounded border bg-muted/60 px-1 font-mono text-[9px] tracking-wide text-muted-foreground uppercase">
+          <span className="shrink-0 rounded bg-muted px-1 text-[11px] font-medium tracking-[0.02em] text-faint">
             {SOURCE_LABEL[c.source]}
           </span>
         </li>

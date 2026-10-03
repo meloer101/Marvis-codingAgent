@@ -23,7 +23,7 @@ export function QueuedMessages({
   return (
     <section
       aria-label="Queued messages"
-      className="flex animate-rise flex-col gap-1.5 rounded-lg border border-dashed bg-muted/30 px-2 py-1.5"
+      className="flex animate-rise flex-col gap-1.5 rounded-lg bg-subtle px-2 py-1.5"
     >
       {steering.length > 0 && (
         <MessageGroup label="Next step · read before the agent goes on" messages={steering} onEdit={onEdit} onRemove={onRemove} />
@@ -48,14 +48,14 @@ function MessageGroup({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <p className="px-1 pb-0.5 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">{label}</p>
+      <p className="px-1 pb-0.5 text-[11px] font-medium tracking-[0.02em] text-faint">{label}</p>
       <ul className="flex flex-col">
         {messages.map((q) => (
-          <li key={q.id} className="group flex items-start gap-2 rounded-md px-1 py-1 text-[13px] transition-colors hover:bg-accent/60">
-            <CornerDownRight className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          <li key={q.id} className="group flex items-start gap-2 rounded-md px-1 py-1 text-[13px] transition-colors hover:bg-muted">
+            <CornerDownRight className="mt-0.5 size-3.5 shrink-0 text-faint" />
             <span className="line-clamp-2 min-w-0 flex-1 break-words whitespace-pre-wrap">
               {q.images?.length ? (
-                <span className="mr-1.5 inline-flex items-center gap-0.5 align-middle font-mono text-[10px] text-muted-foreground">
+                <span className="mr-1.5 inline-flex items-center gap-0.5 align-middle font-mono text-[11px] text-faint">
                   <ImageIcon className="size-3" />
                   {q.images.length}
                 </span>
@@ -68,7 +68,7 @@ function MessageGroup({
                 onClick={() => onEdit(q.id)}
                 aria-label="Edit queued message"
                 title="Edit — back to the composer"
-                className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="rounded-md p-1 text-faint transition-colors hover:bg-background hover:text-foreground"
               >
                 <Pencil className="size-3.5" />
               </button>
@@ -77,7 +77,7 @@ function MessageGroup({
                 onClick={() => onRemove(q.id)}
                 aria-label="Remove queued message"
                 title="Remove"
-                className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="rounded-md p-1 text-faint transition-colors hover:bg-background hover:text-foreground"
               >
                 <X className="size-3.5" />
               </button>

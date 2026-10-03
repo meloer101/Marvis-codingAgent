@@ -11,7 +11,7 @@ function ErrorOutput({ tool }: { tool: ToolItem }) {
   const content = tool.result?.content;
   if (!content || !tool.result?.isError) return null;
   return (
-    <pre className="max-h-80 overflow-auto border-t px-3 py-2 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-destructive">
+    <pre className="max-h-80 overflow-auto px-3 pt-2 pb-2.5 font-mono text-xs leading-[1.55] whitespace-pre-wrap text-destructive">
       {content}
     </pre>
   );
@@ -55,7 +55,7 @@ export function WriteDiffPanel({ tool, path, content }: { tool: ToolItem; path: 
       {diff.lines.length > 0 ? (
         <DiffView diff={diff} lang={langForPath(path) ?? undefined} />
       ) : (
-        <p className="px-3 py-2 text-xs text-muted-foreground">Written as it was — nothing changed.</p>
+        <p className="px-3 py-2 text-xs text-faint">Written as it was — nothing changed.</p>
       )}
       <ErrorOutput tool={tool} />
     </>
@@ -80,10 +80,10 @@ export function EditPreviewPanel({
 }) {
   const diff = useMemo(() => editDiff(oldString, newString), [oldString, newString]);
   return (
-    <div className="overflow-hidden rounded-md border bg-background">
-      <div className="flex items-center gap-2 border-b px-3 py-1.5 font-mono text-xs">
+    <div className="overflow-hidden rounded-md bg-background">
+      <div className="flex items-center gap-2 px-3 pt-1.5 font-mono text-xs text-muted-foreground">
         <span className="min-w-0 flex-1 truncate">{path}</span>
-        {replaceAll === true && <span className="text-[10px] text-muted-foreground">replace all</span>}
+        {replaceAll === true && <span className="text-[11px] text-faint">replace all</span>}
         <DiffStat diff={diff} />
       </div>
       <DiffView diff={diff} lang={langForPath(path) ?? undefined} className="max-h-64" />
@@ -95,10 +95,10 @@ export function EditPreviewPanel({
 export function WritePreviewPanel({ path, content, before }: { path: string; content: string; before?: string | undefined }) {
   const diff = useWriteDiff(content, before);
   return (
-    <div className="overflow-hidden rounded-md border bg-background">
-      <div className="flex items-center gap-2 border-b px-3 py-1.5 font-mono text-xs">
+    <div className="overflow-hidden rounded-md bg-background">
+      <div className="flex items-center gap-2 px-3 pt-1.5 font-mono text-xs text-muted-foreground">
         <span className="min-w-0 flex-1 truncate">{path}</span>
-        {before !== undefined && <span className="text-[10px] text-muted-foreground">replaces the file</span>}
+        {before !== undefined && <span className="text-[11px] text-faint">replaces the file</span>}
         <DiffStat diff={diff} />
       </div>
       {before !== undefined ? (

@@ -22,22 +22,22 @@ export function TaskDock({ view }: { view: SessionViewState }) {
   const done = todos.filter((t) => t.status === 'completed').length;
   const current = todos.find((t) => t.status === 'in_progress') ?? todos.find((t) => t.status === 'pending');
   return (
-    <section aria-label="Tasks" className="animate-rise rounded-lg border bg-card text-xs shadow-xs">
+    <section aria-label="Tasks" className="animate-rise rounded-lg bg-subtle text-xs">
       <button
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className="flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-1.5 text-left transition-colors hover:bg-accent/60"
+        className="flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left transition-colors hover:bg-muted"
       >
-        <ListChecks className="size-3.5 shrink-0 text-primary" />
+        <ListChecks className="size-3 shrink-0 text-muted-foreground" />
         <span className="shrink-0 font-medium">Tasks</span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums">
+        <span className="shrink-0 font-mono text-[11px] text-faint tabular-nums">
           {done}/{todos.length}
         </span>
         {!open && current && <span className="min-w-0 flex-1 truncate text-muted-foreground">{current.content}</span>}
-        <ChevronRight className={cn('ml-auto size-3 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
+        <ChevronRight className={cn('ml-auto size-3 shrink-0 text-faint transition-transform', open && 'rotate-90')} />
       </button>
-      {open && <TodoList todos={todos} className="max-h-60 overflow-y-auto border-t px-3 py-2" />}
+      {open && <TodoList todos={todos} className="max-h-60 overflow-y-auto px-3 pb-2.5" />}
     </section>
   );
 }

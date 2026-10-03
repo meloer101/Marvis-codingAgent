@@ -322,7 +322,7 @@ export function Composer({
           e.preventDefault();
           void addImages(files);
         }}
-        className="flex flex-col rounded-xl border bg-card shadow-sm transition-shadow focus-within:border-primary/45 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/25"
+        className="flex flex-col rounded-lg border border-border-strong bg-background transition-colors focus-within:border-faint"
       >
         {(attachments.length > 0 || images.length > 0) && (
           <div className="flex flex-col gap-2 px-3 pt-2.5">
@@ -351,28 +351,29 @@ export function Composer({
           placeholder={
             running
               ? 'Running… Enter: read at its next step · ⌥Enter: after this turn'
-              : `Message hc — Enter to send, / for commands${onSearchFiles ? ', @ for files' : ''}`
+              : `Ask hc to do something — / for commands${onSearchFiles ? ', @ for files' : ''}`
           }
-          className="max-h-60 min-h-11 w-full resize-none bg-transparent px-3.5 pt-3 pb-1 text-sm outline-none placeholder:text-muted-foreground"
+          className="max-h-60 min-h-11 w-full resize-none bg-transparent px-3 pt-[11px] pb-3 text-sm leading-[1.57] outline-none placeholder:text-faint"
           disabled={disabled}
         />
         {(imageError || blockedByImages) && (
-          <p role="alert" className="px-3.5 pb-1 text-xs text-brass-strong">
+          <p role="alert" className="px-3 pb-1 text-xs text-warning">
             {imageError ?? imagesProblem}
           </p>
         )}
-        <div className="flex items-center gap-1 px-2 pb-2">
-          <div className="flex min-w-0 flex-1 items-center gap-0.5">{controls}</div>
+        <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
+          <div className="flex min-w-0 items-center gap-0.5">{controls}</div>
           <button
             type="button"
             onClick={() => picker.current?.click()}
             disabled={disabled || imagesProblem !== undefined}
             aria-label="Add images"
             title={imagesProblem ?? 'Add images — or paste or drop them here'}
-            className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+            className="flex h-[26px] shrink-0 items-center justify-center rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
           >
-            <ImagePlus className="size-3.5" />
+            <ImagePlus className="size-[13px]" />
           </button>
+          <div className="flex-1" />
           <input
             ref={picker}
             type="file"
@@ -386,8 +387,8 @@ export function Composer({
           />
           {trailing}
           {running && (
-            <Button size="icon-sm" variant="secondary" className="rounded-lg" onClick={onAbort} aria-label="Stop" title="Stop (Esc)">
-              <Square className="size-3.5 fill-current" />
+            <Button size="icon-sm" variant="secondary" onClick={onAbort} aria-label="Stop" title="Stop (Esc)">
+              <Square className="size-3 fill-current" />
             </Button>
           )}
           {running ? (
@@ -396,7 +397,6 @@ export function Composer({
                 <Button
                   size="icon-sm"
                   variant="secondary"
-                  className="rounded-lg"
                   onClick={() => void submit({ queue: true })}
                   aria-label="Queue"
                   title="Queue — sent when this turn ends (⌥Enter)"
@@ -405,7 +405,6 @@ export function Composer({
                 </Button>
                 <Button
                   size="icon-sm"
-                  className="rounded-lg"
                   onClick={() => void submit()}
                   aria-label="Send now"
                   title="Send now — read at the agent's next step (Enter)"
@@ -415,7 +414,14 @@ export function Composer({
               </>
             )
           ) : (
-            <Button size="icon-sm" className="rounded-lg" onClick={() => void submit()} disabled={!canSend} aria-label="Send" title="Send">
+            <Button
+              size="icon-sm"
+              className="disabled:opacity-35"
+              onClick={() => void submit()}
+              disabled={!canSend}
+              aria-label="Send"
+              title="Send"
+            >
               <ArrowUp />
             </Button>
           )}

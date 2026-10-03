@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
-import { ClipboardList, ShieldQuestion } from 'lucide-react';
 import { offerAutoSwitch, planApprovalLabel } from '@harness-code/core/browser';
+import type { PermissionMode } from '@harness-code/core';
 
+import { MODES } from '@/components/ComposerControls';
 import { Markdown } from '@/components/Markdown';
 import { toolPreview } from '@/components/tools/registry';
 import { Button } from '@/components/ui/button';
@@ -23,6 +24,29 @@ function withCode(text: string): ReactNode[] {
   );
 }
 
+/** The question a permission ask puts, by tool. */
+function askQuestion(toolName: string): string {
+  switch (toolName) {
+    case 'bash':
+      return 'Run this command?';
+    case 'write':
+      return 'Write this file?';
+    case 'edit':
+      return 'Make this edit?';
+    case 'webfetch':
+      return 'Fetch this page?';
+    default:
+      return `Allow ${toolName}?`;
+  }
+}
+
+/** Why it asks, said once: "requires approval in Ask mode", without the tool's name again. */
+function askReason(reason: string, toolName: string): string {
+  const own = reason.startsWith(`${toolName} `) ? reason.slice(toolName.length + 1) : reason;
+  const text = own.replace(/ in (\w+) mode$/, (_, mode: string) => ` in ${MODES[mode as PermissionMode]?.label ?? mode} mode`);
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
 /**
  * Human-in-the-loop prompts, docked above the composer (opencode-style, no
  * modal). Edits are reviewed as a diff, writes as the file content, bash as
@@ -41,6 +65,7 @@ export function PendingDock({ view }: { view: SessionViewState }) {
   const autoAvailable = (modes ?? []).includes('auto');
   const { pendingAsk, askId, pendingPlan, planId } = view;
   const [feedback, setFeedback] = useState('');
+  const [noting, setNoting] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const requestId = askId ?? planId;
@@ -60,6 +85,7 @@ export function PendingDock({ view }: { view: SessionViewState }) {
 
   useEffect(() => {
     setFeedback('');
+    setNoting(false);
     if (!requestId) return;
     const active = document.activeElement;
     const typing =
@@ -117,36 +143,43 @@ export function PendingDock({ view }: { view: SessionViewState }) {
   const feedbackBox = (placeholder: string) => (
     <textarea
       ref={boxRef}
+      autoFocus={noting}
       rows={1}
       value={feedback}
       onChange={(e) => setFeedback(e.target.value)}
       placeholder={placeholder}
-      className="mt-3 w-full resize-none rounded-md border bg-background px-2 py-1.5 text-xs outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/40"
+      className="field-sizing-content w-full resize-none rounded-md bg-background px-2.5 py-[7px] text-xs outline-none placeholder:text-faint focus:ring-2 focus:ring-ring/30"
     />
   );
 
   const Key = ({ children }: { children: string }) => (
-    <kbd className="ml-1 rounded border bg-muted/60 px-1 font-mono text-[10px] opacity-70">{children}</kbd>
+    <kbd className="font-mono text-[11px] font-normal text-faint uppercase">{children}</kbd>
   );
+
+  /** The block's first line: a dot that pulses as it arrives, the question, and why it is asked. */
+  const Title = ({ children, meta }: { children: ReactNode; meta?: ReactNode }) => (
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="size-1.5 shrink-0 animate-pulse-twice rounded-full bg-warning-dot" />
+      <span className="min-w-0 truncate text-sm font-semibold">{children}</span>
+      <span className="flex-1" />
+      {meta && <span className="max-w-[55%] shrink-0 truncate text-xs text-faint">{meta}</span>}
+    </div>
+  );
+
+  const dock =
+    'group/dock flex animate-rise-lg flex-col gap-2.5 rounded-lg bg-warning-subtle px-3.5 pt-3 pb-3.5 text-sm outline-none';
 
   if (pendingAsk && askId) {
     const preview = toolPreview(pendingAsk.toolName, pendingAsk.input, { before: pendingAsk.before });
     return (
-      <div
-        ref={ref}
-        tabIndex={-1}
-        data-pending-dock=""
-        onKeyDown={onKeyDown}
-        className="animate-rise rounded-xl border border-brass/40 bg-brass-subtle/60 p-3 text-sm shadow-xs outline-none"
-      >
-        <div className="flex items-center gap-2 font-medium">
-          <ShieldQuestion className="size-4 text-brass" />
-          Allow <span className="font-mono">{pendingAsk.toolName}</span>?
-        </div>
-        {preview && <div className="mt-2">{preview}</div>}
-        {pendingAsk.reason && <p className="mt-2 text-xs text-muted-foreground">{pendingAsk.reason}</p>}
-        {feedbackBox('Optional: tell the model why — Esc or ⌘↵ denies with this note')}
-        <div className="mt-3 flex flex-wrap gap-2">
+      <div ref={ref} tabIndex={-1} data-pending-dock="" onKeyDown={onKeyDown} className={dock}>
+        <Title meta={`${pendingAsk.toolName} · ${askReason(pendingAsk.reason, pendingAsk.toolName)}`}>
+          {askQuestion(pendingAsk.toolName)}
+        </Title>
+        {preview}
+        {/* A note rides along with a deny; it is optional, so it waits to be asked for. */}
+        {(noting || feedback !== '') && feedbackBox('Tell the model why — Esc or ⌘↵ denies with this note')}
+        <div className="flex flex-wrap items-center gap-1.5">
           <Button size="sm" onClick={() => void sync.answerAsk(view.id, askId, 'once')}>
             Allow once<Key>y</Key>
           </Button>
@@ -164,6 +197,15 @@ export function PendingDock({ view }: { view: SessionViewState }) {
           <Button size="sm" variant="ghost" onClick={deny}>
             Deny<Key>n</Key>
           </Button>
+          {!noting && feedback === '' && (
+            <button
+              type="button"
+              onClick={() => setNoting(true)}
+              className="ml-auto rounded-md px-1.5 py-1 text-xs text-faint transition-colors hover:text-foreground"
+            >
+              Add a note
+            </button>
+          )}
         </div>
       </div>
     );
@@ -173,22 +215,13 @@ export function PendingDock({ view }: { view: SessionViewState }) {
     const label = planApprovalLabel(planYesMode);
     const yesLabel = label.charAt(0).toUpperCase() + label.slice(1);
     return (
-      <div
-        ref={ref}
-        tabIndex={-1}
-        data-pending-dock=""
-        onKeyDown={onKeyDown}
-        className="animate-rise rounded-xl border border-primary/35 bg-primary/[0.04] p-3 text-sm shadow-xs outline-none"
-      >
-        <div className="flex items-center gap-2 font-medium">
-          <ClipboardList className="size-4 text-primary" />
-          {pendingPlan.title || 'Plan ready for review'}
-        </div>
-        <div className="mt-2 max-h-72 overflow-auto rounded-md bg-muted/60 px-3 py-2">
-          <Markdown text={pendingPlan.body} className="text-xs" />
+      <div ref={ref} tabIndex={-1} data-pending-dock="" onKeyDown={onKeyDown} className={dock}>
+        <Title meta="Plan mode · changes nothing until you approve">{pendingPlan.title || 'Plan ready for review'}</Title>
+        <div className="max-h-72 overflow-auto rounded-md bg-background px-3 py-2">
+          <Markdown text={pendingPlan.body} className="text-[13px]" />
         </div>
         {feedbackBox('What should change? Esc or ⌘↵ sends it back')}
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           <Button size="sm" onClick={() => void sync.answerPlan(view.id, planId, true)}>
             {yesLabel}
             <Key>y</Key>

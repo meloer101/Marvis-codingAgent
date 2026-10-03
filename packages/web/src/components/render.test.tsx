@@ -74,8 +74,10 @@ describe('tool renderers', () => {
     expect(container.textContent).toContain('const a = 2;');
   });
 
-  it('bash: output is folded unless the command failed', () => {
-    const ok = toolView({ id: 't', name: 'bash', input: { command: 'ls' }, running: false, result: { content: 'a' } });
+  it('bash: a long output is folded unless the command failed; a short one shows', () => {
+    const short = toolView({ id: 't', name: 'bash', input: { command: 'ls' }, running: false, result: { content: 'a' } });
+    const long = 'x\n'.repeat(30);
+    const ok = toolView({ id: 't', name: 'bash', input: { command: 'ls' }, running: false, result: { content: long } });
     const bad = toolView({
       id: 't',
       name: 'bash',
@@ -83,6 +85,7 @@ describe('tool renderers', () => {
       running: false,
       result: { content: 'boom', isError: true },
     });
+    expect(short.defaultOpen).toBe(true);
     expect(ok.defaultOpen).toBe(false);
     expect(bad.defaultOpen).toBe(true);
   });

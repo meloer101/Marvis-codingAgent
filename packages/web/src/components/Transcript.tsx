@@ -2,17 +2,15 @@ import { createContext, memo, useContext, useMemo, useState, type ReactNode } fr
 import {
   AlertTriangle,
   ArrowDown,
-  Brain,
   Check,
   ChevronRight,
   Circle,
   FileText,
   GitFork,
   Info,
-  Loader2,
+  LoaderCircle,
   Pencil,
   RotateCcw,
-  Search,
   X,
 } from 'lucide-react';
 
@@ -81,23 +79,31 @@ export function Transcript({ view, actions }: { view: SessionViewState; actions?
     return out;
   }, [entries]);
   const context = useMemo(() => (actions ? { actions, running } : null), [actions, running]);
+  // The reply that can be had again sits under the last turn, beside its copy button.
+  const regenerate = last && actions && last.answered && !last.failed ? last : null;
+  const lastTurnKey = useMemo(() => rows.findLast((r) => r.kind === 'turn')?.key, [rows]);
 
   return (
     <ActionsContext.Provider value={context}>
     <div className="relative min-h-0 flex-1">
       <div ref={ref} onScroll={onScroll} className="h-full overflow-y-auto">
-        <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-6">
+        <div className="mx-auto flex max-w-[700px] flex-col gap-5 px-5 pt-8 pb-4">
           {rows.map((row) =>
             row.kind === 'entry' ? (
               <EntryRow key={row.key} entry={row.entry} ordinal={row.entry.kind === 'user' ? ordinals.get(row.entry.id) : undefined} />
             ) : row.kind === 'turn' ? (
-              <TurnRow key={row.key} steps={row.steps} verbose={verbose} />
+              <TurnRow
+                key={row.key}
+                steps={row.steps}
+                verbose={verbose}
+                regenerate={row.key === lastTurnKey ? regenerate : null}
+              />
             ) : (
               <SessionDetails key={row.key} notices={row.notices} />
             ),
           )}
           {conversationEmpty && liveEmpty && !running && (
-            <p className="py-16 text-center font-serif text-[15px] text-muted-foreground italic">
+            <p className="py-16 text-center text-[13px] text-muted-foreground">
               Send a message to start.
             </p>
           )}
@@ -107,26 +113,13 @@ export function Transcript({ view, actions }: { view: SessionViewState; actions?
                 <RotateCcw />
                 Retry
               </Button>
-              <span className="text-xs text-muted-foreground">Sends your last message again, in place of the failed attempt.</span>
-            </div>
-          )}
-          {last && actions && last.answered && !last.failed && (
-            <div className="-mt-2 flex">
-              <button
-                type="button"
-                onClick={() => actions.onRegenerate(last.userMessage, last)}
-                title="Send your last message again, in place of this reply"
-                className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                <RotateCcw className="size-3" />
-                Regenerate
-              </button>
+              <span className="text-xs text-faint">Sends your last message again, in place of the failed attempt.</span>
             </div>
           )}
           {running && liveEmpty && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin text-primary" />
-              <span className="font-serif italic">Working…</span>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <LoaderCircle className="size-3 animate-spin text-primary" />
+              <span>Working…</span>
             </div>
           )}
         </div>
@@ -180,27 +173,60 @@ const EntryRow = memo(function EntryRow({
  * keys when the streaming step commits, so a card opened mid-run stays open.
  */
 const TurnRow = memo(
-  function TurnRow({ steps, verbose }: { steps: readonly Step[]; verbose: boolean }) {
+  function TurnRow({
+    steps,
+    verbose,
+    regenerate,
+  }: {
+    steps: readonly Step[];
+    verbose: boolean;
+    /** The last turn, once it answered: the message to send again in its place. */
+    regenerate: RegenerateTarget | null;
+  }) {
+    const ctx = useContext(ActionsContext);
     const parts = useMemo(() => turnParts(steps, verbose), [steps, verbose]);
     const streaming = steps.some((s) => s.streaming);
     const reply = useMemo(() => (streaming ? '' : turnText(steps)), [steps, streaming]);
     return (
-      <div className="group/turn flex flex-col gap-2 text-sm" style={ROW_STYLE}>
+      <div className="group/turn flex flex-col gap-3 text-sm leading-[1.57]" style={ROW_STYLE}>
         {parts.map((part) => (
           <div key={part.key} className="animate-rise">
             <PartView part={part} />
           </div>
         ))}
-        {reply && (
-          <div className="-mt-1 flex h-5 items-center opacity-0 transition-opacity group-hover/turn:opacity-100 focus-within:opacity-100">
-            <CopyButton text={reply} label="Copy reply" />
+        {(reply || regenerate) && (
+          <div
+            className={cn(
+              '-ml-1 flex h-5 items-center gap-2 text-faint transition-opacity',
+              // Under older turns the copy button waits for the pointer.
+              !regenerate && 'opacity-0 group-hover/turn:opacity-100 focus-within:opacity-100',
+            )}
+          >
+            {reply && <CopyButton text={reply} label="Copy reply" />}
+            {regenerate && ctx && (
+              <button
+                type="button"
+                onClick={() => ctx.actions.onRegenerate(regenerate.userMessage, regenerate)}
+                title="Send your last message again, in place of this reply"
+                className="flex items-center gap-1 rounded-md px-1 py-0.5 text-xs text-faint transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <RotateCcw className="size-[13px]" />
+                Regenerate
+              </button>
+            )}
           </div>
         )}
       </div>
     );
   },
-  (a, b) => a.verbose === b.verbose && a.steps.length === b.steps.length && a.steps.every((s, i) => s === b.steps[i]),
+  (a, b) =>
+    a.verbose === b.verbose &&
+    a.regenerate === b.regenerate &&
+    a.steps.length === b.steps.length &&
+    a.steps.every((s, i) => s === b.steps[i]),
 );
+
+type RegenerateTarget = NonNullable<ReturnType<typeof lastUserMessage>>;
 
 function PartView({ part }: { part: Part }) {
   switch (part.kind) {
@@ -232,7 +258,7 @@ function UserMessageActions({
   const ctx = useContext(ActionsContext);
   if (!ctx || ctx.running) return null;
   const message = userMessageData(entry);
-  const button = 'rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground';
+  const button = 'rounded-md p-1 text-faint transition-colors hover:bg-background hover:text-foreground';
   return (
     <>
       <button
@@ -270,7 +296,7 @@ export function UserMessage({
   actions?: ReactNode;
 }) {
   return (
-    <div className="group/user relative flex flex-col gap-2 rounded-lg border bg-card px-4 py-3 text-sm shadow-xs">
+    <div className="group/user relative flex flex-col gap-2 rounded-lg bg-muted px-3.5 py-2.5 text-sm leading-[1.57]">
       {images && images.length > 0 && <ImageThumbs images={images} />}
       {text && <div className="pr-16 whitespace-pre-wrap">{text}</div>}
       <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover/user:opacity-100 focus-within:opacity-100">
@@ -290,7 +316,7 @@ export function AttachmentChips({ paths, onRemove }: { paths: readonly string[];
         <li
           key={p}
           title={p}
-          className="flex max-w-72 items-center gap-1 rounded-md border bg-muted/50 py-0.5 pr-1.5 pl-1.5 font-mono text-[11px] text-muted-foreground"
+          className="flex max-w-72 items-center gap-1 rounded-md bg-background/70 py-0.5 pr-1.5 pl-1.5 font-mono text-[11px] text-muted-foreground"
         >
           <FileText className="size-3 shrink-0" />
           <span className="truncate">{p}</span>
@@ -299,7 +325,7 @@ export function AttachmentChips({ paths, onRemove }: { paths: readonly string[];
               type="button"
               onClick={() => onRemove(p)}
               aria-label={`Detach ${p}`}
-              className="-mr-0.5 rounded p-0.5 transition-colors hover:bg-accent hover:text-foreground"
+              className="-mr-0.5 rounded p-0.5 transition-colors hover:bg-muted hover:text-foreground"
             >
               <X className="size-3" />
             </button>
@@ -312,13 +338,12 @@ export function AttachmentChips({ paths, onRemove }: { paths: readonly string[];
 
 function Thinking({ text, active }: { text: string; active: boolean }) {
   return (
-    <details className="group text-muted-foreground">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs select-none">
+    <details className="group text-faint">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs transition-colors select-none hover:text-muted-foreground">
         <ChevronRight className="size-3 transition-transform group-open:rotate-90" />
-        <Brain className="size-3 text-brass" />
         {active ? 'Thinking…' : 'Thinking'}
       </summary>
-      <div className="mt-1.5 border-l-2 border-brass/30 pl-3 font-serif text-[13px] leading-relaxed whitespace-pre-wrap italic">
+      <div className="mt-1.5 border-l-2 pl-3 text-[13px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
         {text}
       </div>
     </details>
@@ -350,36 +375,37 @@ const ToolCard = memo(function ToolCard({ tool }: { tool: ToolItem }) {
   const open = (toggled ?? view.defaultOpen) && view.body !== null;
 
   return (
-    <div
-      className={cn(
-        'overflow-hidden rounded-lg border bg-card text-xs shadow-xs',
-        isError && 'border-destructive/40',
-      )}
-    >
+    <div className={cn('group/card relative overflow-hidden rounded-lg bg-subtle text-xs', isError && 'border border-destructive/40')}>
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/60"
+        className="group/head flex h-8 w-full items-center gap-2 px-2.5 text-left font-mono"
         onClick={() => setToggled(!open)}
         disabled={view.body === null}
+        aria-expanded={view.body === null ? undefined : open}
       >
         {tool.running ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+          <LoaderCircle className="size-3 shrink-0 animate-spin text-primary" />
         ) : !tool.result ? (
           // Not run (yet): e.g. restored from a snapshot while its ask is pending.
-          <Circle className="size-3.5 shrink-0 text-muted-foreground" />
+          <Circle className="size-3 shrink-0 text-faint" />
         ) : isError ? (
-          <X className="size-3.5 shrink-0 text-destructive" />
+          <X className="size-3 shrink-0 text-destructive" />
         ) : (
-          <Check className="size-3.5 shrink-0 text-success" />
+          <Check className="size-3 shrink-0 text-success" />
         )}
-        <span className="shrink-0 font-mono text-[11px] font-medium">{tool.name}</span>
+        <span className="shrink-0 font-medium">{tool.name}</span>
         <span className="min-w-0 flex-1 truncate text-muted-foreground">{view.summary}</span>
         {view.meta}
         {view.body !== null && (
-          <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />
+          <ChevronRight
+            className={cn(
+              'size-3 shrink-0 text-faint opacity-0 transition group-hover/head:opacity-100',
+              open && 'rotate-90',
+            )}
+          />
         )}
       </button>
-      {open && <div className="border-t bg-muted/40">{view.body}</div>}
+      {open && <div>{view.body}</div>}
     </div>
   );
 });
@@ -401,14 +427,10 @@ const ExploreGroup = memo(
           type="button"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
-          className="flex w-full min-w-0 items-center gap-1.5 py-0.5 text-left text-muted-foreground transition-colors hover:text-foreground"
+          className="flex w-full min-w-0 items-center gap-1.5 py-0.5 text-left text-faint transition-colors hover:text-muted-foreground"
         >
           <ChevronRight className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')} />
-          {current ? (
-            <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-          ) : (
-            <Search className="size-3.5 shrink-0" />
-          )}
+          {current && <LoaderCircle className="size-3 shrink-0 animate-spin text-primary" />}
           <span className="shrink-0">{exploreSummary(tools)}</span>
           {current && (
             <span className="min-w-0 truncate font-mono text-[11px] opacity-80">
@@ -458,7 +480,7 @@ function SessionDetails({ notices }: { notices: Notice[] }) {
       open={worst !== 'info'}
       className={cn(
         'group text-xs',
-        worst === 'error' ? 'text-destructive' : worst === 'warn' ? 'text-brass' : 'text-muted-foreground',
+        worst === 'error' ? 'text-destructive' : worst === 'warn' ? 'text-warning' : 'text-faint',
       )}
     >
       <summary className="flex cursor-pointer list-none items-center gap-1.5 select-none">
@@ -479,7 +501,7 @@ function SessionDetails({ notices }: { notices: Notice[] }) {
 function NoticeRow({ notice }: { notice: Notice }) {
   if (notice.kind === 'compaction') {
     return (
-      <div className="flex items-center gap-3 py-1 font-mono text-[10px] tracking-wide text-muted-foreground uppercase">
+      <div className="flex items-center gap-3 py-1 text-[11px] font-medium tracking-[0.02em] text-faint">
         <span className="h-px flex-1 bg-border" />
         {notice.text}
         <span className="h-px flex-1 bg-border" />
@@ -494,7 +516,7 @@ function NoticeRow({ notice }: { notice: Notice }) {
         notice.level === 'error'
           ? 'text-destructive'
           : notice.level === 'warn'
-            ? 'text-brass'
+            ? 'text-warning'
             : 'text-muted-foreground',
       )}
     >
