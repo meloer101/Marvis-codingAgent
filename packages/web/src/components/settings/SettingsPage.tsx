@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { BookOpen, Plug, Settings, ShieldCheck, Sparkles } from 'lucide-react';
+import { BookOpen, Plug, Settings, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import { routeToHash } from '@/lib/route';
@@ -11,12 +11,14 @@ import { AutoModeSection } from './AutoModeSection';
 import { McpSection } from './McpSection';
 import { MemorySection } from './MemorySection';
 import { PermissionsSection } from './PermissionsSection';
+import { ToolsSection } from './ToolsSection';
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> = [
   { id: 'permissions', label: 'Permissions', icon: ShieldCheck },
   { id: 'auto-mode', label: 'Auto mode', icon: Sparkles },
   { id: 'memory', label: 'Memory', icon: BookOpen },
   { id: 'mcp', label: 'MCP servers', icon: Plug },
+  { id: 'tools', label: 'Tools', icon: Wrench },
 ];
 
 /**
@@ -85,8 +87,10 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
               <AutoModeSection key={workspace.id} workspaceId={workspace.id} />
             ) : section === 'memory' ? (
               <MemorySection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
-            ) : (
+            ) : section === 'mcp' ? (
               <McpSection key={workspace.id} workspaceId={workspace.id} />
+            ) : (
+              <ToolsSection key={workspace.id} workspaceId={workspace.id} />
             )}
           </div>
         </div>

@@ -7,7 +7,7 @@
  */
 
 import { Suspense, lazy, type ReactNode } from 'react';
-import { FileSearch } from 'lucide-react';
+import { FileSearch, Server } from 'lucide-react';
 
 import { describeToolInput } from '@harness-code/core/browser';
 import type { ToolItem } from '@harness-code/protocol';
@@ -18,7 +18,7 @@ import { TodoList } from '@/components/TodoList';
 import { TerminalOutput } from '@/components/tools/TerminalOutput';
 import { bashOutcome, fmtDuration } from '@/lib/format';
 import { parseTodos } from '@/lib/todos';
-import { openFile } from '@/lib/panel';
+import { openFile, openProcess } from '@/lib/panel';
 import { cn } from '@/lib/utils';
 
 const EditDiffPanel = lazy(() =>
@@ -100,12 +100,34 @@ function OpenFileBar({ path, line }: { path: string; line?: number | undefined }
   );
 }
 
-function Badge({ tone, children }: { tone: 'destructive'; children: ReactNode }) {
+/** Under a background command's card: its output in the side panel's Processes tab. */
+function OpenProcessBar({ id }: { id: string }) {
+  return (
+    <div className="flex justify-end px-2 py-1">
+      <button
+        type="button"
+        onClick={() => openProcess(id)}
+        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <Server className="size-3" />
+        Show {id}’s output
+      </button>
+    </div>
+  );
+}
+
+/** The id a background command was started as, from `bash`'s result. */
+function backgroundId(content: string): string | undefined {
+  return /^Started in the background as (bg\d+)/.exec(content)?.[1];
+}
+
+function Badge({ tone, children }: { tone: 'destructive' | 'primary'; children: ReactNode }) {
   return (
     <span
       className={cn(
         'shrink-0 rounded px-1.5 font-mono text-[10px]',
         tone === 'destructive' && 'bg-destructive/10 text-destructive',
+        tone === 'primary' && 'bg-primary/10 text-primary',
       )}
     >
       {children}
@@ -142,6 +164,15 @@ const renderers: Record<string, Renderer> = {
         defaultOpen: tool.running,
       };
     }
+    const started = input.run_in_background === true && !tool.result.isError ? backgroundId(tool.result.content) : undefined;
+    if (started) {
+      return {
+        summary,
+        meta: <Badge tone="primary">background · {started}</Badge>,
+        body: <OpenProcessBar id={started} />,
+        defaultOpen: false,
+      };
+    }
     const { output, exitCode, timedOut } = bashOutcome(tool.result.content);
     const failed = tool.result.isError === true;
     return {
@@ -157,6 +188,27 @@ const renderers: Record<string, Renderer> = {
       defaultOpen: failed,
     };
   },
+
+  bash_output: (tool, input) => {
+    const id = str(input, 'id') ?? '';
+    const content = tool.result?.content ?? '';
+    // "bg1 is running." and then what's new.
+    const [status = '', ...rest] = content.split('\n');
+    const output = rest.join('\n');
+    return {
+      summary: <Mono>{id}</Mono>,
+      meta: tool.result && !tool.result.isError ? <span className="shrink-0 text-[10px] text-muted-foreground">{status.replace(/^bg\d+ /, '').replace(/\.$/, '')}</span> : undefined,
+      body: tool.result?.isError ? <Output tool={tool} /> : output && output !== '(no new output)' ? <TerminalOutput text={output} /> : null,
+      defaultOpen: false,
+    };
+  },
+
+  bash_kill: (tool, input) => ({
+    summary: <Mono>{str(input, 'id') ?? ''}</Mono>,
+    meta: tool.result ? <span className="shrink-0 text-[10px] text-muted-foreground">{tool.result.content.replace(/^bg\d+ /, '').replace(/\.$/, '')}</span> : undefined,
+    body: tool.result?.isError ? <Output tool={tool} /> : null,
+    defaultOpen: false,
+  }),
 
   edit: (tool, input) => {
     const oldString = str(input, 'oldString') ?? '';

@@ -41,6 +41,11 @@ function LiveOutput({ text }: { text: string }) {
   );
 }
 
+/** Output in the card's type, colours kept, unscrolled: the caller decides how it scrolls. */
+export function TerminalText({ text, error = false }: { text: string; error?: boolean }) {
+  return <Text text={text} error={error} />;
+}
+
 function Text({ text, error = false }: { text: string; error?: boolean }) {
   const spans = useMemo(() => (hasAnsi(text) ? parseAnsi(text) : null), [text]);
   return (

@@ -16,6 +16,7 @@ import {
   appendOutput,
   applySubagentEvent,
   entriesFromTranscript,
+  foldProcesses,
   foldReducer,
   initialFoldState,
   settleChildren,
@@ -24,6 +25,7 @@ import type {
   FoldAction,
   FoldState,
   QueuedMessage,
+  SessionProcess,
   SessionSnapshot,
   SessionWorktree,
   ToolItem,
@@ -50,6 +52,8 @@ export interface SessionViewState extends FoldState {
   planId: string | null;
   /** Messages waiting for the run to end, oldest first. */
   queue: readonly QueuedMessage[];
+  /** Commands it started in the background, oldest first, each with the tail of what it printed. */
+  processes?: readonly SessionProcess[];
 }
 
 /** Fields to set on a card; `undefined` removes one. */
@@ -182,6 +186,12 @@ export class SessionModel {
         return true;
       case 'notice':
         this.#dispatch({ type: 'NOTICE', notice: event.notice });
+        return true;
+      case 'process_start':
+      case 'process_output':
+      case 'process_end':
+        // Background commands run on between runs: their own list, not the transcript.
+        this.#state = { ...this.#state, processes: foldProcesses(this.#state.processes ?? [], event) };
         return true;
       case 'rewound':
         // The conversation was taken back: start over from the transcript as it stands.
@@ -371,5 +381,6 @@ export function stateFromSnapshot(
     askId: s.pendingAsk?.askId ?? null,
     planId: s.pendingPlan?.planId ?? null,
     queue: s.queue ?? [],
+    ...(s.processes ? { processes: s.processes } : {}),
   };
 }

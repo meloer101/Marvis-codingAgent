@@ -52,6 +52,7 @@ export type SettingsMethod =
   | 'settings.get'
   | 'settings.setRules'
   | 'settings.setAutoMode'
+  | 'settings.setBackgroundProcesses'
   | 'autoMode.denials'
   | 'session.retryDenied'
   | 'memory.list'
@@ -337,6 +338,11 @@ export class SessionSync {
   /** What the traces add up to — one workspace's or every one's — from `since` on; rejects when it can't be asked. */
   loadStats(opts: { workspaceId?: string; since?: number } = {}): Promise<StatsSummary> {
     return this.rpc.call('stats.summary', opts);
+  }
+
+  /** Stop a background command of session `id`'s; rejects with why it couldn't (the panel shows it). */
+  async killProcess(id: string, processId: string): Promise<void> {
+    await this.rpc.call('session.killProcess', { id, processId });
   }
 
   /** One of the settings page's calls (`components/settings/`); rejects with why it couldn't be made. */

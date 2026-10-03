@@ -7,6 +7,7 @@ import { AutoModeSection } from './settings/AutoModeSection';
 import { McpSection } from './settings/McpSection';
 import { MemorySection } from './settings/MemorySection';
 import { PermissionsSection } from './settings/PermissionsSection';
+import { ToolsSection } from './settings/ToolsSection';
 import { platform } from '@/platform';
 import { useAppStore } from '@/lib/store';
 import type { McpLoginPush, SessionSync } from '@/lib/sync';
@@ -22,6 +23,7 @@ const view = (over: Partial<SettingsView> = {}): SettingsView => ({
   user: { path: '/home/me/.agent/settings.json', rules: { allow: ['Bash(npm test:*)'], ask: [], deny: [] } },
   project: { path: '/p/.agent/settings.json', rules: { allow: [], ask: [], deny: ['Write(dist/**)'] } },
   builtinAllow: ['Read', 'Grep'],
+  backgroundProcesses: { user: false, project: false },
   autoMode: {
     rules: {},
     builtin: { environment: ['Org: who'], allow: ['A: a'], soft_deny: ['S: s'], hard_deny: ['H: h'] },
@@ -239,5 +241,25 @@ describe('McpSection', () => {
     await act(async () => push({ type: 'mcp_login', workspaceId: 'w1', name: 'linear', error: 'timed out waiting for the OAuth redirect' }));
     expect(await screen.findByText('timed out waiting for the OAuth redirect')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy();
+  });
+});
+
+describe('ToolsSection', () => {
+  it('turns background commands on in your settings', async () => {
+    const { sync, settingsCall } = syncFor((method, params) =>
+      method === 'settings.setBackgroundProcesses'
+        ? view({ backgroundProcesses: { user: params.enabled as boolean, project: false } })
+        : view(),
+    );
+    render(
+      <SyncProvider sync={sync}>
+        <ToolsSection workspaceId="w1" />
+      </SyncProvider>,
+    );
+    const toggle = await screen.findByRole('switch', { name: 'Background commands' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    await act(async () => fireEvent.click(toggle));
+    expect(settingsCall).toHaveBeenLastCalledWith('settings.setBackgroundProcesses', { workspaceId: 'w1', enabled: true });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
   });
 });

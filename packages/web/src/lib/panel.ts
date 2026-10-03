@@ -7,10 +7,10 @@ import { platform } from '@/platform';
  * when it's closed — kept across reloads; ⌥⌘B (Ctrl+Alt+B) toggles it — and
  * the file the Files tab has open.
  */
-export type PanelTab = 'changes' | 'files' | 'tasks' | 'trace';
+export type PanelTab = 'changes' | 'files' | 'tasks' | 'trace' | 'processes';
 
 const KEY = 'hc.panel';
-const TABS: readonly PanelTab[] = ['changes', 'files', 'tasks', 'trace'];
+const TABS: readonly PanelTab[] = ['changes', 'files', 'tasks', 'trace', 'processes'];
 
 const read = (): PanelTab | null => {
   const v = platform.storage.get(KEY);
@@ -51,6 +51,25 @@ export function openFile(path: string | null, line?: number): void {
   opened = path === null ? null : { path, ...(line !== undefined ? { line } : {}) };
   if (path !== null) setPanel('files');
   else listeners.forEach((l) => l());
+}
+
+let process: string | null = null;
+
+/** Show background command `id` in the Processes tab, opening the panel there. */
+export function openProcess(id: string): void {
+  process = id;
+  setPanel('processes');
+}
+
+/** The background command the Processes tab was last asked to show. */
+export function useOpenedProcess(): string | null {
+  return useSyncExternalStore(
+    (cb) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    () => process,
+  );
 }
 
 export function useOpenedFile(): OpenedFile | null {

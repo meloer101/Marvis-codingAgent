@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
-import { Activity, FolderTree, GitCompareArrows, ListChecks, X } from 'lucide-react';
+import { Activity, FolderTree, GitCompareArrows, ListChecks, Server, X } from 'lucide-react';
 
 import { ChangesPanel } from '@/components/ChangesPanel';
 import { FilesPanel } from '@/components/FilesPanel';
+import { ProcessesPanel } from '@/components/ProcessesPanel';
 import { TodoList } from '@/components/TodoList';
 import { TracePanel } from '@/components/TracePanel';
 import type { Checkout } from '@/lib/checkout';
@@ -18,6 +19,7 @@ const TABS: Array<{ tab: PanelTab; label: string; icon: typeof X }> = [
   { tab: 'files', label: 'Files', icon: FolderTree },
   { tab: 'tasks', label: 'Tasks', icon: ListChecks },
   { tab: 'trace', label: 'Trace', icon: Activity },
+  { tab: 'processes', label: 'Processes', icon: Server },
 ];
 
 /**
@@ -33,15 +35,18 @@ export function SidePanel({ view, checkout }: { view: SessionViewState; checkout
   );
   if (!tab) return null;
   return (
-    <aside aria-label="Side panel" className="flex w-[min(460px,42vw)] shrink-0 flex-col border-l bg-background">
+    <aside aria-label="Side panel" className="@container flex w-[min(460px,42vw)] shrink-0 flex-col border-l bg-background">
       <div className="flex h-12 shrink-0 items-center gap-1 border-b px-2">
         <div role="tablist" className="flex items-center gap-0.5">
-          {TABS.map(({ tab: t, label, icon: Icon }) => (
+          {/* Processes once the session has started one in the background. */}
+          {TABS.filter(({ tab: t }) => t !== 'processes' || tab === t || (view.processes?.length ?? 0) > 0).map(({ tab: t, label, icon: Icon }) => (
             <button
               key={t}
               type="button"
               role="tab"
               aria-selected={tab === t}
+              aria-label={label}
+              title={label}
               onClick={() => setPanel(t)}
               className={cn(
                 'flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors',
@@ -49,7 +54,9 @@ export function SidePanel({ view, checkout }: { view: SessionViewState; checkout
               )}
             >
               <Icon className="size-3.5" />
-              {label}
+              {/* A narrow panel keeps the icons alone, so every tab still fits. */}
+              <span className="hidden @[26rem]:inline">{label}</span>
+              {t === 'processes' && <RunningCount view={view} />}
             </button>
           ))}
         </div>
@@ -73,9 +80,16 @@ export function SidePanel({ view, checkout }: { view: SessionViewState; checkout
         {tab === 'files' && checkout && !checkout.missing && <FilesPanel checkout={checkout} />}
         {tab === 'tasks' && <TasksTab view={view} />}
         {tab === 'trace' && <TracePanel sessionId={view.id} running={view.running} />}
+        {tab === 'processes' && <ProcessesPanel sessionId={view.id} processes={view.processes ?? []} />}
       </div>
     </aside>
   );
+}
+
+/** How many of its background commands are still going, beside the tab's name. */
+function RunningCount({ view }: { view: SessionViewState }) {
+  const n = view.processes?.filter((p) => p.status === 'running').length ?? 0;
+  return n > 0 ? <span className="font-mono text-[10px] text-primary tabular-nums">{n}</span> : null;
 }
 
 /** An archived session's worktree was removed; its branch keeps what was committed. */
