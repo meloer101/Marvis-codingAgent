@@ -77,12 +77,11 @@ describe('slugFrom', () => {
 });
 
 describe('worktrees', () => {
-  it('lists local branches, the current one first among equals', async () => {
+  it('lists local branches, the checked-out one first', async () => {
     const root = await repo();
     git(root, 'branch', 'feature');
     const branches = await gitBranches(root);
-    expect(branches).toMatchObject({ repo: true, current: 'main' });
-    expect(branches.repo && [...branches.branches].sort()).toEqual(['feature', 'main']);
+    expect(branches).toEqual({ repo: true, current: 'main', branches: ['main', 'feature'] });
     expect(await gitBranches(await tempDir('hc-wt-plain-'))).toEqual({ repo: false });
   });
 
@@ -196,6 +195,7 @@ describe('a session in a worktree', () => {
       branch: worktree.branch,
       base: 'main',
     });
+    expect(worktree.cwd).toBe(worktree.path);
     expect((await hub.list()).find((r) => r.id === snapshot.id)?.worktree).toEqual({ branch: worktree.branch });
 
     // Files and git answer for the worktree, not the project's checkout.
@@ -211,6 +211,7 @@ describe('a session in a worktree', () => {
     expect(await exists(worktree.path)).toBe(false);
     expect(hub.host(snapshot.id)).toBeUndefined();
     expect((await hub.preview(snapshot.id)).worktree).toMatchObject({ branch: worktree.branch, missing: true });
+    expect((await hub.list()).find((r) => r.id === snapshot.id)?.worktree).toEqual({ branch: worktree.branch, missing: true });
     expect(await hub.gitStatus(workspaceId, snapshot.id)).toEqual({ repo: false });
 
     // Acting on it checks the branch out again.

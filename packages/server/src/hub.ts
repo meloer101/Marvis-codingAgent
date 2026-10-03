@@ -392,15 +392,23 @@ export class WorkspaceHub {
     return (await this.#registryOf(id)).preview({ id });
   }
 
+  /** Archiving removes the session's worktree: the terminals opened in it close too. */
   async update(
     id: string,
     patch: { title?: string; pinned?: boolean; archived?: boolean; force?: boolean },
   ): Promise<SessionSummary> {
-    return (await this.#registryOf(id)).update(id, patch);
+    const registry = await this.#registryOf(id);
+    const worktree = patch.archived === true ? (await registry.checkoutOf(id)).worktree : undefined;
+    const row = await registry.update(id, patch);
+    if (worktree) this.terminals.closeUnder(worktree.path);
+    return row;
   }
 
   async delete(id: string): Promise<void> {
-    await (await this.#registryOf(id)).delete(id);
+    const registry = await this.#registryOf(id);
+    const { worktree } = await registry.checkoutOf(id);
+    await registry.delete(id);
+    if (worktree) this.terminals.closeUnder(worktree.path);
     this.#sessionIndex.delete(id);
   }
 

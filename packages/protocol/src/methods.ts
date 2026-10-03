@@ -166,8 +166,8 @@ export interface SessionSummary {
   pinned: boolean;
   /** Put away: listed only on request. */
   archived: boolean;
-  /** The session works in a git worktree of its own, on this branch. */
-  worktree?: { branch: string };
+  /** The session works in a git worktree of its own, on this branch; `missing` once archiving removed it. */
+  worktree?: { branch: string; missing?: boolean };
   /**
    * Server-wide, increasing with every row the server computes (per boot):
    * of two rows for one session, the higher `rev` is the newer state.
@@ -261,6 +261,8 @@ export interface SessionWorktree {
   base: string;
   /** The worktree's top directory. */
   path: string;
+  /** Where in it the session works: the workspace's place in the repository. */
+  cwd: string;
   /** It was removed (archiving does that); the session's next run checks the branch out again. */
   missing?: boolean;
 }

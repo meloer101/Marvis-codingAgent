@@ -225,6 +225,7 @@ export class SessionRegistry {
     const title =
       disk && disk.title !== UNTITLED_SESSION ? disk.title : (host?.title ?? disk?.title ?? NEW_SESSION_TITLE);
     const worktree = host?.worktree ?? disk?.meta?.worktree;
+    const worktreeGone = !host && worktree !== undefined && !(await exists(worktree.path));
     return {
       id,
       workspaceId: this.#workspaceId,
@@ -235,7 +236,7 @@ export class SessionRegistry {
       pending: host?.pending ?? false,
       pinned: disk?.meta?.pinned === true,
       archived: disk?.meta?.archived === true,
-      ...(worktree ? { worktree: { branch: worktree.branch } } : {}),
+      ...(worktree ? { worktree: { branch: worktree.branch, ...(worktreeGone ? { missing: true } : {}) } } : {}),
       rev,
     };
   }
@@ -389,6 +390,12 @@ export class SessionRegistry {
     return { cwd, worktree, ...((await exists(worktree.path)) ? {} : { missing: true }) };
   }
 
+  /** A session's worktree as the UI sees it: where in it the session works, and `missing` once it was removed. */
+  async #describeWorktree(worktree: SessionWorktreeMeta): Promise<SessionWorktree> {
+    const cwd = worktreeCwd(worktree, await this.#workspacePrefix());
+    return { ...worktree, cwd, ...((await exists(worktree.path)) ? {} : { missing: true }) };
+  }
+
   #workspacePrefix(): Promise<string> {
     this.#prefix ??= workspacePrefix(this.#cwd);
     return this.#prefix;
@@ -434,7 +441,7 @@ export class SessionRegistry {
         lastSeq: 0,
         effortLevels: [...levels],
         ...(effort ? { effort } : {}),
-        ...(meta?.worktree ? { worktree: await describeWorktree(meta.worktree) } : {}),
+        ...(meta?.worktree ? { worktree: await this.#describeWorktree(meta.worktree) } : {}),
       };
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
@@ -620,9 +627,4 @@ async function exists(path: string): Promise<boolean> {
     () => true,
     () => false,
   );
-}
-
-/** A session's worktree as the UI sees it: `missing` once it was removed. */
-async function describeWorktree(worktree: SessionWorktreeMeta): Promise<SessionWorktree> {
-  return { ...worktree, ...((await exists(worktree.path)) ? {} : { missing: true }) };
 }

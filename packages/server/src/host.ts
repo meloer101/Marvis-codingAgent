@@ -717,7 +717,7 @@ export class SessionHost {
       effortLevels: [...session.effortLevels],
     };
     if (this.#workspaceId) snapshot.workspaceId = this.#workspaceId;
-    if (this.worktree) snapshot.worktree = { ...this.worktree };
+    if (this.worktree) snapshot.worktree = { ...this.worktree, cwd: this.#cwd ?? this.worktree.path };
     if (session.effort) snapshot.effort = session.effort;
     if (session.sessionUsage) snapshot.usage = session.sessionUsage;
     if (session.contextSnapshot) snapshot.context = session.contextSnapshot;

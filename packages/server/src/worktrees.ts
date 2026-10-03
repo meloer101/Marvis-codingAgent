@@ -37,7 +37,7 @@ export const WORKTREE_INCLUDE_FILE = '.worktreeinclude';
 const CHECKOUT_TIMEOUT_MS = 120_000;
 const MAX_BRANCHES = 200;
 
-/** The local branches a worktree can start from, most recently committed first. */
+/** The local branches a worktree can start from: the checked-out one, then the most recently committed. */
 export async function gitBranches(root: string): Promise<GitBranches> {
   if ((await prefixOf(root)) === null) return { repo: false };
   let current: string | null = null;
@@ -53,7 +53,9 @@ export async function gitBranches(root: string): Promise<GitBranches> {
     '--format=%(refname:short)',
     'refs/heads',
   ]);
-  return { repo: true, current, branches: stdout.split('\n').filter(Boolean) };
+  // The branch checked out first: what a worktree most often starts from.
+  const branches = stdout.split('\n').filter(Boolean);
+  return { repo: true, current, branches: current && branches.includes(current) ? [current, ...branches.filter((b) => b !== current)] : branches };
 }
 
 /** Where `root`'s repository keeps its worktrees: one directory per repository under `~/.agent/worktrees`. */

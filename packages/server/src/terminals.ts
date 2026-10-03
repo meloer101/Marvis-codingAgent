@@ -12,7 +12,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { basename } from 'node:path';
+import { basename, sep } from 'node:path';
 
 import type { TerminalInfo } from '@harness-code/protocol';
 
@@ -213,6 +213,14 @@ export class TerminalManager {
   /** Close every terminal of a workspace (it stops being hosted). */
   closeWorkspace(workspaceId: string): void {
     for (const t of [...this.#terminals.values()]) if (t.info.workspaceId === workspaceId) this.close(t.info.id);
+  }
+
+  /** Close every terminal started in `dir` or below it (a worktree being removed). */
+  closeUnder(dir: string): void {
+    const prefix = dir.endsWith(sep) ? dir : dir + sep;
+    for (const t of [...this.#terminals.values()]) {
+      if (t.info.cwd === dir || t.info.cwd.startsWith(prefix)) this.close(t.info.id);
+    }
   }
 
   shutdown(): void {

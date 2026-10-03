@@ -54,6 +54,17 @@ describe('TerminalManager', () => {
     expect(terminals.list('w2')).toEqual([]);
   });
 
+  it('closes the terminals opened in a directory being removed (a worktree), and no others', async () => {
+    const { terminals, ptys } = manager();
+    await terminals.create('w1', '/proj', 80, 24);
+    await terminals.create('w1', '/wt/fix', 80, 24);
+    await terminals.create('w1', '/wt/fix/src', 80, 24);
+    await terminals.create('w1', '/wt/fix-other', 80, 24);
+    terminals.closeUnder('/wt/fix');
+    expect(terminals.list('w1').map((t) => t.cwd)).toEqual(['/proj', '/wt/fix-other']);
+    expect(ptys.map((p) => p.pty.killed)).toEqual([false, true, true, false]);
+  });
+
   it('gathers output into one frame, keeps it for a tab that attaches later, and forwards keys and sizes', async () => {
     const { terminals, ptys } = manager();
     const { id } = await terminals.create('w1', '/proj', 80, 24);
