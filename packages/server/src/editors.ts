@@ -35,7 +35,8 @@ async function usable(path: string, mode = constants.F_OK): Promise<boolean> {
   }
 }
 
-async function onPath(bin: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+/** Where `bin` is on the PATH, if it is. */
+export async function onPath(bin: string, env: NodeJS.ProcessEnv): Promise<string | null> {
   for (const dir of (env['PATH'] ?? '').split(delimiter)) {
     if (dir && (await usable(join(dir, bin), constants.X_OK))) return join(dir, bin);
   }

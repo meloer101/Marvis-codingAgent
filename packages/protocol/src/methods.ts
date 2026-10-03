@@ -47,6 +47,8 @@ export interface ServerInfo {
   capabilities: {
     /** Terminals can be opened (`terminal.*`): node-pty loaded on this machine. */
     terminal: boolean;
+    /** The system's folder chooser can be shown on this machine (`fs.pickDir`). */
+    pickFolder?: boolean;
   };
 }
 
@@ -721,6 +723,11 @@ export const methods = {
   ),
   /** Directories completing a path prefix (`~` allowed), for the add dialog. */
   'fs.suggestDirs': method<{ prefix: string }, DirSuggestion[]>(z.object({ prefix: z.string().max(4096) })),
+  /**
+   * Show the system's folder chooser (Finder's on a Mac) on the machine the
+   * server runs on; the folder picked, or null when it was cancelled.
+   */
+  'fs.pickDir': method<void, { path: string | null }>(z.void()),
   /** Created in `workspaceId` (default: the most recently used workspace). */
   'session.create': method<
     { workspaceId?: string; model?: string; mode?: PermissionMode; effort?: ReasoningEffort },

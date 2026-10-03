@@ -64,6 +64,15 @@ project root), settings, MCP servers and environment, and its own
   notable project settings (YOLO by default, pre-approved calls, providers
   pointed at another host) come back with the inspection; the UI asks to trust
   them.
+- **Picking one.** "Add project" opens the system's folder chooser where the
+  server can show one (`fs.pickDir`: `choose folder` through osascript on a
+  Mac, zenity or kdialog on a Linux desktop, PowerShell's folder dialog on
+  Windows; one at a time). A folder that needs no second look is added at
+  once — or, already a workspace, opened; one with MCP servers, settings worth
+  reading or a problem opens the add dialog on its path instead. Without a
+  chooser (`server.info.capabilities.pickFolder` false — a Linux without a
+  desktop session, say), the dialog and its path field, which also has a
+  "Choose…" button where there is one.
 - **Removing one** stops hosting it (its live sessions close, its files stay):
   not while one of its sessions runs, and never the last one.
 
@@ -94,12 +103,13 @@ the server with the same schemas the client is typed from.
 
 | Method | What it does |
 |---|---|
-| `server.info` | version, `bootId`, the launch workspace's defaults, the editors files can be opened in, and `capabilities.terminal` (node-pty loaded) |
+| `server.info` | version, `bootId`, the launch workspace's defaults, the editors files can be opened in, `capabilities.terminal` (node-pty loaded) and `capabilities.pickFolder` (a folder chooser can be shown) |
 | `workspace.list` | every workspace with its defaults (model, mode, modes, effort levels, `keyProblem`) |
 | `model.list {workspaceId?}` | the models a session there can be given, each with its windows, effort levels, price and why it can't run, if it can't |
 | `workspace.inspect {path}` | what adding a directory would mean — nothing started |
 | `workspace.add {path, createMarker?}` / `workspace.remove {id}` | host a project / stop hosting it |
 | `fs.suggestDirs {prefix}` | directory completion for the add dialog |
+| `fs.pickDir` | show the system's folder chooser on the server's machine; `{path}`, null when it was cancelled |
 | `fs.list {workspaceId, sessionId?, dir}` | a workspace folder's entries, folders first — the listing `@` uses, so no ignored files or secrets. With `sessionId`, this and every `fs.*`, `git.*`, `terminal.create` and `editor.open` call acts on the checkout that session works in: its worktree, if it has one |
 | `fs.read {workspaceId, sessionId?, path}` | a file's text; binary, over 1 MB, a secret (by name or by what it links to), a link out of the workspace or a missing file: withheld |
 | `editor.open {workspaceId, sessionId?, path, line?, editor}` | open a file in VS Code, Cursor or Zed on this machine (`server.info.editors` lists those found) |

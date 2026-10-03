@@ -53,6 +53,8 @@ import type {
 
 import { detectEditors, openInEditor } from './editors.js';
 import type { Editor } from './editors.js';
+import { detectFolderPicker, oneAtATime } from './picker.js';
+import type { FolderPicker } from './picker.js';
 import { FileIndex, readWorkspaceFile } from './files.js';
 import { gitDiff, gitStatus } from './git.js';
 import type { DiffSide } from './git.js';
@@ -117,6 +119,8 @@ export interface WorkspaceHubOptions {
   home?: string;
   /** The editors files can be opened in (tests); found on the machine by default. */
   editors?: () => Promise<Editor[]>;
+  /** The folder chooser (tests); the system's by default, when it has one. */
+  folderPicker?: () => Promise<FolderPicker | null>;
   /** How terminals start (tests); node-pty by default, when it loads. */
   pty?: SpawnPty | null;
 }
@@ -149,6 +153,8 @@ export class WorkspaceHub {
   readonly #sessionIndex = new Map<string, string>();
   readonly #files = new FileIndex();
   readonly #findEditors: () => Promise<Editor[]>;
+  readonly #findFolderPicker: () => Promise<FolderPicker | null>;
+  #folderPicker: Promise<FolderPicker | null> | undefined;
   /** Every workspace's terminals. */
   readonly terminals: TerminalManager;
   #editors: Promise<Editor[]> | undefined;
@@ -161,6 +167,7 @@ export class WorkspaceHub {
     this.#idleMs = opts.idleMs;
     this.#home = opts.home;
     this.#findEditors = opts.editors ?? (() => detectEditors());
+    this.#findFolderPicker = opts.folderPicker ?? (() => detectFolderPicker(this.#home ? { home: this.#home } : {}));
     this.terminals = new TerminalManager({
       spawn: opts.pty !== undefined ? opts.pty : loadPty(),
       onChange: (workspace) => this.#forward(workspace, { type: 'terminals', workspaceId: workspace, terminals: this.terminals.list(workspace) }),
@@ -244,6 +251,26 @@ export class WorkspaceHub {
   #editorList(): Promise<Editor[]> {
     this.#editors ??= this.#findEditors().catch(() => []);
     return this.#editors;
+  }
+
+  /** Whether this machine can show its folder chooser (`pickFolder`). */
+  async canPickFolder(): Promise<boolean> {
+    return (await this.#picker()) !== null;
+  }
+
+  /** Show the system's folder chooser; the folder picked, or null when it was cancelled. */
+  async pickFolder(): Promise<{ path: string | null }> {
+    const picker = await this.#picker();
+    if (!picker) throw new InvalidRequestError('this machine has no folder chooser to show');
+    return { path: await picker.pick('Choose a project folder for hc web') };
+  }
+
+  #picker(): Promise<FolderPicker | null> {
+    this.#folderPicker ??= this.#findFolderPicker().then(
+      (found) => (found ? oneAtATime(found) : null),
+      () => null,
+    );
+    return this.#folderPicker;
   }
 
   /** Start a terminal in workspace `id`'s root (or session `sessionId`'s worktree). */

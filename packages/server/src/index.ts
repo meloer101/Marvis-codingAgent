@@ -39,6 +39,7 @@ import { WorkspaceHub } from './hub.js';
 import type { WorkspaceSetupFactory } from './hub.js';
 import type { HealthInfo } from './instance.js';
 import { MOCK_MODEL_REF, mockConfigFactory, mockEffortOptions, mockModels } from './mock.js';
+import type { FolderPicker } from './picker.js';
 import type { SessionConfigFactory } from './registry.js';
 import { memoryWorkspaceStore } from './workspaces.js';
 import type { WorkspaceStore } from './workspaces.js';
@@ -68,6 +69,8 @@ export interface StartServerOptions {
   staticDir?: string;
   /** The auth token; a fresh random one when omitted. `hc web` passes the persisted one. */
   token?: string;
+  /** The folder chooser `fs.pickDir` shows (tests); the system's by default, when it has one. */
+  folderPicker?: () => Promise<FolderPicker | null>;
 }
 
 export interface RunningServer {
@@ -84,7 +87,11 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
   const token = opts.token ?? randomBytes(32).toString('hex');
   const bootId = randomUUID();
 
-  const hub = new WorkspaceHub({ store: opts.workspaceStore ?? memoryWorkspaceStore(), setup: workspaceSetups(opts) });
+  const hub = new WorkspaceHub({
+    store: opts.workspaceStore ?? memoryWorkspaceStore(),
+    setup: workspaceSetups(opts),
+    ...(opts.folderPicker ? { folderPicker: opts.folderPicker } : {}),
+  });
   const launchId = await hub.init(opts.cwd);
 
   /** Kept for older clients: the launch workspace's defaults. */
@@ -100,7 +107,7 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
       models: [],
       modes: launch.defaults.modes,
       editors: await hub.editors(),
-      capabilities: { terminal: await hub.terminals.available() },
+      capabilities: { terminal: await hub.terminals.available(), pickFolder: await hub.canPickFolder() },
     };
   };
 
@@ -276,6 +283,7 @@ export { SessionRegistry } from './registry.js';
 export { callRunningServer } from './remote.js';
 export { WorkspaceHub, WorkspaceNotFoundError } from './hub.js';
 export type { WorkspaceSetup, WorkspaceSetupFactory } from './hub.js';
+export type { FolderPicker } from './picker.js';
 export { fileWorkspaceStore, memoryWorkspaceStore, workspaceId, workspacesFile } from './workspaces.js';
 export type { WorkspaceRecord, WorkspaceStore } from './workspaces.js';
 export { SessionHost, BusyError, SessionNotFoundError } from './host.js';

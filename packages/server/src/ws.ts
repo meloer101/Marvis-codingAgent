@@ -345,6 +345,8 @@ class Connection {
       }
       case 'fs.suggestDirs':
         return suggestDirs((params as MethodParams<'fs.suggestDirs'>).prefix);
+      case 'fs.pickDir':
+        return hub.pickFolder();
       case 'session.list':
         return hub.list();
       case 'session.create':
