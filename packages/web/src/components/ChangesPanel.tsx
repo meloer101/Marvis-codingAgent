@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { checkoutKey } from '@/lib/checkout';
 import type { Checkout } from '@/lib/checkout';
-import { parsePatch } from '@/lib/diff';
+import { parsePatch, patchHunks } from '@/lib/diff';
 import { isNewFile, pathsOf } from '@/lib/gitFiles';
 import { langForPath } from '@/lib/highlight';
 import { openFile } from '@/lib/panel';
@@ -306,46 +306,165 @@ function ChangedFile({
           <Undo2 className="size-3.5" />
         </button>
       </div>
-      {open && <FileDiff checkout={checkout} sessionId={sessionId} path={file.path} />}
+      {open && <FileDiff checkout={checkout} sessionId={sessionId} file={file} />}
     </li>
   );
 }
 
 /**
- * A file's diff, fetched when opened and again after each `git_changed`; the
- * last one stays meanwhile. With a session, its lines take review comments.
+ * Whether a file's changes can be staged and thrown away a hunk at a time: a
+ * text file changed in place on each side it has changes on — not one that is
+ * new, deleted, renamed or in conflict (those go a file at a time).
  */
-function FileDiff({ checkout, sessionId, path }: { checkout: Checkout; sessionId: string | undefined; path: string }) {
+export function hunkable(file: GitFile): boolean {
+  const sides = [file.staged, file.unstaged].filter((s) => s !== undefined);
+  return !file.binary && sides.length > 0 && sides.every((s) => s === 'modified');
+}
+
+/**
+ * A file's diff, opened. A file changed in place shows its staged and its
+ * unstaged changes apart — each hunk to stage and discard, or to unstage;
+ * any other file, all its changes against HEAD.
+ */
+function FileDiff({ checkout, sessionId, file }: { checkout: Checkout; sessionId: string | undefined; file: GitFile }) {
+  if (!hunkable(file)) return <DiffSection checkout={checkout} sessionId={sessionId} path={file.path} side="all" />;
+  const sides: Array<'staged' | 'unstaged'> = [];
+  if (file.staged) sides.push('staged');
+  if (file.unstaged) sides.push('unstaged');
+  return (
+    <>
+      {sides.map((side) => (
+        <DiffSection
+          key={side}
+          checkout={checkout}
+          sessionId={sessionId}
+          path={file.path}
+          side={side}
+          {...(sides.length > 1 ? { label: side === 'staged' ? 'Staged' : 'Unstaged' } : {})}
+        />
+      ))}
+    </>
+  );
+}
+
+/**
+ * One side of a file's changes, fetched when shown and again after each
+ * `git_changed`; the last one stays meanwhile. With a session, its lines take
+ * review comments — not the staged side's, whose numbers are the index's, not
+ * the file the agent sees.
+ */
+function DiffSection({
+  checkout,
+  sessionId,
+  path,
+  side,
+  label,
+}: {
+  checkout: Checkout;
+  sessionId: string | undefined;
+  path: string;
+  side: 'all' | 'staged' | 'unstaged';
+  label?: string;
+}) {
   const sync = useSync();
   const key = checkoutKey(checkout);
   const rev = useAppStore((s) => s.gitRev[checkout.workspaceId] ?? 0);
   const [state, setState] = useState<{ diff: GitDiff } | { error: string } | null>(null);
   useEffect(() => {
     let cancelled = false;
-    sync.gitDiff(checkout, path).then(
+    sync.gitDiff(checkout, path, side).then(
       (diff) => !cancelled && setState({ diff }),
       (err: unknown) => !cancelled && setState({ error: err instanceof Error ? err.message : String(err) }),
     );
     return () => {
       cancelled = true;
     };
-  }, [sync, key, path, rev]);
+  }, [sync, key, path, side, rev]);
   const lines = useMemo(
     () => (state && 'diff' in state && state.diff.kind === 'text' ? parsePatch(state.diff.patch) : null),
     [state],
   );
+  const hunks = useMemo(() => (state && 'diff' in state && state.diff.kind === 'text' ? patchHunks(state.diff.patch) : []), [state]);
+  const apply = (hunk: number, action: 'stage' | 'unstage' | 'discard') => {
+    const text = hunks[hunk];
+    if (text) void sync.gitApplyHunk(checkout, path, text, action);
+  };
+  const hunkActions =
+    side === 'all'
+      ? undefined
+      : (hunk: number) =>
+          side === 'staged' ? (
+            <HunkButton label="Unstage" title="Take this hunk out of the next commit" onClick={() => apply(hunk, 'unstage')} />
+          ) : (
+            <>
+              <HunkButton label="Discard" title="Throw this hunk away" confirm onClick={() => apply(hunk, 'discard')} />
+              <HunkButton label="Stage" title="Put this hunk in the next commit" onClick={() => apply(hunk, 'stage')} />
+            </>
+          );
 
-  if (!state) return <p className="px-9 py-2 text-xs text-muted-foreground">Loading diff…</p>;
-  if ('error' in state) return <p className="px-9 py-2 text-xs text-destructive">{state.error}</p>;
-  const { diff } = state;
-  if (diff.kind === 'binary') return <p className="px-9 py-2 text-xs text-muted-foreground">Binary file — no text diff.</p>;
-  if (diff.kind === 'withheld') return <p className="px-9 py-2 text-xs text-muted-foreground">{diff.reason}</p>;
-  if (!lines || lines.lines.length === 0) {
-    return <p className="px-9 py-2 text-xs text-muted-foreground">No content changes (mode or rename only).</p>;
-  }
-  return sessionId ? (
-    <ReviewableDiff sessionId={sessionId} path={path} diff={lines} />
+  const body = (() => {
+    if (!state) return <p className="px-9 py-2 text-xs text-muted-foreground">Loading diff…</p>;
+    if ('error' in state) return <p className="px-9 py-2 text-xs text-destructive">{state.error}</p>;
+    const { diff } = state;
+    if (diff.kind === 'binary') return <p className="px-9 py-2 text-xs text-muted-foreground">Binary file — no text diff.</p>;
+    if (diff.kind === 'withheld') return <p className="px-9 py-2 text-xs text-muted-foreground">{diff.reason}</p>;
+    if (!lines || lines.lines.length === 0) {
+      return <p className="px-9 py-2 text-xs text-muted-foreground">No content changes (mode or rename only).</p>;
+    }
+    return sessionId && side !== 'staged' ? (
+      <ReviewableDiff sessionId={sessionId} path={path} diff={lines} hunkActions={hunkActions} />
+    ) : (
+      <DiffView
+        diff={lines}
+        lang={langForPath(path) ?? undefined}
+        className="max-h-none border-t bg-muted/20"
+        hunkActions={hunkActions}
+      />
+    );
+  })();
+  return label ? (
+    <section aria-label={`${label} changes`}>
+      <p className="border-t bg-muted/20 px-3 pt-1.5 pb-0.5 font-mono text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
+        {label}
+      </p>
+      {body}
+    </section>
   ) : (
-    <DiffView diff={lines} lang={langForPath(path) ?? undefined} className="max-h-none border-t bg-muted/20" />
+    body
+  );
+}
+
+/**
+ * A hunk's action, at the end of its header. `confirm`: the first click only
+ * arms it ("Discard?") for a few seconds; the second does it.
+ */
+function HunkButton({ label, title, confirm, onClick }: { label: string; title: string; confirm?: boolean; onClick: () => void }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <button
+      type="button"
+      title={armed ? 'Click again to throw it away — this can’t be undone' : title}
+      onClick={() => {
+        if (confirm && !armed) {
+          setArmed(true);
+          return;
+        }
+        setArmed(false);
+        onClick();
+      }}
+      className={cn(
+        'rounded px-1.5 py-px text-[11px] font-medium transition-colors',
+        armed
+          ? 'bg-destructive text-white'
+          : 'text-muted-foreground opacity-70 group-hover/hunk:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100',
+      )}
+    >
+      {armed ? `${label}?` : label}
+    </button>
   );
 }

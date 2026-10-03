@@ -40,7 +40,8 @@ function useDiffTokens(diff: LineDiff, lang: string | undefined): Array<Token[] 
  * the words that changed within a replaced line marked a shade deeper. Also a
  * plain file (all unchanged lines, no sign column); `focusLine` (a new-side
  * number) is scrolled to and marked. With `onLineClick`, a line's number is a
- * button (to comment on it), and `renderAfter` puts content under a line.
+ * button (to comment on it), `renderAfter` puts content under a line, and
+ * `hunkActions` at the end of each hunk's header (by the hunk's index).
  */
 export function DiffView({
   diff,
@@ -49,6 +50,7 @@ export function DiffView({
   focusLine,
   onLineClick,
   renderAfter,
+  hunkActions,
 }: {
   diff: LineDiff;
   lang?: string | undefined;
@@ -56,6 +58,7 @@ export function DiffView({
   focusLine?: number | undefined;
   onLineClick?: ((line: DiffLine) => void) | undefined;
   renderAfter?: ((line: DiffLine) => ReactNode) | undefined;
+  hunkActions?: ((hunk: number) => ReactNode) | undefined;
 }) {
   const [all, setAll] = useState(() => focusLine !== undefined && focusLine > FIRST_LINES);
   const tokens = useDiffTokens(diff, lang);
@@ -66,6 +69,7 @@ export function DiffView({
     ref.current?.querySelector(`[data-line="${focusLine}"]`)?.scrollIntoView?.({ block: 'center' });
   }, [focusLine, diff]);
   const shown = all ? diff.lines : diff.lines.slice(0, FIRST_LINES);
+  let hunk = -1;
   const hidden = diff.lines.length - shown.length;
   // A number column per side that has numbers: a new file has only the "after" one.
   const cols = useMemo(
@@ -82,6 +86,8 @@ export function DiffView({
         <tbody>
           {shown.map((line, i) => {
             const after = renderAfter?.(line);
+            if (line.kind === 'hunk') hunk++;
+            const actions = line.kind === 'hunk' ? hunkActions?.(hunk) : undefined;
             return (
               <Fragment key={i}>
                 <Row
@@ -92,6 +98,7 @@ export function DiffView({
                   focused={focusLine !== undefined && line.newNo === focusLine}
                   tokens={tokens?.[i]}
                   onNumberClick={onLineClick}
+                  actions={actions}
                 />
                 {after && (
                   <tr>
@@ -126,6 +133,7 @@ const Row = memo(function Row({
   focused,
   tokens,
   onNumberClick,
+  actions,
 }: {
   line: DiffLine;
   oldCol: boolean;
@@ -134,13 +142,22 @@ const Row = memo(function Row({
   focused: boolean;
   tokens: Token[] | undefined;
   onNumberClick?: ((line: DiffLine) => void) | undefined;
+  /** At the end of a hunk's header. */
+  actions?: ReactNode;
 }) {
   const segments = useMemo(() => lineSegments(line.text, tokens, line.changes), [line, tokens]);
   if (line.kind === 'hunk') {
     return (
-      <tr className="bg-primary/5 text-muted-foreground">
-        <td colSpan={(oldCol ? 1 : 0) + (newCol ? 1 : 0) + (signCol ? 2 : 1)} className="px-2 py-0.5 whitespace-pre-wrap select-none">
-          {line.text}
+      <tr className="group/hunk bg-primary/5 text-muted-foreground">
+        <td colSpan={(oldCol ? 1 : 0) + (newCol ? 1 : 0) + (signCol ? 2 : 1)} className="px-2 py-0.5 select-none">
+          {actions ? (
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 whitespace-pre-wrap">{line.text}</span>
+              <span className="flex shrink-0 items-center gap-0.5 font-sans">{actions}</span>
+            </div>
+          ) : (
+            <span className="whitespace-pre-wrap">{line.text}</span>
+          )}
         </td>
       </tr>
     );

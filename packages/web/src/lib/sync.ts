@@ -574,9 +574,23 @@ export class SessionSync {
     return load;
   }
 
-  /** One file's changes; rejects when it can't be asked (the caller shows why). */
-  gitDiff(checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>, path: string): Promise<GitDiff> {
-    return this.rpc.call('git.diff', { ...checkoutParams(checkout), path });
+  /** One file's changes — all, or the staged or unstaged ones; rejects when it can't be asked (the caller shows why). */
+  gitDiff(
+    checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>,
+    path: string,
+    side: 'all' | 'staged' | 'unstaged' = 'all',
+  ): Promise<GitDiff> {
+    return this.rpc.call('git.diff', { ...checkoutParams(checkout), path, ...(side !== 'all' ? { side } : {}) });
+  }
+
+  /** Stage, unstage or discard one hunk (its text as the diff showed it); a failure goes to the banner. */
+  gitApplyHunk(
+    checkout: Pick<Checkout, 'workspaceId' | 'sessionId'>,
+    path: string,
+    hunk: string,
+    action: 'stage' | 'unstage' | 'discard',
+  ): Promise<void> {
+    return this.#run(this.rpc.call('git.applyHunk', { ...checkoutParams(checkout), path, hunk, action }));
   }
 
   /** A checkout's folder entries; empty when it can't be asked. */

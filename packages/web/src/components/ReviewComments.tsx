@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { Loader2, MessageSquareText, Pencil, X } from 'lucide-react';
 
 import { DiffView } from '@/components/DiffView';
@@ -22,7 +22,17 @@ function anchor(line: DiffLine): { side: 'old' | 'new'; line: number } | null {
   return line.kind === 'del' ? { side: 'old', line: line.oldNo ?? 0 } : { side: 'new', line: line.newNo ?? 0 };
 }
 
-export function ReviewableDiff({ sessionId, path, diff }: { sessionId: string; path: string; diff: LineDiff }) {
+export function ReviewableDiff({
+  sessionId,
+  path,
+  diff,
+  hunkActions,
+}: {
+  sessionId: string;
+  path: string;
+  diff: LineDiff;
+  hunkActions?: ((hunk: number) => ReactNode) | undefined;
+}) {
   const all = useReview(sessionId);
   const comments = useMemo(() => all.filter((c) => c.path === path), [all, path]);
   const [drafting, setDrafting] = useState<{ side: 'old' | 'new'; line: number; excerpt: string } | null>(null);
@@ -60,6 +70,7 @@ export function ReviewableDiff({ sessionId, path, diff }: { sessionId: string; p
       className="max-h-none border-t bg-muted/20"
       onLineClick={onLineClick}
       renderAfter={renderAfter}
+      hunkActions={hunkActions}
     />
   );
 }

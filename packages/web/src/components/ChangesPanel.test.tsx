@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { GitStatus } from '@harness-code/protocol';
@@ -42,6 +42,7 @@ function renderPanel(
     gitStage: vi.fn(async () => {}),
     gitUnstage: vi.fn(async () => {}),
     gitRevert: vi.fn(async () => {}),
+    gitApplyHunk: vi.fn(async () => {}),
     gitCommit: vi.fn(async () => ({ sha: 'abc1234', summary: 'Fix math' })),
     gitPush: vi.fn(async () => {}),
     gitCreatePr: vi.fn(async () => ({ url: 'https://github.com/o/r/pull/7' })),
@@ -76,10 +77,13 @@ describe('ChangesPanel', () => {
     const { gitDiff } = renderPanel();
     act(() => useAppStore.setState({ git: { w1: status } }));
     fireEvent.click(screen.getByRole('button', { name: /math\.ts/, expanded: false }));
-    expect(await screen.findByText('@@ -1 +1 @@')).toBeTruthy();
-    expect(gitDiff).toHaveBeenCalledWith(W1, 'src/math.ts');
+    // Partly staged: its staged and its unstaged changes, apart.
+    expect(await screen.findAllByText('@@ -1 +1 @@')).toHaveLength(2);
+    expect(screen.getByRole('region', { name: 'Staged changes' })).toBeTruthy();
+    expect(gitDiff).toHaveBeenCalledWith(W1, 'src/math.ts', 'staged');
+    expect(gitDiff).toHaveBeenCalledWith(W1, 'src/math.ts', 'unstaged');
     await act(async () => useAppStore.setState({ gitRev: { w1: 1 } }));
-    expect(gitDiff).toHaveBeenCalledTimes(2);
+    expect(gitDiff).toHaveBeenCalledTimes(4);
   });
 
   it("narrows to the files this session's edits and writes touched", () => {
@@ -174,6 +178,36 @@ describe('changing git state from the panel', () => {
   });
 });
 
+describe('hunks', () => {
+  it('stages or discards an unstaged hunk, and unstages a staged one', async () => {
+    const { sync } = renderPanel();
+    act(() => useAppStore.setState({ git: { w1: status } }));
+    fireEvent.click(screen.getByRole('button', { name: /math\.ts/, expanded: false }));
+    const unstaged = await screen.findByRole('region', { name: 'Unstaged changes' });
+    const staged = screen.getByRole('region', { name: 'Staged changes' });
+    const hunk = '@@ -1 +1 @@\n-let a = 1;\n+let a = 2;\n';
+
+    fireEvent.click(within(unstaged).getByRole('button', { name: 'Stage' }));
+    expect(sync.gitApplyHunk).toHaveBeenLastCalledWith(W1, 'src/math.ts', hunk, 'stage');
+    // Discarding takes a second click.
+    fireEvent.click(within(unstaged).getByRole('button', { name: 'Discard' }));
+    expect(sync.gitApplyHunk).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(unstaged).getByRole('button', { name: 'Discard?' }));
+    expect(sync.gitApplyHunk).toHaveBeenLastCalledWith(W1, 'src/math.ts', hunk, 'discard');
+    fireEvent.click(within(staged).getByRole('button', { name: 'Unstage' }));
+    expect(sync.gitApplyHunk).toHaveBeenLastCalledWith(W1, 'src/math.ts', hunk, 'unstage');
+    expect(within(staged).queryByRole('button', { name: 'Stage' })).toBeNull();
+  });
+
+  it('are a file at a time for a new file', async () => {
+    renderPanel(vi.fn(async () => ({ kind: 'text' as const, patch: '@@ -0,0 +1,2 @@\n+x\n+y\n' })));
+    act(() => useAppStore.setState({ git: { w1: status } }));
+    fireEvent.click(screen.getByRole('button', { name: /new\.txt/, expanded: false }));
+    await screen.findByText('@@ -0,0 +1,2 @@');
+    expect(screen.queryByRole('button', { name: 'Stage' })).toBeNull();
+  });
+});
+
 describe('review comments', () => {
   afterEach(() => {
     clearReview('s1');
@@ -184,8 +218,12 @@ describe('review comments', () => {
     const { sync } = renderPanel(undefined, undefined, 's1');
     act(() => useAppStore.setState({ git: { w1: status } }));
     fireEvent.click(screen.getByRole('button', { name: /math\.ts/, expanded: false }));
-    // Line 1 was removed (old side) and added (new side): comment on the new one.
-    const lineOnes = await screen.findAllByRole('button', { name: 'Comment on line 1' });
+    // Line 1 was removed (old side) and added (new side): comment on the new one —
+    // in the unstaged changes only, the staged side's numbers being the index's.
+    const lineOnes = await within(await screen.findByRole('region', { name: 'Unstaged changes' })).findAllByRole('button', {
+      name: 'Comment on line 1',
+    });
+    expect(within(screen.getByRole('region', { name: 'Staged changes' })).queryByRole('button', { name: /Comment on line/ })).toBeNull();
     fireEvent.click(lineOnes.at(-1)!);
     const box = screen.getByRole('textbox', { name: 'Review comment' });
     fireEvent.change(box, { target: { value: 'Why 2?' } });
@@ -202,7 +240,7 @@ describe('review comments', () => {
     renderPanel();
     act(() => useAppStore.setState({ git: { w1: status } }));
     fireEvent.click(screen.getByRole('button', { name: /math\.ts/, expanded: false }));
-    await screen.findByText('@@ -1 +1 @@');
+    await screen.findAllByText('@@ -1 +1 @@');
     expect(screen.queryByRole('button', { name: /Comment on line/ })).toBeNull();
   });
 });

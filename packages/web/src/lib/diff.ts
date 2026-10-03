@@ -105,6 +105,19 @@ export function parsePatch(patch: string): LineDiff {
   return { lines, added, removed };
 }
 
+/**
+ * A one-file patch's hunks as text, each from its `@@` line — in the order
+ * `parsePatch` numbers its `hunk` lines — for `git.applyHunk`.
+ */
+export function patchHunks(patch: string): string[] {
+  const hunks: string[] = [];
+  for (const line of splitLines(patch)) {
+    if (HUNK.test(line)) hunks.push(`${line}\n`);
+    else if (hunks.length > 0) hunks[hunks.length - 1] += `${line}\n`;
+  }
+  return hunks;
+}
+
 /** A file's text as unchanged lines numbered from 1, for viewing it with the diff view. */
 export function fileLines(content: string): LineDiff {
   const lines = splitLines(content).map((text, i) => ({ kind: 'ctx' as const, text, newNo: i + 1 }));

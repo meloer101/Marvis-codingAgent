@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { diffSides, editDiff, lineSegments, lineTokens, parsePatch, writeDiff } from './diff';
+import { diffSides, editDiff, lineSegments, lineTokens, parsePatch, patchHunks, writeDiff } from './diff';
 
 describe('editDiff', () => {
   it('marks changed lines and keeps shared ones as context', () => {
@@ -145,5 +145,14 @@ describe('parsePatch', () => {
     expect(d.lines[3]!.changes).toEqual([[10, 11]]);
     // Highlighting skips the hunk lines.
     expect(diffSides(d)).toEqual({ before: 'keep\nconst a = 1;\ntail\nx', after: 'keep\nconst a = 2;\nadded\ntail\ny' });
+  });
+});
+
+describe('patchHunks', () => {
+  it("gives each hunk's text from its @@ line, in parsePatch's order", () => {
+    const patch = 'diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n-a\n+b\n@@ -9 +9 @@\n-c\n+d\n\\ No newline at end of file\n';
+    expect(patchHunks(patch)).toEqual(['@@ -1 +1 @@\n-a\n+b\n', '@@ -9 +9 @@\n-c\n+d\n\\ No newline at end of file\n']);
+    expect(parsePatch(patch).lines.filter((l) => l.kind === 'hunk')).toHaveLength(2);
+    expect(patchHunks('')).toEqual([]);
   });
 });

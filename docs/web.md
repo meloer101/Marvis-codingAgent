@@ -107,7 +107,8 @@ the server with the same schemas the client is typed from.
 | `terminal.attach` / `terminal.detach {id}` | start / stop getting a terminal's output on this socket; attach answers with what it kept (`scrollback`) and its exit code if it ended |
 | `terminal.input {id, data}` / `terminal.resize {id, cols, rows}` / `terminal.close {id}` | keystrokes, a new size, and ending it |
 | `git.status {workspaceId, sessionId?}` | the workspace's changes against HEAD: branch, upstream, ahead/behind, and per file its staged / unstaged change and lines added / removed |
-| `git.diff {workspaceId, sessionId?, path}` | one file's patch against HEAD (an untracked file against nothing); binary, too big (> 1 MB) or a secret: withheld |
+| `git.diff {workspaceId, sessionId?, path, side?}` | one file's patch against HEAD (an untracked file against nothing), or just its `staged` (HEAD → index) or `unstaged` (index → work tree) changes; binary, too big (> 1 MB) or a secret: withheld |
+| `git.applyHunk {workspaceId, sessionId?, path, hunk, action}` | stage, unstage or discard one hunk, its text as `git.diff` showed it: the diff is taken again and a hunk no longer in it is refused; applied with `git apply` at the repository's top — never a secret's |
 | `git.stage` / `git.unstage {workspaceId, sessionId?, paths}` | stage files as they are on disk (new files and deletions too) / take them out of the index |
 | `git.revert {workspaceId, sessionId?, paths}` | throw changes away: back to HEAD (a rename to its old name), or deleted when HEAD lacks the file — never a secret |
 | `git.commit {workspaceId, sessionId?, message, paths?}` | commit what is staged, staging `paths` first when given; hooks run → `{sha, summary}` |
@@ -468,7 +469,12 @@ The token is as powerful as the user's shell — a client can switch a session t
   upstream) and opens a pull request with `gh`, saying what each did or git's
   reason it couldn't. Nothing prompts: a push that needs credentials fails
   rather than waiting on a terminal. Each change pushes `git_changed` to every
-  tab. **Files** (`components/FilesPanel.tsx`) is the project folder by
+  tab. A file changed in place opens to its staged and unstaged changes apart
+  (`hunkable`): each unstaged hunk has Stage and Discard (a second click
+  confirms, within 4 s), each staged one Unstage. A new, deleted, renamed or
+  conflicted file goes a file at a time, and shows all its changes against
+  HEAD. Review comments sit on the unstaged side only — the staged side's line
+  numbers are the index's, not the file the agent sees. **Files** (`components/FilesPanel.tsx`) is the project folder by
   folder (`fs.list`, refreshed with `git_changed`), or what a name search
   finds; a file opens in a viewer — line numbers and syntax colours, the diff
   view with nothing changed — with buttons to open it, at the line, in each
