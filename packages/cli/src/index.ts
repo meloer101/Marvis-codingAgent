@@ -12,7 +12,7 @@ import { Command } from 'commander';
 import {
   AGENT_DIR,
   resolveProjectMemoryDir,
-  resolveStateDir,
+  resolveStateDirs,
   BUILTIN_PROVIDERS,
   ProviderError,
   ProviderRegistry,
@@ -24,6 +24,7 @@ import {
   discoverSkills,
   FileOAuthStore,
   MemoryWriteBuffer,
+  findTraceDir,
   listTraceIds,
   loadMcpConfig,
   loadSettings,
@@ -212,7 +213,7 @@ program
   .option('--no-memory', 'do not discover or offer persistent memory')
   .option('--no-subagents', 'do not discover sub-agents or offer the task tool')
   .option('--no-mcp', 'skip MCP discovery entirely')
-  .option('--no-trace', 'do not write a telemetry trace under .agent/traces for this run')
+  .option('--no-trace', 'do not write a telemetry trace for this run')
   .action(
     async (
       prompt: string | undefined,
@@ -680,21 +681,22 @@ program
     'Replay a recorded session as a timeline: every model call and tool call with timing, tokens, and cost',
   )
   .argument('[id]', 'session id; defaults to the most recently written trace')
-  .option('--cwd <dir>', 'workspace root to resolve .agent/traces against', process.cwd())
+  .option('--cwd <dir>', 'the project whose traces to read', process.cwd())
   .option('--json', 'emit the raw trace events as JSON instead of a timeline')
   .action(async (id: string | undefined, opts: { cwd: string; json?: boolean }) => {
-    const agentDir = await resolveStateDir(resolvePath(opts.cwd));
+    const stateDirs = await resolveStateDirs(resolvePath(opts.cwd));
+    const looked = stateDirs.map((dir) => join(dir, 'traces')).join(', ');
     let resolvedId = id;
     if (!resolvedId) {
-      const [newest] = await listTraceIds(agentDir);
-      if (!newest) fail('no traces found under .agent/traces');
+      const [newest] = await listTraceIds(stateDirs);
+      if (!newest) fail(`no traces found (looked in ${looked})`);
       resolvedId = newest.id;
     }
     let events;
     try {
-      events = await readTrace(agentDir, resolvedId);
+      events = await readTrace((await findTraceDir(stateDirs, resolvedId)) ?? stateDirs[0], resolvedId);
     } catch {
-      fail(`no trace for session "${resolvedId}" (looked in ${join(agentDir, 'traces')})`);
+      fail(`no trace for session "${resolvedId}" (looked in ${looked})`);
     }
     if (opts.json) {
       console.log(JSON.stringify(events, null, 2));
@@ -706,21 +708,21 @@ program
 program
   .command('stats')
   .description('Aggregate token usage, cost, and turn counts across every recorded session')
-  .option('--cwd <dir>', 'workspace root to resolve .agent/traces against', process.cwd())
+  .option('--cwd <dir>', 'the project whose traces to read', process.cwd())
   .option('--since <date>', 'only sessions started on or after this date (ISO, e.g. 2026-09-01)')
   .option('--json', 'emit the rollup as JSON')
   .action(async (opts: { cwd: string; since?: string; json?: boolean }) => {
-    const agentDir = await resolveStateDir(resolvePath(opts.cwd));
+    const stateDirs = await resolveStateDirs(resolvePath(opts.cwd));
     let sinceMs = 0;
     if (opts.since !== undefined) {
       sinceMs = Date.parse(opts.since);
       if (Number.isNaN(sinceMs)) fail(`--since: "${opts.since}" is not a recognisable date`);
     }
-    const ids = await listTraceIds(agentDir);
+    const ids = await listTraceIds(stateDirs);
     const summaries: TraceSummary[] = [];
     for (const { id } of ids) {
       try {
-        const s = summarizeTrace(id, await readTrace(agentDir, id));
+        const s = summarizeTrace(id, await readTrace((await findTraceDir(stateDirs, id)) ?? stateDirs[0], id));
         if (s.startedAt >= sinceMs) summaries.push(s);
       } catch {
         // Unreadable or partial trace — leave it out of the totals.

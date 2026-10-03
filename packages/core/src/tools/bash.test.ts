@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -181,7 +181,8 @@ describe('bashTool', () => {
     });
 
     it.runIf(isSandboxExecAvailable())('still refuses a write outside the workspace and the temp dir', async () => {
-      const outside = join(homedir(), `.hc-sandbox-probe-${process.pid}`);
+      // The account's real home: `$HOME` is a directory under the temp dir while tests run.
+      const outside = join(userInfo().homedir, `.hc-sandbox-probe-${process.pid}`);
       const result = await bashTool.execute({ command: `echo x > ${outside}` }, ctx);
       expect(result.isError).toBe(true);
       expect(result.content).toMatch(/not permitted/i);

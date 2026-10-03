@@ -27,7 +27,7 @@ import {
   findProjectRoot,
   loadSettings,
   resolveProjectMemoryDir,
-  resolveStateDir,
+  resolveStateDirs,
   writeUserSettings,
 } from '../config/settings.js';
 import type { AutoModeConfig, Settings } from '../config/settings.js';
@@ -94,6 +94,7 @@ import type { ActiveSkill, AgentControl } from './control.js';
 import {
   SessionRecorder,
   SessionState,
+  findSessionDir,
   loadSession,
   rebuildSessionState,
   sessionArtifactsDir,
@@ -555,8 +556,13 @@ export class AgentSession {
       }
     }
 
+    // A session resumed is logged where it was started — for one from an
+    // earlier version, that is still the project's own `.agent/`.
+    const stateDirs = config.agentDir
+      ? ([config.agentDir] as const)
+      : await resolveStateDirs(cwd, config.homeDir ? { homeDir: config.homeDir } : {});
     const agentDir =
-      config.agentDir ?? (await resolveStateDir(cwd, config.homeDir ? { homeDir: config.homeDir } : {}));
+      (config.resumeId !== undefined ? await findSessionDir(stateDirs, config.resumeId) : undefined) ?? stateDirs[0];
     const recorder =
       config.recorder === false ? undefined : new SessionRecorder(agentDir, config.resumeId);
     const traceOn = config.trace !== false && settings.telemetry?.enabled !== false;
@@ -1612,11 +1618,11 @@ async function looksBinary(path: string): Promise<boolean> {
 }
 
 /**
- * Where a session's full tool outputs go: its artifact directory, when the
- * file tools can open it there — inside the workspace — else the system temp
- * directory, which they also accept. A state dir outside the workspace (a
- * project subdirectory as cwd, a linked worktree, `$HC_STATE_DIR`) would
- * otherwise hand the model paths it can't read.
+ * Where a session's full tool outputs go: the system temp directory, which
+ * the file tools accept — the state dir is under the home directory, and its
+ * paths are ones the model can't read. Its artifact directory only when that
+ * is inside the workspace (`$HC_STATE_DIR` there, a session an earlier version
+ * logged in the project).
  */
 function toolOutputDir(artifactsDir: string, cwd: string, sessionId: string): string {
   const rel = relative(resolve(cwd), artifactsDir);

@@ -190,7 +190,7 @@ describe('a session in a worktree', () => {
     const worktree = snapshot.worktree!;
     expect(worktree.branch).toMatch(/^hc\/add-a-feature-/);
     await runToEnd(hub, snapshot.id);
-    expect((await readSessionMeta(join(root, '.agent'), snapshot.id))?.worktree).toEqual({
+    expect((await readSessionMeta(await resolveStateDir(root), snapshot.id))?.worktree).toEqual({
       path: worktree.path,
       branch: worktree.branch,
       base: 'main',

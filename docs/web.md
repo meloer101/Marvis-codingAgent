@@ -42,8 +42,8 @@ handshake. Open the `dev:` URL the server prints.
 ## Workspaces
 
 A workspace is a project directory the server hosts sessions for
-(`server/src/hub.ts`). Each has its own cwd, state dir (`.agent/` at its
-project root), settings, MCP servers and environment, and its own
+(`server/src/hub.ts`). Each has its own cwd, state dir (`~/.agent/projects/<name>-<hash>/`,
+out of the repository), settings, MCP servers and environment, and its own
 `SessionRegistry`; a `WorkspaceHub` routes every session id to the right one
 (live hosts, then an index, then the logs on disk).
 
@@ -145,7 +145,7 @@ the server with the same schemas the client is typed from.
 | `session.fork {id, userMessage?}` | a new session with the conversation, whole or as far as before that message, its model, mode and effort, titled "… · fork"; a worktree session forks into a worktree of its own, branched from the other's branch → `{id}` |
 | `session.killProcess {id, processId}` | stop a command the session started in the background, and what it started — answers once it has ended |
 | `session.compact {id}` | compact the history now (`busy` while a run is going) |
-| `session.trace {id}` | the session's trace (`.agent/traces/<id>.jsonl`): its events and what they add up to — runs, model and tool calls, tokens, cache hits, cost |
+| `session.trace {id}` | the session's trace (`traces/<id>.jsonl` in the state dir): its events and what they add up to — runs, model and tool calls, tokens, cache hits, cost |
 | `settings.get {workspaceId}` | the permission rules in `~/.agent/settings.json` and the project's `.agent/settings.json`, the built-in allow rules, the user's auto-mode rules beside the built-in ones and why auto mode is unavailable, if it is; files that don't parse are named, never read for more than their rules (a settings file can hold keys) |
 | `settings.setRules {workspaceId, scope, list, rules}` | replace one list (`allow`, `ask`, `deny`) in the user's or the project's settings; every rule must parse, and a file that doesn't is never written over (`bad_request`). The live sessions it applies to — every one for the user's, the project's for its own — take it up at once (`AgentSession.reloadSettings`), keeping what "always allow" granted → the settings again |
 | `settings.setAutoMode {workspaceId, group, rules}` | replace one auto-mode group (`environment`, `allow`, `soft_deny`, `hard_deny`) in the user's settings, `null` for the built-in rules; live sessions take it up |
@@ -205,7 +205,7 @@ its `tool_display` items; none of it is the model's history.
 
 ## Session lifecycle
 
-A session is a log on disk (`.agent/sessions/<id>.jsonl`) and, while someone
+A session is a log on disk (`sessions/<id>.jsonl` in its workspace's state dir) and, while someone
 is using it, a live host on the server: an `AgentSession` with its MCP
 processes. The two are managed separately.
 

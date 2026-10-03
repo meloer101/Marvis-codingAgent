@@ -21,7 +21,7 @@ import { mkdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
-import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir, rollupStats } from '@harness-code/core';
+import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir, rollupStats, stateHome } from '@harness-code/core';
 import type { EffortOptions, PermissionMode } from '@harness-code/core';
 import type {
   AutoModeGroup,
@@ -90,6 +90,8 @@ export interface WorkspaceSetup {
   projectRoot: string;
   /** Where its sessions are recorded. */
   agentDir: string;
+  /** Where an earlier version recorded them (`legacyStateDir`): still listed and opened from there. */
+  legacyDir?: string;
   buildConfig: SessionConfigFactory;
   previewDefaults: () => Promise<{ modelRef: string; mode: PermissionMode }>;
   effortFor: (modelRef: string) => Promise<EffortOptions> | EffortOptions;
@@ -355,8 +357,9 @@ export class WorkspaceHub {
     if (process.env[STATE_DIR_ENV] && this.#entries.size > 0 && !this.#entries.has(workspaceId(root))) {
       return { ...found, problem: `${STATE_DIR_ENV} is set, so every project would share one state directory` };
     }
+    // With its marker made, the directory is a project of its own, recorded under its own name.
     const agentDir = found.needsMarker
-      ? join(root, AGENT_DIR)
+      ? await stateHome(root)
       : await resolveStateDir(root, { env: projectEnv(root, this.#home !== undefined ? { home: this.#home } : {}) });
     const covering =
       this.#entries.get(workspaceId(root)) ?? [...this.#entries.values()].find((e) => e.setup.agentDir === agentDir);
@@ -669,6 +672,7 @@ export class WorkspaceHub {
     const registry = new SessionRegistry({
       cwd: record.root,
       agentDir: setup.agentDir,
+      ...(setup.legacyDir ? { legacyDir: setup.legacyDir } : {}),
       workspaceId: record.id,
       nextRev: () => ++this.#rev,
       buildConfig: setup.buildConfig,

@@ -133,7 +133,7 @@ function fmtBytes(n: number): string {
 
 /** The `marvis stats` table. */
 export function renderStats(r: StatsRollup): string {
-  if (r.sessions === 0) return 'no recorded sessions under .agent/traces';
+  if (r.sessions === 0) return 'no recorded sessions';
 
   const span =
     r.span.from > 0

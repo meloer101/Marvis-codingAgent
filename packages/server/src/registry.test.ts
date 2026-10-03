@@ -7,6 +7,8 @@ import {
   DEFAULT_REASONING_EFFORTS,
   ScriptedProvider,
   SessionRecorder,
+  findSessionDir,
+  readSessionMeta,
   updateSessionMeta,
 } from '@harness-code/core';
 import type { EffortOptions, PermissionMode, ResolvedModel, ScriptedTurn } from '@harness-code/core';
@@ -88,6 +90,40 @@ describe('SessionRegistry.preview', () => {
     tmpDirs.push(cwd);
     const reg = registry(cwd, join(cwd, '.agent'), vi.fn());
     await expect(reg.preview({ id: 'missing' })).rejects.toBeInstanceOf(SessionPreviewNotFoundError);
+  });
+});
+
+describe('SessionRegistry and sessions an earlier version logged in the project', () => {
+  it('lists, previews, renames, forks and deletes them where they are; a fork goes where new ones do', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'hc-registry-'));
+    tmpDirs.push(cwd);
+    const agentDir = join(cwd, 'home-state');
+    const legacyDir = join(cwd, '.agent');
+    await new SessionRecorder(legacyDir, 'old').recordMessage({ role: 'user', content: [{ type: 'text', text: 'from before' }] });
+    const reg = new SessionRegistry({
+      cwd,
+      agentDir,
+      legacyDir,
+      buildConfig: vi.fn(),
+      previewDefaults: async () => ({ modelRef: 'scripted/test-model', mode: 'ask' }),
+      effortFor,
+      sweepMs: 0,
+    });
+
+    expect((await reg.list()).map((row) => row.id)).toEqual(['old']);
+    expect(await reg.has('old')).toBe(true);
+    expect((await reg.preview({ id: 'old' })).transcript).toHaveLength(1);
+
+    await reg.update('old', { title: 'Kept' });
+    expect((await readSessionMeta(legacyDir, 'old'))?.title).toBe('Kept');
+
+    const fork = await reg.fork('old');
+    expect(await findSessionDir([agentDir, legacyDir], fork)).toBe(agentDir);
+    expect((await reg.preview({ id: fork })).transcript).toHaveLength(1);
+
+    await reg.delete('old');
+    expect(await findSessionDir([legacyDir], 'old')).toBeUndefined();
+    expect((await reg.list()).map((row) => row.id)).toEqual([fork]);
   });
 });
 

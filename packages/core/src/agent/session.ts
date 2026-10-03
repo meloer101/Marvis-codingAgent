@@ -5,7 +5,7 @@
  * run: which files have been read (the cheap version of Phase 4's file
  * ledger — presence only, no staleness tracking yet) and the current todo
  * list. `SessionRecorder`/`loadSession` are the on-disk side: every message
- * and tool call is appended to `.agent/sessions/<id>.jsonl` as it happens,
+ * and tool call is appended to `sessions/<id>.jsonl` in the state dir as it happens,
  * so a crash loses at most the in-flight turn, and `--resume` rebuilds the
  * message history *and* the read ledger by replaying the file — a resumed
  * session that already read a file last time shouldn't have to read it
@@ -242,14 +242,17 @@ export function liveEvents(events: readonly SessionEvent[]): SessionEvent[] {
  * Start session `to` as a copy of session `from`'s conversation — whole, or
  * its first `keepMessages` messages — with the calls and compactions that go
  * with them. Nothing else of `from` (metadata, offloaded output) is copied.
+ * `from` is read from `fromDir` when it is logged somewhere other than where
+ * `to` goes.
  */
 export async function forkSession(
   agentDir: string,
   from: string,
   to: string,
   keepMessages?: number,
+  fromDir = agentDir,
 ): Promise<void> {
-  const events = await readSessionEvents(agentDir, from);
+  const events = await readSessionEvents(fromDir, from);
   const kept = keepMessages === undefined ? events : liveEvents([...events, { type: 'rewind', ts: 0, rewind: { keepMessages } }]);
   const path = sessionPath(agentDir, to);
   await mkdir(dirname(path), { recursive: true });
@@ -428,31 +431,54 @@ export async function rebuildSessionState(
 }
 
 /**
- * Every session id under `.agent/sessions`, with its file mtime, newest first.
- * Mirrors `listTraceIds` in `telemetry/trace.ts`, for `/resume` and `hc …` lists.
+ * Every session id logged under `agentDir` — or under any of several, a
+ * session counted once, where it is found first — with its file mtime, newest
+ * first. Mirrors `listTraceIds` in `telemetry/trace.ts`, for `/resume` and
+ * `marvis …` lists.
  */
 export async function listSessionIds(
-  agentDir: string,
+  agentDir: string | readonly string[],
 ): Promise<{ id: string; mtimeMs: number }[]> {
   const { readdir, stat: statPath } = await import('node:fs/promises');
-  let names: string[];
-  try {
-    names = await readdir(join(agentDir, SESSIONS_DIR));
-  } catch {
-    return []; // No sessions dir yet.
-  }
-  const out: { id: string; mtimeMs: number }[] = [];
-  for (const name of names) {
-    if (!name.endsWith('.jsonl')) continue;
-    const id = name.slice(0, -'.jsonl'.length);
+  const out = new Map<string, { id: string; mtimeMs: number }>();
+  for (const dir of typeof agentDir === 'string' ? [agentDir] : agentDir) {
+    let names: string[];
     try {
-      const s = await statPath(sessionPath(agentDir, id));
-      out.push({ id, mtimeMs: s.mtimeMs });
+      names = await readdir(join(dir, SESSIONS_DIR));
     } catch {
-      // Vanished between readdir and stat — skip.
+      continue; // No sessions dir yet.
+    }
+    for (const name of names) {
+      if (!name.endsWith('.jsonl')) continue;
+      const id = name.slice(0, -'.jsonl'.length);
+      if (out.has(id)) continue;
+      try {
+        const s = await statPath(sessionPath(dir, id));
+        out.set(id, { id, mtimeMs: s.mtimeMs });
+      } catch {
+        // Vanished between readdir and stat — skip.
+      }
     }
   }
-  return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return [...out.values()].sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+/**
+ * The state dir session `id` is logged in: the first of `agentDirs` holding
+ * its log (`resolveStateDirs` lists them: where sessions are written, then
+ * where an earlier version left them). Undefined when none does.
+ */
+export async function findSessionDir(agentDirs: readonly string[], id: string): Promise<string | undefined> {
+  const { access } = await import('node:fs/promises');
+  for (const dir of agentDirs) {
+    try {
+      await access(sessionPath(dir, id));
+      return dir;
+    } catch {
+      // Not logged here.
+    }
+  }
+  return undefined;
 }
 
 /** A cheap-to-compute session listing row: id, mtime, and a display title. */

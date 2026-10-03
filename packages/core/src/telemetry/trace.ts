@@ -5,7 +5,7 @@
  * records *what was said* so `--resume` can replay it, this one records *what it
  * cost* — every model call's tokens / cache hits / latency / price, every tool
  * call's duration, every compaction, every sub-agent dispatch, and why each run
- * stopped. Append-per-event to `.agent/traces/<id>.jsonl`, same id as the
+ * stopped. Append-per-event to `traces/<id>.jsonl` in the state dir, same id as the
  * session, so a crash loses at most the in-flight turn.
  *
  * Kept separate from the session log on purpose: the trace carries volatile,
@@ -307,26 +307,45 @@ export async function readTrace(agentDir: string, id: string): Promise<TraceEven
   return events;
 }
 
-/** Every trace id under `.agent/traces`, with its file mtime, newest first. */
+/**
+ * Every trace id under `agentDir` — or under any of several, a trace counted
+ * once, where it is found first — with its file mtime, newest first.
+ */
 export async function listTraceIds(
-  agentDir: string,
+  agentDir: string | readonly string[],
 ): Promise<{ id: string; mtimeMs: number }[]> {
-  let names: string[];
-  try {
-    names = await readdir(join(agentDir, TRACES_DIR));
-  } catch {
-    return []; // No traces dir yet.
-  }
-  const out: { id: string; mtimeMs: number }[] = [];
-  for (const name of names) {
-    if (!name.endsWith('.jsonl')) continue;
-    const id = name.slice(0, -'.jsonl'.length);
+  const out = new Map<string, { id: string; mtimeMs: number }>();
+  for (const dir of typeof agentDir === 'string' ? [agentDir] : agentDir) {
+    let names: string[];
     try {
-      const s = await stat(tracePath(agentDir, id));
-      out.push({ id, mtimeMs: s.mtimeMs });
+      names = await readdir(join(dir, TRACES_DIR));
     } catch {
-      // Vanished between readdir and stat — skip.
+      continue; // No traces dir yet.
+    }
+    for (const name of names) {
+      if (!name.endsWith('.jsonl')) continue;
+      const id = name.slice(0, -'.jsonl'.length);
+      if (out.has(id)) continue;
+      try {
+        const s = await stat(tracePath(dir, id));
+        out.set(id, { id, mtimeMs: s.mtimeMs });
+      } catch {
+        // Vanished between readdir and stat — skip.
+      }
     }
   }
-  return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return [...out.values()].sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+/** The state dir holding trace `id`: the first of `agentDirs` that has it, undefined when none does. */
+export async function findTraceDir(agentDirs: readonly string[], id: string): Promise<string | undefined> {
+  for (const dir of agentDirs) {
+    try {
+      await stat(tracePath(dir, id));
+      return dir;
+    } catch {
+      // Not traced here.
+    }
+  }
+  return undefined;
 }

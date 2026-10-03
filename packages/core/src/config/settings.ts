@@ -76,7 +76,7 @@ export interface Settings extends RouterSettings {
    * its cost (4–8 extra turns) but no gain yet on the tasks it was measured on.
    */
   verifyBeforeStop?: boolean;
-  /** Per-session telemetry trace under `.agent/traces`. Default enabled; `--no-trace` overrides per run. */
+  /** Per-session telemetry trace (`traces/` in the state dir). Default enabled; `--no-trace` overrides per run. */
   telemetry?: { enabled?: boolean };
   /** TUI presentation hints. `theme` is a v1 stub: dark is the default, auto/light land later. */
   tui?: { theme?: 'dark' | 'light' | 'auto'; hideAutoModeSetup?: boolean };
@@ -400,12 +400,14 @@ export async function findStateRoot(cwd = process.cwd()): Promise<string | undef
 export const STATE_DIR_ENV = 'HC_STATE_DIR';
 
 /**
- * Where `hc` keeps what it knows about a directory that is not a project (no
- * `.git`, no `.agent` above it): `~/.agent/projects/<name>-<hash>/`, so running
- * in an arbitrary directory doesn't leave a `.agent/` behind in it.
+ * Where Marvis keeps a directory's runtime state — session logs, traces,
+ * offloaded tool output: `~/.agent/projects/<name>-<hash>/`, keyed by the
+ * directory's real path. Out of the project itself, so a session log (which
+ * holds tool output) is never something `git add -A` picks up, and running in
+ * an arbitrary directory doesn't leave a `.agent/` behind in it.
  */
-export async function looseDirHome(cwd: string, homeDir = homedir()): Promise<string> {
-  const real = await realpath(cwd).catch(() => resolve(cwd));
+export async function stateHome(dir: string, homeDir = homedir()): Promise<string> {
+  const real = await realpath(dir).catch(() => resolve(dir));
   const hash = createHash('sha256').update(real).digest('hex').slice(0, 10);
   const name = (basename(real) || 'root').replace(/[^\w.-]+/g, '_');
   return join(homeDir, AGENT_DIR, 'projects', `${name}-${hash}`);
@@ -413,8 +415,8 @@ export async function looseDirHome(cwd: string, homeDir = homedir()): Promise<st
 
 /**
  * The directory session logs and traces are written under: `$HC_STATE_DIR` when
- * set; `<projectRoot>/.agent` inside a project (in a linked worktree, its main
- * checkout's — `findStateRoot`); otherwise `looseDirHome`.
+ * set; otherwise the `stateHome` of the project (in a linked worktree, of its
+ * main checkout — `findStateRoot`), or of `cwd` itself outside a project.
  */
 export async function resolveStateDir(
   cwd = process.cwd(),
@@ -422,16 +424,43 @@ export async function resolveStateDir(
 ): Promise<string> {
   const override = (opts.env ?? process.env)[STATE_DIR_ENV];
   if (override) return resolve(cwd, override);
+  return stateHome((await findStateRoot(cwd)) ?? cwd, opts.homeDir);
+}
+
+/**
+ * Where versions up to 0.1 logged a project's sessions and traces:
+ * `<projectRoot>/.agent`, inside the repository. Nothing new is written there;
+ * what is there is still listed, resumed and traced. Undefined outside a
+ * project, and under `$HC_STATE_DIR`.
+ */
+export async function legacyStateDir(
+  cwd = process.cwd(),
+  opts: { env?: NodeJS.ProcessEnv } = {},
+): Promise<string | undefined> {
+  if ((opts.env ?? process.env)[STATE_DIR_ENV]) return undefined;
   const root = await findStateRoot(cwd);
-  return root ? join(root, AGENT_DIR) : looseDirHome(cwd, opts.homeDir);
+  return root === undefined ? undefined : join(root, AGENT_DIR);
+}
+
+/**
+ * Every directory a session of `cwd` may be logged in: where they are written
+ * (`resolveStateDir`) first, then where an earlier version left them
+ * (`legacyStateDir`).
+ */
+export async function resolveStateDirs(
+  cwd = process.cwd(),
+  opts: { env?: NodeJS.ProcessEnv; homeDir?: string } = {},
+): Promise<[string, ...string[]]> {
+  const legacy = await legacyStateDir(cwd, opts);
+  return [await resolveStateDir(cwd, opts), ...(legacy === undefined ? [] : [legacy])];
 }
 
 /**
  * Where project-scoped memory lives: `<projectRoot>/.agent/memory` inside a
  * project (shared by its linked worktrees, `findStateRoot`), otherwise under
- * `looseDirHome` — never a fresh `.agent/` in a directory that is not a project.
+ * `stateHome` — never a fresh `.agent/` in a directory that is not a project.
  */
 export async function resolveProjectMemoryDir(cwd = process.cwd(), homeDir?: string): Promise<string> {
   const root = await findStateRoot(cwd);
-  return join(root ? join(root, AGENT_DIR) : await looseDirHome(cwd, homeDir), 'memory');
+  return join(root ? join(root, AGENT_DIR) : await stateHome(cwd, homeDir), 'memory');
 }

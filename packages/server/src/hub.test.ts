@@ -274,18 +274,19 @@ describe('session update / delete', () => {
     await runToEnd(hub, id);
     await hub.update(id, { pinned: true }); // a metadata sidecar
 
-    const sessions = join(a, '.agent', 'sessions');
+    const state = await resolveStateDir(a);
+    const sessions = join(state, 'sessions');
     await mkdir(join(sessions, id), { recursive: true });
     await writeFile(join(sessions, id, 'toolout-1.txt'), 'offloaded output');
     await writeFile(join(sessions, `${id}.meta.json.4f2a.tmp`), '{}'); // left by a crash
-    await mkdir(join(a, '.agent', 'traces'), { recursive: true });
-    await writeFile(join(a, '.agent', 'traces', `${id}.jsonl`), '{}\n');
+    await mkdir(join(state, 'traces'), { recursive: true });
+    await writeFile(join(state, 'traces', `${id}.jsonl`), '{}\n');
     expect(hub.host(id)).toBeDefined(); // live, and idle
 
     await hub.delete(id);
     expect(hub.host(id)).toBeUndefined();
     expect((await readdir(sessions)).filter((n) => n.startsWith(id))).toEqual([]);
-    await expect(access(join(a, '.agent', 'traces', `${id}.jsonl`))).rejects.toThrow();
+    await expect(access(join(state, 'traces', `${id}.jsonl`))).rejects.toThrow();
     expect((await hub.list()).some((r) => r.id === id)).toBe(false);
     const deadline = Date.now() + 2000;
     while (!events.some((e) => e.type === 'session_removed' && e.id === id) && Date.now() < deadline) {

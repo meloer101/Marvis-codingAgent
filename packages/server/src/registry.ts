@@ -24,6 +24,8 @@ import {
 } from '@harness-code/core';
 import {
   forkSession,
+  findSessionDir,
+  findTraceDir,
   listSessionIds,
   listTraceIds,
   loadTranscript,
@@ -85,7 +87,13 @@ function restoredMode(meta: SessionMeta | null): PermissionMode | undefined {
 
 export interface SessionRegistryOptions {
   cwd: string;
+  /** Where its sessions are logged (`resolveStateDir`). */
   agentDir: string;
+  /**
+   * Where an earlier version logged this project's sessions (`legacyStateDir`):
+   * those are listed and opened from there, and stay there.
+   */
+  legacyDir?: string;
   /** Stamped on every summary and snapshot; empty outside a workspace (tests). */
   workspaceId?: string;
   /**
@@ -146,6 +154,8 @@ export class SessionPreviewNotFoundError extends Error {
 export class SessionRegistry {
   readonly #cwd: string;
   readonly #agentDir: string;
+  /** Every dir a session may be logged in: `#agentDir`, then the legacy one. */
+  readonly #stateDirs: readonly string[];
   readonly #workspaceId: string;
   readonly #nextRev: () => number;
   readonly #buildConfig: SessionConfigFactory;
@@ -168,6 +178,7 @@ export class SessionRegistry {
   constructor(opts: SessionRegistryOptions) {
     this.#cwd = opts.cwd;
     this.#agentDir = opts.agentDir;
+    this.#stateDirs = opts.legacyDir && opts.legacyDir !== opts.agentDir ? [opts.agentDir, opts.legacyDir] : [opts.agentDir];
     this.#workspaceId = opts.workspaceId ?? '';
     this.#nextRev = opts.nextRev ?? (() => ++this.#rev);
     this.#buildConfig = opts.buildConfig;
@@ -201,12 +212,13 @@ export class SessionRegistry {
   /** Whether `id` is one of this registry's sessions: live, being resumed, or logged on disk. */
   async has(id: string): Promise<boolean> {
     if (this.#hosts.has(id) || this.#resuming.has(id)) return true;
-    try {
-      await access(sessionPath(this.#agentDir, id));
-      return true;
-    } catch {
-      return false;
-    }
+    return (await findSessionDir(this.#stateDirs, id)) !== undefined;
+  }
+
+  /** The state dir session `id` is logged in; where new ones go, for one not on disk (yet). */
+  async #dirOf(id: string): Promise<string> {
+    if (this.#stateDirs.length === 1) return this.#agentDir;
+    return (await findSessionDir(this.#stateDirs, id)) ?? this.#agentDir;
   }
 
   /**
@@ -226,7 +238,7 @@ export class SessionRegistry {
    */
   async list(stamp?: number): Promise<SessionSummary[]> {
     const rev = stamp ?? this.#nextRev();
-    const ids = new Set((await listSessionIds(this.#agentDir)).map((s) => s.id));
+    const ids = new Set((await listSessionIds(this.#stateDirs)).map((s) => s.id));
     for (const id of this.#hosts.keys()) ids.add(id);
     const rows: SessionSummary[] = [];
     for (const id of ids) {
@@ -241,7 +253,7 @@ export class SessionRegistry {
     const host = this.#hosts.get(id);
     let disk: Awaited<ReturnType<typeof readSessionSummary>> | null = null;
     try {
-      disk = await readSessionSummary(this.#agentDir, id);
+      disk = await readSessionSummary(await this.#dirOf(id), id);
     } catch {
       // Not on disk (yet), or vanished/unreadable since it was listed.
     }
@@ -360,7 +372,8 @@ export class SessionRegistry {
    * back to the defaults rather than making the session unopenable.
    */
   async #resume(id: string): Promise<SessionHost> {
-    const meta = await readSessionMeta(this.#agentDir, id);
+    const agentDir = await this.#dirOf(id);
+    const meta = await readSessionMeta(agentDir, id);
     const mode = restoredMode(meta);
     // A session archived since has no worktree: check its branch out again.
     const worktree = meta?.worktree;
@@ -396,6 +409,7 @@ export class SessionRegistry {
     }
     const host = await this.#start(config, {
       hasMeta: meta !== null,
+      agentDir,
       ...(cwd && worktree ? { cwd, worktree } : {}),
     });
     this.#announce(host.id);
@@ -410,7 +424,7 @@ export class SessionRegistry {
   async checkoutOf(id: string): Promise<SessionCheckout> {
     const host = this.#hosts.get(id);
     if (host) return host.worktree && host.cwd ? { cwd: host.cwd, worktree: host.worktree } : { cwd: this.#cwd };
-    const worktree = (await readSessionMeta(this.#agentDir, id))?.worktree;
+    const worktree = (await readSessionMeta(await this.#dirOf(id), id))?.worktree;
     if (!worktree) return { cwd: this.#cwd };
     const cwd = worktreeCwd(worktree, await this.#workspacePrefix());
     return { cwd, worktree, ...((await exists(worktree.path)) ? {} : { missing: true }) };
@@ -450,10 +464,11 @@ export class SessionRegistry {
     const live = this.#hosts.get(opts.id);
     if (live) return live.snapshot();
     try {
-      const transcript = await loadTranscript(this.#agentDir, opts.id);
+      const agentDir = await this.#dirOf(opts.id);
+      const transcript = await loadTranscript(agentDir, opts.id);
       const [defaults, meta] = await Promise.all([
         this.#previewDefaults(),
-        readSessionMeta(this.#agentDir, opts.id),
+        readSessionMeta(agentDir, opts.id),
       ]);
       const modelRef = meta?.model ?? defaults.modelRef;
       const { levels, initial } = await this.#effortFor(modelRef);
@@ -489,7 +504,7 @@ export class SessionRegistry {
     if (!(await this.has(id))) throw new SessionPreviewNotFoundError(id);
     if (patch.archived === true) await this.#putAwayWorktree(id, patch.force === true);
     const title = patch.title?.replace(/\s+/g, ' ').trim();
-    await updateSessionMeta(this.#agentDir, id, {
+    await updateSessionMeta(await this.#dirOf(id), id, {
       ...(patch.title !== undefined ? { title: title || undefined } : {}),
       ...(patch.pinned !== undefined ? { pinned: patch.pinned || undefined } : {}),
       ...(patch.archived !== undefined ? { archived: patch.archived || undefined } : {}),
@@ -503,15 +518,15 @@ export class SessionRegistry {
   /** Session `id`'s trace and what it adds up to; empty when it has none (tracing off, nothing run yet). */
   async trace(id: string): Promise<SessionTrace> {
     if (!(await this.has(id))) throw new SessionPreviewNotFoundError(id);
-    const events = await readTrace(this.#agentDir, id).catch(() => []);
+    const events = await readTrace(await this.#dirOf(id), id).catch(() => []);
     return { events, summary: summarizeTrace(id, events) };
   }
 
   /** Every traced session of this workspace started at or after `since`, folded, newest first. */
   async stats(since = 0): Promise<SessionStats[]> {
     const out: SessionStats[] = [];
-    for (const { id } of await listTraceIds(this.#agentDir)) {
-      const events = await readTrace(this.#agentDir, id).catch(() => null);
+    for (const { id } of await listTraceIds(this.#stateDirs)) {
+      const events = await readTrace((await findTraceDir(this.#stateDirs, id)) ?? this.#agentDir, id).catch(() => null);
       if (!events?.length) continue;
       const summary = summarizeTrace(id, events);
       if (summary.startedAt >= since) out.push({ ...summary, workspaceId: this.#workspaceId });
@@ -528,14 +543,15 @@ export class SessionRegistry {
    */
   async fork(id: string, userMessage?: number): Promise<string> {
     if (!(await this.has(id))) throw new SessionPreviewNotFoundError(id);
+    const fromDir = await this.#dirOf(id);
     let keep: number | undefined;
     if (userMessage !== undefined) {
-      keep = userEntryMessageIndexes(await loadTranscript(this.#agentDir, id))[userMessage];
+      keep = userEntryMessageIndexes(await loadTranscript(fromDir, id))[userMessage];
       if (keep === undefined) throw new InvalidRequestError(`there is no user message ${userMessage} to fork at`);
     }
     const [meta, summary] = await Promise.all([
-      readSessionMeta(this.#agentDir, id),
-      readSessionSummary(this.#agentDir, id).catch(() => null),
+      readSessionMeta(fromDir, id),
+      readSessionSummary(fromDir, id).catch(() => null),
     ]);
     const title = `${summary?.title ?? 'Session'} · fork`;
     let worktree: SessionWorktreeMeta | undefined;
@@ -555,7 +571,7 @@ export class SessionRegistry {
     }
     const forkId = randomUUID();
     try {
-      await forkSession(this.#agentDir, id, forkId, keep);
+      await forkSession(this.#agentDir, id, forkId, keep, fromDir);
       await updateSessionMeta(
         this.#agentDir,
         forkId,
@@ -585,7 +601,7 @@ export class SessionRegistry {
    */
   async #putAwayWorktree(id: string, force: boolean): Promise<void> {
     const host = this.#hosts.get(id);
-    const worktree = host?.worktree ?? (await readSessionMeta(this.#agentDir, id))?.worktree;
+    const worktree = host?.worktree ?? (await readSessionMeta(await this.#dirOf(id), id))?.worktree;
     if (!worktree || !(await exists(worktree.path))) return;
     if (host?.running || host?.pending) throw new BusyError('the session is running; stop it first');
     if (!force) {
@@ -620,21 +636,22 @@ export class SessionRegistry {
     if (!(await this.has(id))) throw new SessionPreviewNotFoundError(id);
     const host = this.#hosts.get(id);
     if (host?.running) throw new BusyError('the session is running; stop it first');
-    const worktree = host?.worktree ?? (await readSessionMeta(this.#agentDir, id))?.worktree;
+    const agentDir = await this.#dirOf(id);
+    const worktree = host?.worktree ?? (await readSessionMeta(agentDir, id))?.worktree;
     if (host) {
       this.#hosts.delete(id);
       await host.close();
     }
-    const metaPath = sessionMetaPath(this.#agentDir, id);
+    const metaPath = sessionMetaPath(agentDir, id);
     const leftovers = (await readdir(dirname(metaPath)).catch(() => [] as string[]))
       .filter((name) => name.startsWith(`${id}.meta.json.`) && name.endsWith('.tmp'))
       .map((name) => join(dirname(metaPath), name));
     await Promise.all(
-      [sessionPath(this.#agentDir, id), metaPath, tracePath(this.#agentDir, id), ...leftovers].map((path) =>
+      [sessionPath(agentDir, id), metaPath, tracePath(agentDir, id), ...leftovers].map((path) =>
         rm(path, { force: true }),
       ),
     );
-    await rm(sessionArtifactsDir(this.#agentDir, id), { recursive: true, force: true });
+    await rm(sessionArtifactsDir(agentDir, id), { recursive: true, force: true });
     if (worktree) await this.#dropWorktree(worktree);
     this.#announce(id);
   }
@@ -653,10 +670,10 @@ export class SessionRegistry {
     this.#hosts.clear();
     await Promise.all(hosts.map((h) => h.close()));
     if (this.#dropWorktrees) {
-      const ids = new Set([...(await listSessionIds(this.#agentDir)).map((s) => s.id)]);
+      const ids = new Set([...(await listSessionIds(this.#stateDirs)).map((s) => s.id)]);
       const worktrees = hosts.flatMap((h) => (h.worktree ? [h.worktree] : []));
       for (const id of ids) {
-        const worktree = (await readSessionMeta(this.#agentDir, id))?.worktree;
+        const worktree = (await readSessionMeta(await this.#dirOf(id), id))?.worktree;
         if (worktree && !worktrees.some((w) => w.path === worktree.path)) worktrees.push(worktree);
       }
       for (const worktree of worktrees) await this.#dropWorktree(worktree);
@@ -701,10 +718,13 @@ export class SessionRegistry {
 
   async #start(
     config: AgentSessionConfig,
-    opts: { hasMeta: boolean; cwd?: string; worktree?: SessionWorktreeMeta },
+    opts: { hasMeta: boolean; agentDir?: string; cwd?: string; worktree?: SessionWorktreeMeta },
   ): Promise<SessionHost> {
+    // Logged where this registry lists them, wherever the session works: a
+    // new one in `#agentDir`, a resumed one where its log is.
+    const agentDir = config.agentDir ?? opts.agentDir ?? this.#agentDir;
     const host: SessionHost = new SessionHost({
-      agentDir: this.#agentDir,
+      agentDir,
       cwd: opts.cwd ?? this.#cwd,
       ...(opts.worktree ? { worktree: opts.worktree } : {}),
       ...(this.#workspaceId ? { workspaceId: this.#workspaceId } : {}),
@@ -714,8 +734,7 @@ export class SessionRegistry {
     });
     const session = await AgentSession.create({
       ...config,
-      // Logged where this registry lists them, wherever the session works.
-      agentDir: config.agentDir ?? this.#agentDir,
+      agentDir,
       askHandler: host.ask,
       confirm: host.confirm,
       onEvent: host.onAgentEvent,

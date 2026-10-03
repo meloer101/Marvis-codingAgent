@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  legacyStateDir,
   resolveStateDir,
   ProviderRegistry,
   VERSION,
@@ -176,6 +177,7 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
     // demo never touches the project's real `.agent/` — see `mockConfigFactory`.
     const mockDir = mock ? await mkdtemp(join(tmpdir(), 'hc-web-mock-')) : undefined;
     const agentDir = mockDir ?? (await resolveStateDir(root, { env }));
+    const legacyDir = mock ? undefined : await legacyStateDir(root, { env });
 
     const defaults = async (): Promise<WorkspaceDefaults> => {
       if (mock) {
@@ -251,6 +253,7 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
     return {
       projectRoot,
       agentDir,
+      ...(legacyDir ? { legacyDir } : {}),
       buildConfig,
       defaults,
       models,

@@ -23,10 +23,10 @@
 ### 待决定（产品取舍，不是工程量）
 - **主会话要不要开启 `finalSummaryTurn`？** 最后一回合去掉工具、强制给出总结，目前只有子代理开启
   （`subagents/run.ts`）。决定开启的话，要测量效果。*(S)*
-- **项目里的会话和 trace 要不要也移出仓库？** 现在只有"不是项目的目录"写到 `~/.agent/projects/`；在项目里仍写
-  `<项目根>/.agent/{sessions,traces}`。本仓库的 `.gitignore` 忽略了它们，但别人的仓库不一定，`git add -A` 会把
-  会话日志（含工具输出）提交进去。Claude Code 和 codex 都把这类状态放在 home 下。改的话要让 `--resume`、`marvis trace`、
-  `marvis stats`、TUI 和 web 的会话列表同时读新旧两个位置。*(S–M)*
+- **plan 文件要不要也移出仓库？** 10-03 起会话和 trace 写到 `~/.agent/projects/<name>-<hash>/`（旧位置只读，见
+  [`architecture.md`](./architecture.md) 的 Runtime layout），但 plan 模式的输出仍写在 `<项目根>/.agent/plans/`，会出现在
+  `git status` 和 web 的 Changes 面板里。Claude Code 把 plan 放在 home 下。移动它会改变模型看到的路径（要重录
+  cassette，`plan-then-implement` 的断言也读这个目录）。*(S)*
 - **能力位覆盖要不要拆回独立的 `capabilities.yaml`？** 目前放在 `.agent/settings.json` 的
   `capabilities` 字段里，拆出来成本很低。
 
@@ -229,6 +229,9 @@
 
 ## I · Operational hardening
 
+- **卸载的工具输出不持久**：状态目录移到 home 之后，被截断或压缩掉的完整工具输出只能放系统临时目录
+  （`toolOutputDir`，文件工具读得到的地方）。临时目录被清理后，恢复的会话里指向它的占位符就读不到了，模型只能重跑命令。
+  剩下：让文件工具能读本会话在状态目录下的 `sessions/<id>/`，再把输出放回那里。*(S)*
 - **[codex] 持久化每回合的上下文记录**：会话日志现在只存消息。codex 还持久化回合上下文、world-state
   快照和压缩标记，resume / fork 时能精确还原模型可见的布局和设置（`rollout/src/policy.rs`、
   `core/src/session/rollout_reconstruction.rs`）。这是 E「其余状态变化也以追加片段注入」在

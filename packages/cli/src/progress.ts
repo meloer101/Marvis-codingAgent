@@ -3,7 +3,7 @@
  *
  * `--output-format json` keeps stdout to one result object; these lines go to
  * stderr so a scripted caller (the Harbor adapter's `hc.log`) can watch a run
- * as it happens instead of reconstructing it from `.agent/traces` afterwards.
+ * as it happens instead of reconstructing it from the trace afterwards.
  * snake_case, like `ResultJSON`. Token deltas and per-turn context snapshots
  * are deliberately left out — one line per token would drown the log. The
  * shapes are meant to be reused as-is for `--output-format stream-json`.

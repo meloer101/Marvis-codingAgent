@@ -14,7 +14,8 @@ import { Box, Static, Text, useInput, useStdout } from 'ink';
 
 import type { AgentSession, PermissionMode, ReasoningEffort } from '@harness-code/core';
 import {
-  resolveStateDir,
+  resolveStateDirs,
+  findSessionDir,
   listSessionIds,
   loadTranscript,
   nextPermissionMode,
@@ -416,8 +417,8 @@ export function App({
         await session.close();
         buffer.reset();
         setSession(next);
-        const agentDir = await resolveStateDir(cwd);
-        const items = await loadTranscript(agentDir, id).catch(() =>
+        const stateDirs = await resolveStateDirs(cwd);
+        const items = await loadTranscript((await findSessionDir(stateDirs, id)) ?? stateDirs[0], id).catch(() =>
           next.messages.map((message) => ({ type: 'message' as const, ts: 0, message })),
         );
         d({
@@ -510,7 +511,7 @@ export function App({
     if (state.overlay !== 'resume') return;
     let cancelled = false;
     void (async () => {
-      const list = await listSessionIds(await resolveStateDir(cwd));
+      const list = await listSessionIds(await resolveStateDirs(cwd));
       if (!cancelled) setSessions(list);
     })();
     return () => {

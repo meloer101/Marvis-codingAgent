@@ -11,10 +11,12 @@ import {
   findProjectRoot,
   findStateRoot,
   linkedWorktreeMain,
+  legacyStateDir,
   loadSettings,
-  looseDirHome,
   resolveProjectMemoryDir,
   resolveStateDir,
+  resolveStateDirs,
+  stateHome,
 } from './settings.js';
 
 describe('state directory', () => {
@@ -30,13 +32,32 @@ describe('state directory', () => {
     await rm(base, { recursive: true, force: true });
   });
 
-  it('stays in <projectRoot>/.agent inside a project', async () => {
+  it("goes under ~/.agent/projects for a project too, out of its repository; its memory stays in it", async () => {
     const repo = join(base, 'repo');
     await mkdir(join(repo, '.git'), { recursive: true });
     await mkdir(join(repo, 'src'));
     const cwd = join(repo, 'src');
-    expect(await resolveStateDir(cwd, { env: {}, homeDir: home })).toBe(join(repo, '.agent'));
+    const state = await resolveStateDir(cwd, { env: {}, homeDir: home });
+    expect(state.startsWith(join(home, '.agent', 'projects', 'repo-'))).toBe(true);
+    expect(state).toBe(await stateHome(repo, home)); // the project's, wherever in it the session runs
     expect(await resolveProjectMemoryDir(cwd, home)).toBe(join(repo, '.agent', 'memory'));
+  });
+
+  it("still looks where earlier versions logged a project's sessions: <projectRoot>/.agent", async () => {
+    const repo = join(base, 'repo');
+    await mkdir(join(repo, '.git'), { recursive: true });
+    await mkdir(join(repo, 'src'));
+    const cwd = join(repo, 'src');
+    expect(await legacyStateDir(cwd, { env: {} })).toBe(join(repo, '.agent'));
+    expect(await resolveStateDirs(cwd, { env: {}, homeDir: home })).toEqual([
+      await stateHome(repo, home),
+      join(repo, '.agent'),
+    ]);
+    // Nowhere else to look outside a project, or when the state dir is named.
+    const loose = join(base, 'app');
+    await mkdir(loose);
+    expect(await legacyStateDir(loose, { env: {} })).toBeUndefined();
+    expect(await resolveStateDirs(repo, { env: { [STATE_DIR_ENV]: '/logs/state' } })).toEqual(['/logs/state']);
   });
 
   it('goes under ~/.agent/projects for a directory that is not a project', async () => {
@@ -46,15 +67,15 @@ describe('state directory', () => {
     expect(await findProjectRoot(loose)).toBe(loose); // unchanged: config is still read from cwd
     const state = await resolveStateDir(loose, { env: {}, homeDir: home });
     expect(state.startsWith(join(home, '.agent', 'projects', 'app-'))).toBe(true);
-    expect(state).toBe(await looseDirHome(loose, home));
+    expect(state).toBe(await stateHome(loose, home));
     expect(await resolveProjectMemoryDir(loose, home)).toBe(join(state, 'memory'));
   });
 
   it('keeps two same-named directories apart', async () => {
     await mkdir(join(base, 'a', 'app'), { recursive: true });
     await mkdir(join(base, 'b', 'app'), { recursive: true });
-    const a = await looseDirHome(join(base, 'a', 'app'), home);
-    const b = await looseDirHome(join(base, 'b', 'app'), home);
+    const a = await stateHome(join(base, 'a', 'app'), home);
+    const b = await stateHome(join(base, 'b', 'app'), home);
     expect(a).not.toBe(b);
   });
 
@@ -95,7 +116,7 @@ describe('state directory', () => {
       expect(await findMarkedProjectRoot(join(wt, 'pkg'))).toBe(wt);
       expect(await findProjectRoot(wt)).toBe(wt);
       expect(await findStateRoot(join(wt, 'pkg'))).toBe(repo);
-      expect(await resolveStateDir(wt, { env: {}, homeDir: home })).toBe(join(repo, '.agent'));
+      expect(await resolveStateDir(wt, { env: {}, homeDir: home })).toBe(await stateHome(repo, home));
       expect(await resolveProjectMemoryDir(join(wt, 'pkg'), home)).toBe(join(repo, '.agent', 'memory'));
     });
 

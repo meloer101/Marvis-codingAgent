@@ -10,6 +10,8 @@ import { DEFAULT_CAPABILITIES } from '../provider/capabilities.js';
 import {
   SessionRecorder,
   SessionState,
+  findSessionDir,
+  forkSession,
   listSessionIds,
   loadSession,
   loadTranscript,
@@ -494,5 +496,38 @@ describe('session metadata sidecar', () => {
     expect(after.meta).toMatchObject({ pinned: true });
     expect(after.mtimeMs).toBe(before.mtimeMs); // the log itself was not touched
     expect((await listSessionIds(agentDir)).map((s) => s.id)).toEqual(['named']);
+  });
+});
+
+describe('sessions logged in more than one state dir', () => {
+  let current: string;
+  let legacy: string;
+  const say = (text: string) => ({ role: 'user' as const, content: [{ type: 'text' as const, text }] });
+
+  beforeEach(async () => {
+    current = await realpath(await mkdtemp(join(tmpdir(), 'hc-session-home-')));
+    legacy = await realpath(await mkdtemp(join(tmpdir(), 'hc-session-legacy-')));
+  });
+
+  afterEach(async () => {
+    await Promise.all([current, legacy].map((dir) => rm(dir, { recursive: true, force: true })));
+  });
+
+  it('lists them all, each once, and finds the dir a session is logged in', async () => {
+    await new SessionRecorder(current, 'new').recordMessage(say('logged where sessions go now'));
+    await new SessionRecorder(legacy, 'old').recordMessage(say('logged by an earlier version'));
+    await new SessionRecorder(legacy, 'new').recordMessage(say('a stale copy'));
+
+    expect((await listSessionIds([current, legacy])).map((s) => s.id).sort()).toEqual(['new', 'old']);
+    expect(await findSessionDir([current, legacy], 'new')).toBe(current);
+    expect(await findSessionDir([current, legacy], 'old')).toBe(legacy);
+    expect(await findSessionDir([current, legacy], 'nowhere')).toBeUndefined();
+  });
+
+  it('forks one logged elsewhere into the dir new sessions go to', async () => {
+    await new SessionRecorder(legacy, 'old').recordMessage(say('before'));
+    await forkSession(current, 'old', 'fork', undefined, legacy);
+    expect(await findSessionDir([current, legacy], 'fork')).toBe(current);
+    expect(await loadSession(current, 'fork')).toHaveLength(1);
   });
 });

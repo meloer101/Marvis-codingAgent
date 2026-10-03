@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,7 +13,7 @@ import { ProviderError, userText } from '../provider/types.js';
 import type { Provider, StreamEvent } from '../provider/types.js';
 import { ToolRegistry } from '../tools/registry.js';
 import type { ToolSpec } from '../tools/types.js';
-import { TraceRecorder, listTraceIds, readTrace, tracePath } from './trace.js';
+import { TraceRecorder, findTraceDir, listTraceIds, readTrace, tracePath } from './trace.js';
 import type { TraceEvent } from './trace.js';
 
 function model(provider: Provider, caps: Partial<typeof DEFAULT_CAPABILITIES> = {}): ResolvedModel {
@@ -233,5 +233,24 @@ describe('TraceRecorder driven by AgentLoop', () => {
     const err = events.find((e): e is Extract<TraceEvent, { type: 'error' }> => e.type === 'error');
     expect(err?.scope).toBe('provider');
     expect(err?.message).toContain('upstream 500');
+  });
+});
+
+describe('traces in more than one state dir', () => {
+  it('lists them all, each once, and finds the dir a trace is in', async () => {
+    const current = await realpath(await mkdtemp(join(tmpdir(), 'hc-trace-home-')));
+    const legacy = await realpath(await mkdtemp(join(tmpdir(), 'hc-trace-legacy-')));
+    try {
+      for (const [dir, id] of [[current, 'new'], [legacy, 'old'], [legacy, 'new']] as const) {
+        await mkdir(join(dir, 'traces'), { recursive: true });
+        await writeFile(tracePath(dir, id), '');
+      }
+      expect((await listTraceIds([current, legacy])).map((t) => t.id).sort()).toEqual(['new', 'old']);
+      expect(await findTraceDir([current, legacy], 'new')).toBe(current);
+      expect(await findTraceDir([current, legacy], 'old')).toBe(legacy);
+      expect(await findTraceDir([current, legacy], 'nowhere')).toBeUndefined();
+    } finally {
+      await Promise.all([current, legacy].map((dir) => rm(dir, { recursive: true, force: true })));
+    }
   });
 });

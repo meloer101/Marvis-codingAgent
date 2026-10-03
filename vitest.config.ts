@@ -5,6 +5,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     testTimeout: 20_000,
+    // The run gets a home directory of its own.
+    globalSetup: ['./vitest.setup.ts'],
     projects: [
       {
         test: {

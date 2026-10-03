@@ -11,7 +11,8 @@ import { ProviderError } from '../provider/types.js';
 import type { Provider } from '../provider/types.js';
 import type { ResolvedModel } from '../provider/router.js';
 import type { AgentEvent } from './loop.js';
-import { forkSession, liveEvents, loadSession, loadTranscript, readSessionSummary } from './session.js';
+import { findSessionDir, forkSession, liveEvents, loadSession, loadTranscript, readSessionSummary } from './session.js';
+import { resolveStateDir } from '../config/settings.js';
 import { AgentSession, AttachmentError, skillInvocation } from './session-runner.js';
 import type { AgentSessionConfig, Notice } from './session-runner.js';
 
@@ -615,6 +616,37 @@ describe('AgentSession', () => {
       'tool_call',
       'message:d',
     ]);
+  });
+
+  it("resumes a session an earlier version logged in the project's own .agent, there; a new one is logged under the home", async () => {
+    const cwd = await tempDir();
+    const home = await tempDir();
+    await mkdir(join(cwd, '.git'));
+    const legacy = join(cwd, '.agent');
+    const first = await createSession({
+      cwd,
+      agentDir: legacy,
+      recorder: true,
+      model: sessionModel(new ScriptedProvider([{ text: 'one' }])),
+    });
+    await first.session.runTurn('first');
+
+    // No state dir named: found by where its log is.
+    const resumed = await createSession({
+      cwd,
+      homeDir: home,
+      recorder: true,
+      resumeId: first.session.id,
+      model: sessionModel(new ScriptedProvider([{ text: 'two' }])),
+    });
+    await resumed.session.runTurn('second');
+    expect(await loadSession(legacy, first.session.id)).toHaveLength(4);
+
+    const fresh = await createSession({ cwd, homeDir: home, recorder: true });
+    await fresh.session.runTurn('new');
+    const stateDir = await resolveStateDir(cwd, { homeDir: home });
+    expect(stateDir.startsWith(join(home, '.agent', 'projects'))).toBe(true);
+    expect(await findSessionDir([stateDir, legacy], fresh.session.id)).toBe(stateDir);
   });
 
   it('a resumed session remembers what was attached', async () => {

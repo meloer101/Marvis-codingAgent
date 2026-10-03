@@ -113,7 +113,7 @@ one-shot, REPL, TUI, and web unchanged, and a sub-agent is just another
 
 `AgentSession` (`agent/session*.ts`, `control.ts`) wraps the loop as the façade
 the frontends drive: it owns `SessionState` (including the read-before-write
-ledger), session persistence to `.agent/sessions/<id>.jsonl` (for `--resume`),
+ledger), session persistence to `sessions/<id>.jsonl` in the project's state dir (for `--resume`),
 the activated-skill set, and flushes buffered memory writes at `close()`.
 
 ### One turn, end to end
@@ -134,7 +134,7 @@ flowchart TD
   CP -->|>=92%| K[Compact: structured digest<br/>+ never-drop safety invariants<br/>+ offload pruned output]
   CP -->|no| A
   K --> A
-  A -->|every step| T[(Telemetry trace<br/>.agent/traces/id.jsonl)]
+  A -->|every step| T[(Telemetry trace<br/>traces/id.jsonl)]
   A -->|end_turn / budget / abort| D[Result + usage to frontend]
 ```
 
@@ -153,7 +153,7 @@ flowchart TD
   denied-permission boundaries from history and re-injects any the summarizer
   dropped — compaction cannot silently lose a "don't touch X" or a refused scope.
   The same module prunes bulky `tool_result` bodies and **offloads** them to
-  `.agent/sessions/<id>/toolout-*.txt`, leaving a placeholder that points `read`
+  `toolout-*.txt` files, leaving a placeholder that points `read`
   at the file (reversible; a write failure falls back to a re-call stub).
 - **`tool-output.ts`** — one token cap (default 10k) on every tool result as it
   enters history, keeping the start and the end; the full text goes to the same
@@ -259,7 +259,7 @@ folds into the session total. The sub-agent's system prompt shares the parent's
 ## Pillar 4 — Observability & evaluation
 
 **Telemetry** (`packages/core/src/telemetry/`) appends a structured trace to
-`.agent/traces/<id>.jsonl` — one event per model call (tokens / cache / latency /
+`traces/<id>.jsonl` in the project's state dir — one event per model call (tokens / cache / latency /
 cost), tool call (input summary, duration, output bytes, `denied` flag),
 compaction, sub-agent rollup, provider error, and run outcome. It is a *separate*
 file from the session log: the session log stays messages-only for `--resume`,
@@ -285,33 +285,41 @@ prints the comparison the README's ablation tables come from.
 
 ## Runtime layout (`.agent/`)
 
-Everything a run produces or reads lives under `.agent/`, aligned with Claude
-Code's shapes so ecosystem MCP servers and skills drop in unchanged:
+What a project configures lives in its `.agent/`, aligned with Claude Code's
+shapes so ecosystem MCP servers and skills drop in unchanged; what a run
+records lives under the home directory, as Claude Code and codex keep theirs:
 
 ```
-.agent/
+<project>/.agent/
   settings.json        model / provider / capability overrides (layered under ~/.agent/)
   .mcp.json            MCP servers (stdio / http / sse), ${ENV} interpolation
   agents/*.md          sub-agent definitions
   skills/**/SKILL.md   project skills (progressive disclosure)
   memory/              project-scoped cross-session memory
   plans/<slug>.md      plan-mode output
-  sessions/<id>.jsonl  resumable conversation log (+ <id>/toolout-*.txt offloads)
+
+~/.agent/projects/<name>-<hash>/     the project's state dir (`resolveStateDir`)
+  sessions/<id>.jsonl  resumable conversation log (+ <id>.meta.json)
   traces/<id>.jsonl    telemetry
 ```
 
-That is the layout inside a project (a directory with `.git` or `.agent` above
-it). Run in a directory that is not one, `marvis` keeps `sessions/`, `traces/` and
-`memory/` under `~/.agent/projects/<name>-<hash>/` instead, so it leaves no
-`.agent/` behind; `HC_STATE_DIR` sends `sessions/` and `traces/` anywhere — the
-Harbor adapter points it at the trial's log dir, so an agent working in a task
-directory never finds (or commits) the harness's own logs there. In a linked
-git worktree, settings, `.mcp.json`, `memory/`, `sessions/` and `traces/` are
-its main checkout's (`findStateRoot`): the same project on another branch;
-what it checks out — agents, skills, plans, `AGENTS.md` — is its own. Wherever
-the session's `sessions/<id>/` is outside the workspace (a worktree, a project
-subdirectory, `HC_STATE_DIR`), offloaded tool output goes to the system temp
-dir instead, where `read` can open it.
+A session log holds tool output — file contents, command output — so it stays
+out of the repository: nothing a session records is there for `git add -A` to
+pick up. The state dir is keyed by the project root's real path (a directory
+with `.git` or `.agent` above it; the directory itself when there is none, and
+then its `memory/` goes there too, so no `.agent/` is left behind).
+`HC_STATE_DIR` sends `sessions/` and `traces/` anywhere — the Harbor adapter
+points it at the trial's log dir. In a linked git worktree, settings,
+`.mcp.json`, `memory/` and the state dir are its main checkout's
+(`findStateRoot`): the same project on another branch; what it checks out —
+agents, skills, plans, `AGENTS.md` — is its own. Offloaded tool output goes to
+the system temp dir, where `read` can open it (to `sessions/<id>/` only when
+the state dir is inside the workspace, as `HC_STATE_DIR` can make it).
+
+Versions up to 0.1 logged a project's sessions and traces in
+`<project>/.agent/{sessions,traces}`. Those are still listed, resumed, traced
+and counted from there (`legacyStateDir`, `resolveStateDirs`), and a resumed
+one keeps its log where it is; nothing new is written there.
 
 Settings layer built-in defaults → `~/.agent/settings.json` →
 `.agent/settings.json`. Credentials come only from the environment
