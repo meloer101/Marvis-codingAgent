@@ -11,7 +11,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { startServer } from '@harness-code/server';
+import { loadPty, startServer } from '@harness-code/server';
 import type { RunningServer } from '@harness-code/server';
 import { WebSocket } from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -32,6 +32,7 @@ const emptyState = (): AppState => ({
   models: {},
   git: {},
   gitRev: {},
+  terminals: {},
   restored: {},
   error: null,
   helpOpen: false,
@@ -77,6 +78,9 @@ function tab(server: RunningServer, wrap?: (socket: SocketLike) => void, opts: {
   cleanups.push(() => sync.stop());
   return { sync, store };
 }
+
+/** Terminals need node-pty, which may not load everywhere. */
+const ptyLoads = (await loadPty()) !== null;
 
 let debugState: (() => unknown) | undefined;
 async function until<T>(read: () => T | undefined | null | false, what: string, ms = 5000): Promise<T> {
@@ -403,6 +407,49 @@ describe('SessionSync ↔ hc web --mock', () => {
     expect(dropped).toBe(true);
     const bView = () => b.store.getState().views[id!];
     await until(() => bView() && !bView()!.hydrating, 'tab B view after the reconnect', 8000);
+  });
+
+  it.skipIf(!ptyLoads)('runs a terminal, and replays what it printed after the socket drops', async () => {
+    const shell = process.env['SHELL'];
+    process.env['SHELL'] = '/bin/sh';
+    try {
+      const { server } = await boot();
+      let socket: SocketLike | undefined;
+      const a = tab(server, (s) => (socket = s));
+      await until(() => a.store.getState().info, 'server info');
+      expect(a.store.getState().info!.capabilities.terminal).toBe(true);
+      const workspaceId = a.store.getState().workspaces[0]!.id;
+      const t = await a.sync.createTerminal(workspaceId, 80, 24);
+      expect(t).toBeTruthy();
+      await until(() => a.store.getState().terminals[workspaceId]?.length === 1, 'the terminal listed');
+
+      let screen = '';
+      let resets = 0;
+      let exitCode: number | undefined;
+      a.sync.attachTerminal(t!.id, {
+        onReset: (scrollback) => {
+          resets++;
+          screen = scrollback;
+        },
+        onData: (d) => (screen += d),
+        onExit: (code) => (exitCode = code),
+        onGone: () => {},
+      });
+      await until(() => resets === 1, 'attached');
+      a.sync.terminalInput(t!.id, 'echo first-$((1+1))\r');
+      await until(() => screen.includes('first-2'), 'the first output');
+
+      // The socket drops; the terminal carries on; the reconnect replays it.
+      socket!.close();
+      await until(() => resets === 2 && a.store.getState().status === 'open', 'attached again after the reconnect', 8000);
+      expect(screen).toContain('first-2');
+      a.sync.terminalInput(t!.id, 'exit 4\r');
+      await until(() => exitCode === 4, 'the exit');
+      await a.sync.closeTerminal(t!.id);
+      await until(() => a.store.getState().terminals[workspaceId]?.length === 0, 'the terminal gone from the list');
+    } finally {
+      process.env['SHELL'] = shell;
+    }
   });
 
   it('reports a bad token as unauthorized without retrying', async () => {

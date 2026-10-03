@@ -35,6 +35,7 @@ import type {
   QueuedMessage,
   SessionSnapshot,
   SessionSummary,
+  TerminalInfo,
   WireEvent,
   Workspace,
   WorkspaceInspection,
@@ -63,6 +64,16 @@ export interface SyncOptions {
 
 const RELEASE_MS = 15_000;
 
+/** Where a terminal's output goes (`SessionSync.attachTerminal`). */
+export interface TerminalView {
+  /** Start over from what the terminal kept — on attach, and after a reconnect. */
+  onReset(scrollback: string, exitCode?: number): void;
+  onData(data: string): void;
+  onExit(exitCode: number): void;
+  /** The terminal is no more (closed elsewhere, or the server restarted). */
+  onGone(): void;
+}
+
 export class SessionSync {
   readonly rpc: RpcClient;
   #store: NonNullable<SyncOptions['store']>;
@@ -84,6 +95,8 @@ export class SessionSync {
   #frameQueued = false;
   /** The server boot the held session rows came from (`ServerInfo.bootId`). */
   #bootId: string | null = null;
+  /** The terminal views showing output, by terminal (one view per terminal per tab). */
+  #terms = new Map<string, TerminalView>();
   /** Workspaces whose git state something shows, and how many things. */
   #gitWatch = new Map<string, number>();
   /** `git.status` calls in flight, and workspaces that changed again meanwhile. */
@@ -101,6 +114,12 @@ export class SessionSync {
       token: opts.token,
       onEvent: (id, seq, event) => this.#onEvent(id, seq, event),
       onPush: (event) => this.#onPush(event),
+      onTerm: (frame) => {
+        const view = this.#terms.get(frame.id);
+        if (!view) return;
+        if ('data' in frame) view.onData(frame.data);
+        else view.onExit(frame.exitCode);
+      },
       onStatus: (status) => this.#onStatus(status),
       ...(opts.createSocket ? { createSocket: opts.createSocket } : {}),
     });
@@ -418,6 +437,74 @@ export class SessionSync {
     }
   }
 
+  // -- terminals ---------------------------------------------------------------
+
+  /** Fetch a workspace's terminals into the store (pushes keep them current after). */
+  async loadTerminals(workspaceId: string): Promise<void> {
+    try {
+      const terminals = await this.rpc.call('terminal.list', { workspaceId });
+      this.#store.setState((s) => ({ terminals: { ...s.terminals, [workspaceId]: terminals } }));
+    } catch {
+      // The next push or reconnect brings them.
+    }
+  }
+
+  /** Start a shell in the workspace; null (with the reason in the banner) when it can't. */
+  async createTerminal(workspaceId: string, cols: number, rows: number): Promise<TerminalInfo | null> {
+    try {
+      const t = await this.rpc.call('terminal.create', { workspaceId, cols, rows });
+      // Into the list now, so the panel can show it before the push arrives.
+      this.#store.setState((s) => {
+        const held = s.terminals[workspaceId] ?? [];
+        return held.some((x) => x.id === t.id) ? {} : { terminals: { ...s.terminals, [workspaceId]: [...held, t] } };
+      });
+      return t;
+    } catch (err) {
+      this.#fail(err);
+      return null;
+    }
+  }
+
+  /**
+   * Show terminal `id`'s output in `view`: first what it kept (`onReset`),
+   * then as it comes — again from the start after every reconnect. Returns
+   * the release.
+   */
+  attachTerminal(id: string, view: TerminalView): () => void {
+    this.#terms.set(id, view);
+    void this.#attachTerm(id);
+    return () => {
+      if (this.#terms.get(id) !== view) return;
+      this.#terms.delete(id);
+      this.rpc.call('terminal.detach', { id }).catch(() => {});
+    };
+  }
+
+  /** Keystrokes: sent as typed, in order; lost only with the socket. */
+  terminalInput(id: string, data: string): void {
+    this.rpc.call('terminal.input', { id, data }).catch(() => {});
+  }
+
+  terminalResize(id: string, cols: number, rows: number): void {
+    this.rpc.call('terminal.resize', { id, cols, rows }).catch(() => {});
+  }
+
+  closeTerminal(id: string): Promise<void> {
+    return this.#run(this.rpc.call('terminal.close', { id }));
+  }
+
+  async #attachTerm(id: string): Promise<void> {
+    const view = this.#terms.get(id);
+    if (!view) return;
+    try {
+      const { scrollback, exitCode } = await this.rpc.call('terminal.attach', { id });
+      if (this.#terms.get(id) === view) view.onReset(scrollback, exitCode);
+    } catch (err) {
+      if (err instanceof RpcError && err.code === 'not_found' && this.#terms.get(id) === view) view.onGone();
+      // Disconnected: the reconnect attaches again.
+    }
+  }
+
   // -- git --------------------------------------------------------------------
 
   /**
@@ -624,6 +711,10 @@ export class SessionSync {
       this.#store.setState({ workspaces: event.workspaces });
       return;
     }
+    if (event.type === 'terminals') {
+      this.#store.setState((s) => ({ terminals: { ...s.terminals, [event.workspaceId]: event.terminals } }));
+      return;
+    }
     if (event.type === 'git_changed') {
       const { workspaceId } = event;
       this.#store.setState((s) => ({ gitRev: { ...s.gitRev, [workspaceId]: (s.gitRev[workspaceId] ?? 0) + 1 } }));
@@ -684,6 +775,9 @@ export class SessionSync {
     for (const id of retry) void this.open(id);
     // Files may have changed while the socket was down.
     for (const workspaceId of this.#gitWatch.keys()) void this.loadGitStatus(workspaceId);
+    // Terminals carried on without us: attach again, from what they kept.
+    for (const id of this.#terms.keys()) void this.#attachTerm(id);
+    for (const workspaceId of Object.keys(this.#store.getState().terminals)) void this.loadTerminals(workspaceId);
   }
 
   /** Mark a session dirty and publish all dirty sessions on the next frame. */

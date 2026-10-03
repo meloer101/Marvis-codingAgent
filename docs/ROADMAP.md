@@ -252,8 +252,8 @@
 浏览器优先，桌面壳最后做；一个 `hc web` 管多个项目。现状见 [`web.md`](./web.md)。硬约束：不改任何模型可见的内容
 （工具 schema、system prompt、默认消息形状），否则 eval cassette 全部失效。
 
-- **M5 终端**：node-pty（optional 依赖，≥1.2 自带预编译，打包时 external）+ xterm.js，Ctrl+` 开关、多标签、
-  重连后恢复 scrollback；功能由 `server.info.capabilities.terminal` 控制。*(M)*
+- **MVP（M0–M5）10-03 已完成**：转录可读性、审查闭环（Changes / Files / Tasks 面板、行评论）和终端都已上线，现状见
+  [`web.md`](./web.md)。
 - **MVP 之后**：P1 每会话 git worktree（选 base 分支、`.worktreeinclude`、归档即清理；git/fs RPC 已带 `sessionId`）、运行中插话（B 节的
   steering）、分屏、块级暂存/还原；P2 图片附件（provider 加 image 内容块）、rewind / 编辑历史消息 / fork、后台进程、
   统计与 trace 视图、设置页（权限规则、auto-mode 拒绝记录、memory、MCP OAuth）、覆盖已有文件的 `write` 显示真实

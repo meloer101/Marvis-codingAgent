@@ -11,7 +11,8 @@
  *    `visibilitychange` / `online`) skips the wait, t3code-style.
  *  - **Events.** `{ t: 'evt' }` frames go to `onEvent`; resubscribing after a
  *    reconnect is the caller's job (it knows each session's `lastSeq`).
- *    Server-wide `{ t: 'push' }` frames (session-list changes) go to `onPush`.
+ *    Server-wide `{ t: 'push' }` frames (session-list changes) go to `onPush`,
+ *    and a terminal's `{ t: 'term' }` output to `onTerm`.
  */
 
 import type {
@@ -56,6 +57,7 @@ export interface RpcClientOptions {
   token: string;
   onEvent: (sessionId: string, seq: number, event: WireEvent) => void;
   onPush?: (event: PushEvent) => void;
+  onTerm?: (frame: Extract<ServerFrame, { t: 'term' }>) => void;
   onStatus?: (status: ConnectionStatus) => void;
   createSocket?: (url: string) => SocketLike;
   setTimer?: (fn: () => void, ms: number) => unknown;
@@ -171,6 +173,10 @@ export class RpcClient {
     }
     if (frame.t === 'push') {
       this.#opts.onPush?.(frame.event);
+      return;
+    }
+    if (frame.t === 'term') {
+      this.#opts.onTerm?.(frame);
       return;
     }
     if (frame.id === this.#authId) {

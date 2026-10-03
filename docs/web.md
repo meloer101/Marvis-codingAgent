@@ -78,6 +78,7 @@ One socket per tab at `/ws`, carrying RPC and events as JSON frames
 | `{t:'res', id, ok, result \| error}` | server → client | its answer; `error.code` is `unauthorized`, `not_found`, `busy`, `bad_request` or `internal` |
 | `{t:'evt', sessionId, seq, event}` | server → client | one session's event stream, for sessions this socket subscribed to |
 | `{t:'push', event}` | server → client | server-wide state, to every authenticated socket |
+| `{t:'term', id, data \| exitCode}` | server → client | a terminal's output, or its shell's exit, to the sockets attached to it |
 
 The first frame must be `auth {token}`; anything else, or a wrong token, closes
 the socket (code 4001 for a bad token, which the client treats as final). The
@@ -93,7 +94,7 @@ the server with the same schemas the client is typed from.
 
 | Method | What it does |
 |---|---|
-| `server.info` | version, `bootId`, the launch workspace's defaults, and the editors files can be opened in |
+| `server.info` | version, `bootId`, the launch workspace's defaults, the editors files can be opened in, and `capabilities.terminal` (node-pty loaded) |
 | `workspace.list` | every workspace with its defaults (model, mode, modes, effort levels, `keyProblem`) |
 | `model.list {workspaceId?}` | the models a session there can be given, each with its windows, effort levels, price and why it can't run, if it can't |
 | `workspace.inspect {path}` | what adding a directory would mean — nothing started |
@@ -102,6 +103,9 @@ the server with the same schemas the client is typed from.
 | `fs.list {workspaceId, sessionId?, dir}` | a workspace folder's entries, folders first — the listing `@` uses, so no ignored files or secrets |
 | `fs.read {workspaceId, sessionId?, path}` | a file's text; binary, over 1 MB, a secret (by name or by what it links to), a link out of the workspace or a missing file: withheld |
 | `editor.open {workspaceId, path, line?, editor}` | open a file in VS Code, Cursor or Zed on this machine (`server.info.editors` lists those found) |
+| `terminal.list {workspaceId}` / `terminal.create {workspaceId, sessionId?, cols, rows}` | a workspace's terminals / start the user's shell in its root |
+| `terminal.attach` / `terminal.detach {id}` | start / stop getting a terminal's output on this socket; attach answers with what it kept (`scrollback`) and its exit code if it ended |
+| `terminal.input {id, data}` / `terminal.resize {id, cols, rows}` / `terminal.close {id}` | keystrokes, a new size, and ending it |
 | `git.status {workspaceId, sessionId?}` | the workspace's changes against HEAD: branch, upstream, ahead/behind, and per file its staged / unstaged change and lines added / removed |
 | `git.diff {workspaceId, sessionId?, path}` | one file's patch against HEAD (an untracked file against nothing); binary, too big (> 1 MB) or a secret: withheld |
 | `git.stage` / `git.unstage {workspaceId, sessionId?, paths}` | stage files as they are on disk (new files and deletions too) / take them out of the index |
@@ -235,7 +239,9 @@ starts or ends a run, waits on or resolves a prompt, or is closed, and
 the whole list after a workspace is added or removed. `git_changed
 {workspaceId}` says a session may have changed files there — after any tool
 call but a lookup, and when a run ends, at most once per 250 ms — so a tab
-showing that workspace's changes asks `git.status` again. Rows carry their
+showing that workspace's changes asks `git.status` again. `terminals
+{workspaceId, terminals}` carries a workspace's whole list whenever a terminal
+opens, exits or closes. Rows carry their
 `workspaceId`, `pinned` and `archived`. Pushes carry current state, not deltas,
 and are not replayed.
 
@@ -282,7 +288,10 @@ The token is as powerful as the user's shell — a client can switch a session t
    one the permission engine treats as a secret (`fs.read` also when a link
    leads to one), refuse a path outside the workspace, and follow no link out
    of it.
-10. **Attachments go through the permission engine.** `fs.search` lists a
+10. **A terminal is the user's shell.** It runs unsandboxed, with the server's
+   environment, like a terminal the user opened — reachable only with the
+   token, which is already as powerful.
+11. **Attachments go through the permission engine.** `fs.search` lists a
    workspace's files without the ones the engine treats as secrets (`.env`,
    keys, credentials), and an attachment is checked as a `read` of that path
    would be: a deny rule or the sensitive-file stance refuses it.
@@ -396,6 +405,22 @@ The token is as powerful as the user's shell — a client can switch a session t
   **Tasks** shows the
   agent's task list whole; while it does, the task dock above the composer
   steps aside.
+- **Terminal** (`components/TerminalPanel.tsx`, `components/XTermView.tsx`):
+  under the session, Ctrl+` (or the header button) shows and hides it, and its
+  top edge drags to resize (both kept). A tab per shell of the project, + for
+  another — opening the panel on a project without one starts one — and the
+  title the shell sets as its label. The shells run on the server
+  (`server/src/terminals.ts`, node-pty): the user's login shell in the
+  project root, `TERM=xterm-256color`, not sandboxed. They outlive the page —
+  attaching (and every reconnect) starts from what the terminal kept, its last
+  256 KB of output — and are ended by closing their tab, removing the project
+  or stopping the server. Output gathers for 8 ms per frame. xterm.js loads in
+  its own chunk, on first use, themed from the app's tokens (converted to sRGB)
+  and following theme changes. An Escape typed into a terminal is the shell's,
+  never a Stop. Without node-pty (`capabilities.terminal` false) the panel says
+  so. node-pty (1.2, prebuilt for macOS, Linux and Windows) is an optional
+  dependency of the server and stays external to the bundles; the published
+  package declares it optional.
 - **Task list** (`components/TaskDock.tsx`): what the agent last passed to
   `todo` (`lib/todos.ts`, read off the transcript, so it survives a reload),
   docked above the composer while any of it is left — one line with progress

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { Folder, PanelRight } from 'lucide-react';
+import { Folder, PanelRight, SquareTerminal } from 'lucide-react';
 
 import { fmtTokens, fmtUSD } from '@harness-code/core/browser';
 
 import { UsagePopover } from '@/components/UsagePanel';
 import { togglePanel, usePanel } from '@/lib/panel';
+import { toggleTerminal, useTerminalPanel } from '@/lib/terminalPanel';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
@@ -26,8 +27,29 @@ export function SessionHeader({ view }: { view: SessionViewState }) {
       {title !== undefined && <SessionTitle id={view.id} title={title} />}
       <div className="flex-1" />
       <SpendButton view={view} />
+      <TerminalToggle />
       <PanelToggle />
     </header>
+  );
+}
+
+/** Shows and hides the terminal under the session (Ctrl+`). */
+function TerminalToggle() {
+  const { open } = useTerminalPanel();
+  return (
+    <button
+      type="button"
+      onClick={toggleTerminal}
+      aria-label="Terminal"
+      aria-pressed={open}
+      title={`${open ? 'Hide' : 'Show'} the terminal (Ctrl+\`)`}
+      className={cn(
+        'flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+        open && 'bg-accent text-foreground',
+      )}
+    >
+      <SquareTerminal className="size-4" />
+    </button>
   );
 }
 

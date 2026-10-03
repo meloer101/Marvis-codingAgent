@@ -26,6 +26,7 @@ import {
   Search,
   Sparkle,
   Square,
+  SquareTerminal,
   Sun,
 } from 'lucide-react';
 
@@ -42,6 +43,7 @@ import { setTheme, useTheme } from '@/lib/theme';
 import type { Theme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { setPanel, usePanel } from '@/lib/panel';
+import { setTerminalOpen, useTerminalPanel } from '@/lib/terminalPanel';
 import { setVerbose, useVerbose } from '@/lib/verbose';
 
 const FALLBACK_MODES: readonly PermissionMode[] = ['ask', 'acceptEdits', 'plan', 'readOnly'];
@@ -174,6 +176,7 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
   const theme = useTheme();
   const verbose = useVerbose();
   const panel = usePanel();
+  const terminalOpen = useTerminalPanel().open;
   const workspaceId = view?.workspaceId;
 
   // The models to switch to: fresh each time the palette opens.
@@ -262,6 +265,11 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       if (t === theme) continue;
       items.push({ id: `theme-${t}`, group: 'App', label: `Theme: ${THEMES[t].label}`, keywords: 'appearance', icon: THEMES[t].icon, run: () => setTheme(t) });
     }
+    items.push(
+      terminalOpen
+        ? { id: 'terminal-hide', group: 'App', label: 'Hide the terminal', hint: '⌃`', keywords: 'shell console', icon: SquareTerminal, run: () => setTerminalOpen(false) }
+        : { id: 'terminal-show', group: 'App', label: 'Show the terminal', hint: '⌃`', keywords: 'shell console', icon: SquareTerminal, run: () => setTerminalOpen(true) },
+    );
     if (panel !== 'changes') {
       items.push({ id: 'panel-changes', group: 'App', label: 'Show changes', hint: panel ? undefined : '⌥⌘B', keywords: 'git diff panel status', icon: GitCompareArrows, run: () => setPanel('changes') });
     }
@@ -290,5 +298,5 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
     });
     // Group order, whatever order they were pushed in.
     return GROUPS.flatMap((g) => items.filter((i) => i.group === g));
-  }, [view, activeId, row, sessions, workspaces, models, theme, verbose, panel, onNewSession, sync]);
+  }, [view, activeId, row, sessions, workspaces, models, theme, verbose, panel, terminalOpen, onNewSession, sync]);
 }

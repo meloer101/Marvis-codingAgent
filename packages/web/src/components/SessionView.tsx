@@ -10,6 +10,7 @@ import { EffortPicker, ModeChip, ModelPicker } from '@/components/ComposerContro
 import { PendingDock } from '@/components/PendingDock';
 import { QueuedMessages } from '@/components/QueuedMessages';
 import { TaskDock } from '@/components/TaskDock';
+import { TerminalPanel } from '@/components/TerminalPanel';
 import { SessionHeader } from '@/components/SessionHeader';
 import { SidePanel } from '@/components/SidePanel';
 import { SkillsDialog } from '@/components/SkillsDialog';
@@ -130,6 +131,7 @@ export function SessionView({ id, onNewSession }: { id: string; onNewSession: ()
             onSurface={setSurface}
           />
         </div>
+        {view.workspaceId && <TerminalPanel workspaceId={view.workspaceId} />}
       </div>
       <SidePanel view={view} />
       {surface === 'skills' && (

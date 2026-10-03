@@ -15,6 +15,7 @@ import { allCommands } from '@/lib/slash';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
 import { togglePanel } from '@/lib/panel';
+import { toggleTerminal } from '@/lib/terminalPanel';
 import { toggleVerbose } from '@/lib/verbose';
 import { platform } from '@/platform';
 
@@ -67,9 +68,9 @@ export function App() {
     window.location.hash = routeToHash(workspaceId ? { kind: 'new', workspaceId } : { kind: 'home' });
   };
 
-  // Global keys: the command palette, a new session, the side panel and the
-  // verbose transcript (Ctrl+O, as in the TUI — Ctrl on a Mac too) anywhere,
-  // Esc stops the active run. The composer's menus and the pending dock swallow their
+  // Global keys: the command palette, a new session, the side panel, the
+  // terminal (Ctrl+`) and the verbose transcript (Ctrl+O, as in the TUI — Ctrl
+  // on a Mac too) anywhere, Esc stops the active run. The composer's menus and the pending dock swallow their
   // own Escape, and an Escape that closes a dialog or the palette never aborts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -91,12 +92,19 @@ export function App() {
         togglePanel();
         return;
       }
+      if (e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'Backquote') {
+        e.preventDefault();
+        toggleTerminal();
+        return;
+      }
       if (e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'o') {
         e.preventDefault();
         toggleVerbose();
         return;
       }
-      if (e.key === 'Escape' && activeId && !e.defaultPrevented) {
+      // An Escape typed into a terminal is the shell's, not a Stop.
+      const inTerminal = e.target instanceof Element && e.target.closest('.xterm') !== null;
+      if (e.key === 'Escape' && activeId && !e.defaultPrevented && !inTerminal) {
         const { views, helpOpen, addProjectOpen, paletteOpen } = useAppStore.getState();
         if (!helpOpen && !addProjectOpen && !paletteOpen && views[activeId]?.running) void sync.abort(activeId);
       }

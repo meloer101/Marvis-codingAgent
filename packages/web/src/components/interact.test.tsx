@@ -378,6 +378,22 @@ describe('global shortcuts', () => {
     expect(sync.create).not.toHaveBeenCalled();
   });
 
+  it('Ctrl+` shows and hides the terminal; an Escape typed into it stops nothing', () => {
+    const sync = renderApp(dockView({ pendingAsk: null, askId: null, running: true }));
+    fireEvent.keyDown(window, { key: '`', code: 'Backquote', ctrlKey: true });
+    expect(localStorage.getItem('hc.terminal')).toBe('1');
+    fireEvent.keyDown(window, { key: '`', code: 'Backquote', ctrlKey: true });
+    expect(localStorage.getItem('hc.terminal')).toBeNull();
+    const shell = document.createElement('div');
+    shell.className = 'xterm';
+    const input = document.createElement('textarea');
+    shell.append(input);
+    document.body.append(shell);
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(sync.abort).not.toHaveBeenCalled();
+    shell.remove();
+  });
+
   it('Ctrl+O switches the transcript to verbose and back; ⌘O does not', () => {
     renderApp(dockView({ pendingAsk: null, askId: null, running: false }));
     fireEvent.keyDown(window, { key: 'o', ctrlKey: true });
