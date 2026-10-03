@@ -391,6 +391,47 @@ class Connection {
       }
       case 'session.trace':
         return hub.trace((params as MethodParams<'session.trace'>).id);
+      case 'settings.get':
+        return hub.settings((params as MethodParams<'settings.get'>).workspaceId);
+      case 'settings.setRules': {
+        const { workspaceId, scope, list, rules } = params as MethodParams<'settings.setRules'>;
+        return hub.setRules(workspaceId, scope, list, rules);
+      }
+      case 'settings.setAutoMode': {
+        const { workspaceId, group, rules } = params as MethodParams<'settings.setAutoMode'>;
+        return hub.setAutoMode(workspaceId, group, rules);
+      }
+      case 'autoMode.denials':
+        return hub.denials((params as MethodParams<'autoMode.denials'>).workspaceId);
+      case 'session.retryDenied': {
+        const { id, denialId } = params as MethodParams<'session.retryDenied'>;
+        this.#host(id).retryDenied(denialId);
+        return undefined;
+      }
+      case 'memory.list':
+        return hub.memory((params as MethodParams<'memory.list'>).workspaceId);
+      case 'memory.read': {
+        const { workspaceId, target } = params as MethodParams<'memory.read'>;
+        return hub.readMemory(workspaceId, target).then((text) => ({ text }));
+      }
+      case 'memory.write': {
+        const { workspaceId, target, text } = params as MethodParams<'memory.write'>;
+        return hub.writeMemory(workspaceId, target, text);
+      }
+      case 'memory.delete': {
+        const { workspaceId, target } = params as MethodParams<'memory.delete'>;
+        return hub.deleteMemory(workspaceId, target);
+      }
+      case 'mcp.list':
+        return hub.mcp((params as MethodParams<'mcp.list'>).workspaceId);
+      case 'mcp.login': {
+        const { workspaceId, name } = params as MethodParams<'mcp.login'>;
+        return hub.mcpLogin(workspaceId, name);
+      }
+      case 'mcp.logout': {
+        const { workspaceId, name } = params as MethodParams<'mcp.logout'>;
+        return hub.mcpLogout(workspaceId, name);
+      }
       case 'stats.summary': {
         const { workspaceId, since } = params as MethodParams<'stats.summary'>;
         return hub.stats(workspaceId, since);

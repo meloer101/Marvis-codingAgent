@@ -230,12 +230,25 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
               ...(o.resumeId ? { resumeId: o.resumeId } : {}),
             }));
 
+    const autoModeProblem = async (): Promise<string | undefined> => {
+      if (mock) return 'the mock model has no classifier behind it';
+      const { settings } = await loadSettings(root);
+      const availability = isAutoModeAvailable(
+        settings,
+        new ProviderRegistry({ settings, env }),
+        (opts.model ?? settings.model) || undefined,
+      );
+      return availability.available ? undefined : availability.reason;
+    };
+
     return {
       projectRoot,
       agentDir,
       buildConfig,
       defaults,
       models,
+      env,
+      autoModeProblem,
       previewDefaults: async () => {
         const d = await defaults();
         return { modelRef: d.model, mode: d.mode };

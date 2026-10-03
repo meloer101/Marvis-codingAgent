@@ -135,6 +135,16 @@ the server with the same schemas the client is typed from.
 | `session.fork {id, userMessage?}` | a new session with the conversation, whole or as far as before that message, its model, mode and effort, titled "… · fork"; a worktree session forks into a worktree of its own, branched from the other's branch → `{id}` |
 | `session.compact {id}` | compact the history now (`busy` while a run is going) |
 | `session.trace {id}` | the session's trace (`.agent/traces/<id>.jsonl`): its events and what they add up to — runs, model and tool calls, tokens, cache hits, cost |
+| `settings.get {workspaceId}` | the permission rules in `~/.agent/settings.json` and the project's `.agent/settings.json`, the built-in allow rules, the user's auto-mode rules beside the built-in ones and why auto mode is unavailable, if it is; files that don't parse are named, never read for more than their rules (a settings file can hold keys) |
+| `settings.setRules {workspaceId, scope, list, rules}` | replace one list (`allow`, `ask`, `deny`) in the user's or the project's settings; every rule must parse, and a file that doesn't is never written over (`bad_request`). The live sessions it applies to — every one for the user's, the project's for its own — take it up at once (`AgentSession.reloadSettings`), keeping what "always allow" granted → the settings again |
+| `settings.setAutoMode {workspaceId, group, rules}` | replace one auto-mode group (`environment`, `allow`, `soft_deny`, `hard_deny`) in the user's settings, `null` for the built-in rules; live sessions take it up |
+| `autoMode.denials {workspaceId?}` | the live sessions auto mode refused something in (or paused in), each with its denials, newest first |
+| `session.retryDenied {id, denialId}` | let the agent try a refused call once more — it's told so on its next turn |
+| `memory.list {workspaceId}` | the instruction files (`AGENTS.md`, `CLAUDE.md` in `~/.agent/` and at the project's root — or the `AGENTS.md` to write) and the memories in the global and project stores, each with what's wrong with it, if sessions skip it |
+| `memory.read` / `memory.write` / `memory.delete {workspaceId, target, text?}` | an instructions file or a memory (`{kind:'memory', scope, path}`): read, write (a memory must parse as one, in a scope that keeps its type; the store's `MEMORY.md` is written again) or delete (memories only) |
+| `mcp.list {workspaceId}` | the MCP servers in `~/.agent/.mcp.json` and the project's `.mcp.json`, as the files have them (`${VAR}`s unexpanded, no headers or env), which one of a name is used, and how each signs in — OAuth ones, whether tokens are stored |
+| `mcp.login {workspaceId, name}` | sign in to an OAuth server: answers with the page to authorize at, the callback caught on 127.0.0.1 as `hc mcp login` does, and an `mcp_login` push when it ends — or at once when the tokens it has still work. Sessions started afterwards connect with it |
+| `mcp.logout {workspaceId, name}` | forget a server's tokens |
 | `stats.summary {workspaceId?, since?}` | every traced session started since then, in one project or all: each one's figures and the rollup across them — totals, averages, per model |
 | `session.slashCommands {id}` | the session's MCP prompt commands |
 | `session.skills {id}` | the session's skills (`/name [task]` loads one) |
@@ -311,7 +321,8 @@ the whole list after a workspace is added or removed. `git_changed
 call but a lookup, and when a run ends, at most once per 250 ms — so a tab
 showing that workspace's changes asks `git.status` again. `terminals
 {workspaceId, terminals}` carries a workspace's whole list whenever a terminal
-opens, exits or closes. Rows carry their
+opens, exits or closes. `mcp_login {workspaceId, name, error?}` says how a
+sign-in begun with `mcp.login` ended. Rows carry their
 `workspaceId`, `pinned` and `archived`. Pushes carry current state, not deltas,
 and are not replayed.
 

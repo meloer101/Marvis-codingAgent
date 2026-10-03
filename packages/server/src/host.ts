@@ -43,6 +43,7 @@ import {
   MAX_DISPLAY_BEFORE_BYTES,
   alwaysAllowFor,
   assertInsideWorkspace,
+  describeToolInput,
   isSensitivePath,
   loadTranscript,
   sessionTitleFrom,
@@ -50,6 +51,7 @@ import {
 } from '@harness-code/core';
 import type { AlwaysAllow, ImageInput, SessionMetaPatch, SessionWorktreeMeta, SteeringInput } from '@harness-code/core';
 import type {
+  AutoModeDenialInfo,
   QueuedMessage,
   SendResult,
   ServerFrame,
@@ -170,6 +172,8 @@ export class SessionHost {
   readonly #onSummaryChange: (() => void) | undefined;
   readonly #onFilesChanged: (() => void) | undefined;
   #session: AgentSession | undefined;
+  /** Denials the user allowed a retry of (`retryDenied`). */
+  readonly #retried = new Set<string>();
   /** The first message sent here — the list title until the log has one. */
   #firstInput: string | undefined;
   #modelRef = '';
@@ -724,6 +728,36 @@ export class SessionHost {
   setMode(mode: PermissionMode): void {
     this.#requireSession().setMode(mode);
     this.#syncMode();
+  }
+
+  /** The settings files changed: the session takes up their permission rules and auto-mode config. */
+  async reloadSettings(): Promise<void> {
+    await this.#session?.reloadSettings();
+  }
+
+  /** What auto mode refused in this session, newest first, and whether it has paused. */
+  denials(): { paused: boolean; denials: AutoModeDenialInfo[] } {
+    const session = this.#session;
+    if (!session) return { paused: false, denials: [] };
+    return {
+      paused: session.autoModePaused,
+      denials: session.recentDenials.map((d) => ({
+        id: d.id,
+        toolName: d.toolName,
+        summary: describeToolInput(d.toolName, d.input).slice(0, 300),
+        reason: d.reason,
+        at: d.at,
+        ...(this.#retried.has(d.id) ? { retry: true } : {}),
+      })),
+    };
+  }
+
+  /** Let the agent try a refused call once more; it's told so on its next turn. */
+  retryDenied(denialId: string): void {
+    if (!this.#requireSession().retryDenied(denialId)) {
+      throw new InvalidRequestError('that denial is no longer in the session');
+    }
+    this.#retried.add(denialId);
   }
 
   /**

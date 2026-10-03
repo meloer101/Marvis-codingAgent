@@ -11,9 +11,9 @@ import { basename, join } from 'node:path';
 import { DEFAULT_CAPABILITIES, ScriptedProvider, resolveStateDir } from '@harness-code/core';
 import type { AgentSessionConfig, ResolvedModel } from '@harness-code/core';
 import type { PushEvent } from '@harness-code/protocol';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { BusyError, InvalidRequestError } from './host.js';
+import { BusyError, InvalidRequestError, SessionHost } from './host.js';
 import { WorkspaceHub, WorkspaceNotFoundError } from './hub.js';
 import type { WorkspaceSetupFactory } from './hub.js';
 import { SessionPreviewNotFoundError } from './registry.js';
@@ -327,3 +327,30 @@ describe('WorkspaceHub stats', () => {
   });
 });
 
+describe('WorkspaceHub settings', () => {
+  it("writes a workspace's rules, and the live sessions they apply to take them up", async () => {
+    const home = await tempDir('hc-hub-home-');
+    const [a, b] = [await project('a'), await project('b')];
+    const { hub, launchId: aId } = await hubOn(memoryWorkspaceStore(), a, home);
+    const bId = (await hub.add(b)).id;
+    const one = await hub.start({ workspaceId: aId, text: 'hello' });
+    await runToEnd(hub, one.snapshot.id);
+    const two = await hub.start({ workspaceId: bId, text: 'there' });
+    await runToEnd(hub, two.snapshot.id);
+    const reloaded = vi.spyOn(SessionHost.prototype, 'reloadSettings').mockResolvedValue();
+    cleanups.push(async () => reloaded.mockRestore());
+
+    const view = await hub.setRules(aId, 'project', 'deny', ['Write(dist/**)']);
+    expect(view.project).toEqual({
+      path: join(a, '.agent', 'settings.json'),
+      rules: { allow: [], ask: [], deny: ['Write(dist/**)'] },
+    });
+    expect(reloaded.mock.contexts).toEqual([hub.host(one.snapshot.id)]);
+
+    reloaded.mockClear();
+    await hub.setRules(bId, 'user', 'allow', ['Bash(npm test:*)']);
+    expect((await hub.settings(aId)).user.rules.allow).toEqual(['Bash(npm test:*)']);
+    expect(reloaded).toHaveBeenCalledTimes(2);
+    expect(hub.denials()).toEqual([]);
+  });
+});

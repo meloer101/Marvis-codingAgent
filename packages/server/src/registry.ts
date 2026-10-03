@@ -187,6 +187,11 @@ export class SessionRegistry {
     return this.#hosts.get(id);
   }
 
+  /** Its live sessions. */
+  live(): SessionHost[] {
+    return [...this.#hosts.values()];
+  }
+
   /** Whether any of its live sessions is in the middle of a run. */
   hasRunning(): boolean {
     for (const host of this.#hosts.values()) if (host.running) return true;

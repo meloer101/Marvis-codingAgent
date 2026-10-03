@@ -294,6 +294,124 @@ export interface SessionTrace {
   summary: TraceSummary;
 }
 
+/** Permission rules as a settings file lists them: `Tool` or `Tool(specifier)`. */
+export interface PermissionRules {
+  allow: string[];
+  ask: string[];
+  deny: string[];
+}
+
+export type PermissionRuleList = keyof PermissionRules;
+
+/** What the auto-mode classifier is told, group by group. */
+export const AUTO_MODE_GROUPS = ['environment', 'allow', 'soft_deny', 'hard_deny'] as const;
+export type AutoModeGroup = (typeof AUTO_MODE_GROUPS)[number];
+
+/** The settings a workspace's sessions run with that the settings page edits (`settings.get`). */
+export interface SettingsView {
+  /** `~/.agent/settings.json`: every project's. */
+  user: { path: string; rules: PermissionRules };
+  /** The project's `.agent/settings.json`. */
+  project: { path: string; rules: PermissionRules };
+  /** What every session allows before these rules: read-only tools and commands. */
+  builtinAllow: string[];
+  autoMode: {
+    /** Why sessions here can't use auto mode, when they can't. */
+    unavailable?: string;
+    /**
+     * Each group as `~/.agent/settings.json` has it (auto mode is set per
+     * user, never per project): a missing group is the built-in rules, and
+     * `$defaults` in a list splices them in there.
+     */
+    rules: Partial<Record<AutoModeGroup, string[]>>;
+    builtin: Record<AutoModeGroup, string[]>;
+  };
+  /** Settings files that couldn't be read, `path: reason`: left out above, and never written over. */
+  problems: string[];
+}
+
+/** A call auto mode refused in a live session. */
+export interface AutoModeDenialInfo {
+  id: string;
+  toolName: string;
+  /** The call, in a line. */
+  summary: string;
+  reason: string;
+  at: number;
+  /** A retry was allowed: the agent hears so on its next turn. */
+  retry?: boolean;
+}
+
+/** A live session's auto-mode denials (`autoMode.denials`), newest first. */
+export interface SessionDenials {
+  sessionId: string;
+  workspaceId: string;
+  /** Auto mode stopped deciding after repeated denials: calls ask until one is approved. */
+  paused: boolean;
+  denials: AutoModeDenialInfo[];
+}
+
+/**
+ * A file the memory section edits: an instructions file (`AGENTS.md` or
+ * `CLAUDE.md`, in `~/.agent/` or at the project's root) or an entry in a
+ * memory store (`~/.agent/memory/` or the project's `.agent/memory/`).
+ */
+export type MemoryTarget =
+  | { kind: 'instructions'; scope: 'user' | 'project'; name: 'AGENTS.md' | 'CLAUDE.md' }
+  | { kind: 'memory'; scope: 'global' | 'project'; path: string };
+
+export interface InstructionFileInfo {
+  scope: 'user' | 'project';
+  name: 'AGENTS.md' | 'CLAUDE.md';
+  path: string;
+  /** Absent when there is no such file yet. */
+  bytes?: number;
+}
+
+export interface MemoryFileInfo {
+  scope: 'global' | 'project';
+  /** From the store's top, e.g. `feedback/no-mocks.md`. */
+  path: string;
+  name: string;
+  description: string;
+  type: string;
+  bytes: number;
+  /** Why sessions skip it: its frontmatter doesn't parse, or says too little. */
+  problem?: string;
+}
+
+/** What sessions in a workspace remember and are told (`memory.list`). */
+export interface MemoryView {
+  /** Per scope, the instruction files there — or `AGENTS.md`, not yet written. */
+  instructions: InstructionFileInfo[];
+  memories: MemoryFileInfo[];
+  dirs: { global: string; project: string };
+}
+
+/** An MCP server a workspace's sessions connect to (`mcp.list`). */
+export interface McpServerInfo {
+  name: string;
+  /** Whose `.mcp.json` names it: `~/.agent/.mcp.json`, or the project's. */
+  scope: 'user' | 'project';
+  transport: 'stdio' | 'http' | 'sse';
+  /** The command line or URL as the file has it, `${VAR}`s unexpanded. */
+  target: string;
+  /** How it signs in: not at all (stdio), with a header the file sets, or with OAuth. */
+  auth: 'none' | 'header' | 'oauth';
+  /** OAuth: tokens are stored for it. */
+  signedIn?: boolean;
+  /** The project's server of the same name is the one used. */
+  shadowed?: boolean;
+}
+
+export interface McpView {
+  servers: McpServerInfo[];
+  userPath: string;
+  projectPath: string;
+  /** Config files that couldn't be read, `path: reason`. */
+  problems: string[];
+}
+
 /** What `session.send` did: started a run, or queued the message behind the one going. */
 export type SendResult = { runId: string } | { queued: QueuedMessage };
 
@@ -403,6 +521,20 @@ const imagesSchema: z.ZodType<ImageInput[]> = z
   .max(8);
 /** A worktree of its own for a new session, branched off `base` (a branch or commit). */
 const worktreeSchema = z.object({ base: z.string().min(1).max(256).regex(/^[^-\s][^\s]*$/, 'not a branch name') });
+
+const memoryTargetSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('instructions'),
+    scope: z.enum(['user', 'project']),
+    name: z.enum(['AGENTS.md', 'CLAUDE.md']),
+  }),
+  z.object({
+    kind: z.literal('memory'),
+    scope: z.enum(['global', 'project']),
+    path: z.string().regex(/^[A-Za-z0-9_-]+\/[A-Za-z0-9._-]+\.md$/, 'not a memory path'),
+  }),
+]);
+const mcpNameSchema = z.string().min(1).max(128);
 
 interface MethodSpec<P = unknown, R = unknown> {
   /** Validates `ClientFrame.params` for this method — same schema on client and server. */
@@ -702,6 +834,74 @@ export const methods = {
    */
   'stats.summary': method<{ workspaceId?: string; since?: number }, StatsSummary>(
     z.object({ workspaceId: workspaceIdSchema.optional(), since: z.number().int().min(0).optional() }),
+  ),
+  /** The permission rules and auto-mode config a workspace's sessions run with. */
+  'settings.get': method<{ workspaceId: string }, SettingsView>(z.object({ workspaceId: workspaceIdSchema })),
+  /**
+   * Replace one rule list in the user's settings or the project's; every
+   * live session it applies to takes it up at once. `bad_request` for a rule
+   * that doesn't parse, or a settings file that doesn't.
+   */
+  'settings.setRules': method<
+    { workspaceId: string; scope: 'user' | 'project'; list: PermissionRuleList; rules: string[] },
+    SettingsView
+  >(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      scope: z.enum(['user', 'project']),
+      list: z.enum(['allow', 'ask', 'deny']),
+      rules: z.array(z.string().min(1).max(1000)).max(500),
+    }),
+  ),
+  /** Replace one auto-mode group in the user's settings — `null`: back to the built-in rules. Live sessions take it up. */
+  'settings.setAutoMode': method<
+    { workspaceId: string; group: AutoModeGroup; rules: string[] | null },
+    SettingsView
+  >(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      group: z.enum(AUTO_MODE_GROUPS),
+      rules: z.array(z.string().min(1).max(2000)).max(200).nullable(),
+    }),
+  ),
+  /** The live sessions auto mode refused something in — in one workspace, or all — newest denial first. */
+  'autoMode.denials': method<{ workspaceId?: string }, SessionDenials[]>(
+    z.object({ workspaceId: workspaceIdSchema.optional() }),
+  ),
+  /** Let the agent try a call auto mode refused once more: it's told so on its next turn. `bad_request` once the denial is gone. */
+  'session.retryDenied': method<{ id: string; denialId: string }, void>(
+    z.object({ id: sessionIdSchema, denialId: z.string().min(1).max(128) }),
+  ),
+  /** The instruction files and memories sessions in a workspace start with. */
+  'memory.list': method<{ workspaceId: string }, MemoryView>(z.object({ workspaceId: workspaceIdSchema })),
+  'memory.read': method<{ workspaceId: string; target: MemoryTarget }, { text: string }>(
+    z.object({ workspaceId: workspaceIdSchema, target: memoryTargetSchema }),
+  ),
+  /**
+   * Write an instructions file or a memory (made if missing). A memory must
+   * parse as one — frontmatter with a description and a type its folder
+   * allows — or it's `bad_request`. Sessions read them as they start.
+   */
+  'memory.write': method<{ workspaceId: string; target: MemoryTarget; text: string }, MemoryView>(
+    z.object({ workspaceId: workspaceIdSchema, target: memoryTargetSchema, text: z.string().max(64 * 1024) }),
+  ),
+  'memory.delete': method<{ workspaceId: string; target: MemoryTarget }, MemoryView>(
+    z.object({ workspaceId: workspaceIdSchema, target: memoryTargetSchema }),
+  ),
+  /** The MCP servers a workspace's sessions connect to, and whether each is signed in. */
+  'mcp.list': method<{ workspaceId: string }, McpView>(z.object({ workspaceId: workspaceIdSchema })),
+  /**
+   * Sign in to an OAuth MCP server: answers with the page to authorize at
+   * (an `mcp_login` push follows when that's done or failed), or at once
+   * when its tokens still work. Sessions started afterwards connect with it.
+   */
+  'mcp.login': method<
+    { workspaceId: string; name: string },
+    { url: string } | { status: 'authorized' | 'already-authorized' }
+  >(z.object({ workspaceId: workspaceIdSchema, name: mcpNameSchema })),
+  /** Forget an MCP server's OAuth tokens. */
+  'mcp.logout': method<{ workspaceId: string; name: string }, McpView>(
+    z.object({ workspaceId: workspaceIdSchema, name: mcpNameSchema }),
   ),
   'session.compact': method<
     { id: string },

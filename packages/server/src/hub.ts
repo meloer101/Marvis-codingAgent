@@ -18,11 +18,13 @@
  */
 
 import { mkdir, realpath, stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
 import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir, rollupStats } from '@harness-code/core';
 import type { EffortOptions, PermissionMode } from '@harness-code/core';
 import type {
+  AutoModeGroup,
   DirEntry,
   EditorId,
   EditorInfo,
@@ -31,8 +33,14 @@ import type {
   GitBranches,
   GitDiff,
   GitStatus,
+  McpView,
+  MemoryTarget,
+  MemoryView,
   ModelInfo,
+  PermissionRuleList,
   PushEvent,
+  SessionDenials,
+  SettingsView,
   SessionSnapshot,
   SessionSummary,
   SessionTrace,
@@ -54,6 +62,19 @@ import { inspectDirectory } from './inspect.js';
 import { SessionPreviewNotFoundError, SessionRegistry } from './registry.js';
 import type { RegistryListener, SessionCheckout, SessionConfigFactory } from './registry.js';
 import { workspacePath } from './paths.js';
+import {
+  deleteMemory,
+  mcpLogin,
+  mcpLogout,
+  mcpView,
+  memoryView,
+  readMemory,
+  setAutoModeGroup,
+  setRules,
+  settingsView,
+  writeMemory,
+} from './settings.js';
+import type { SettingsPlace } from './settings.js';
 import { TerminalManager, loadPty } from './terminals.js';
 import type { SpawnPty } from './terminals.js';
 import { workspaceId } from './workspaces.js';
@@ -76,6 +97,10 @@ export interface WorkspaceSetup {
   dispose?: () => Promise<void>;
   /** Its sessions' worktrees go away with the server (`--mock`: their sessions do). */
   dropWorktrees?: boolean;
+  /** The environment its MCP `${VAR}`s expand from; `projectEnv(root)` by default. */
+  env?: NodeJS.ProcessEnv;
+  /** Why its sessions can't use auto mode, when they can't. */
+  autoModeProblem?: () => Promise<string | undefined>;
 }
 
 export type WorkspaceSetupFactory = (root: string) => Promise<WorkspaceSetup>;
@@ -422,6 +447,95 @@ export class WorkspaceHub {
 
   #throwMissing(id: string): never {
     throw new WorkspaceNotFoundError(id);
+  }
+
+  // -- settings (the settings page; ./settings.ts) ---------------------------
+
+  /** Where workspace `id`'s settings, memories and MCP servers are. */
+  #place(id: string): SettingsPlace {
+    const entry = this.#entries.get(id) ?? this.#throwMissing(id);
+    const home = this.#home ?? homedir();
+    const root = entry.record.root;
+    return {
+      root,
+      projectRoot: entry.setup.projectRoot,
+      home,
+      env: entry.setup.env ?? projectEnv(root, this.#home !== undefined ? { home: this.#home } : {}),
+    };
+  }
+
+  async settings(id: string): Promise<SettingsView> {
+    const entry = this.#entries.get(id) ?? this.#throwMissing(id);
+    return settingsView(this.#place(id), await entry.setup.autoModeProblem?.());
+  }
+
+  /**
+   * Replace a rule list in the user's settings (every workspace's) or the
+   * project's; the live sessions it applies to take it up at once.
+   */
+  async setRules(id: string, scope: 'user' | 'project', list: PermissionRuleList, rules: string[]): Promise<SettingsView> {
+    await setRules(this.#place(id), scope, list, rules);
+    await this.#reloadSettings(scope === 'user' ? undefined : id);
+    return this.settings(id);
+  }
+
+  async setAutoMode(id: string, group: AutoModeGroup, rules: string[] | null): Promise<SettingsView> {
+    await setAutoModeGroup(this.#place(id), group, rules);
+    await this.#reloadSettings();
+    return this.settings(id);
+  }
+
+  /** Every live session — workspace `id`'s, or all — reads its settings again. */
+  async #reloadSettings(id?: string): Promise<void> {
+    const entries = id !== undefined ? [this.#entries.get(id) ?? this.#throwMissing(id)] : [...this.#entries.values()];
+    await Promise.all(entries.flatMap((e) => e.registry.live().map((host) => host.reloadSettings().catch(() => {}))));
+  }
+
+  /** Live sessions auto mode refused something in (or paused in) — workspace `id`'s, or all — the latest first. */
+  denials(id?: string): SessionDenials[] {
+    const out: SessionDenials[] = [];
+    for (const [workspaceId, entry] of this.#entries) {
+      if (id !== undefined && workspaceId !== id) continue;
+      for (const host of entry.registry.live()) {
+        const { paused, denials } = host.denials();
+        if (denials.length > 0 || paused) out.push({ sessionId: host.id, workspaceId, paused, denials });
+      }
+    }
+    return out.sort((a, b) => (b.denials[0]?.at ?? 0) - (a.denials[0]?.at ?? 0));
+  }
+
+  async memory(id: string): Promise<MemoryView> {
+    return memoryView(this.#place(id));
+  }
+
+  async readMemory(id: string, target: MemoryTarget): Promise<string> {
+    return readMemory(this.#place(id), target);
+  }
+
+  async writeMemory(id: string, target: MemoryTarget, text: string): Promise<MemoryView> {
+    await writeMemory(this.#place(id), target, text);
+    return this.memory(id);
+  }
+
+  async deleteMemory(id: string, target: MemoryTarget): Promise<MemoryView> {
+    await deleteMemory(this.#place(id), target);
+    return this.memory(id);
+  }
+
+  async mcp(id: string): Promise<McpView> {
+    return mcpView(this.#place(id));
+  }
+
+  /** Sign in to MCP server `name` (`mcp.login`); every tab hears how a sign-in in a browser ends. */
+  mcpLogin(id: string, name: string): ReturnType<typeof mcpLogin> {
+    return mcpLogin(this.#place(id), name, (error) =>
+      this.#forward(id, { type: 'mcp_login', workspaceId: id, name, ...(error ? { error } : {}) }),
+    );
+  }
+
+  async mcpLogout(id: string, name: string): Promise<McpView> {
+    await mcpLogout(this.#place(id), name);
+    return this.mcp(id);
   }
 
   /** Fork session `id` (`SessionRegistry.fork`) in its own workspace; resolves with the new id. */

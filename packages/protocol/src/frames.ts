@@ -24,7 +24,9 @@ export type PushEvent =
   /** A session may have changed files in this workspace: its `git.status` is worth asking again. */
   | { type: 'git_changed'; workspaceId: string }
   /** A workspace's terminals, whenever one opens, exits or closes. */
-  | { type: 'terminals'; workspaceId: string; terminals: TerminalInfo[] };
+  | { type: 'terminals'; workspaceId: string; terminals: TerminalInfo[] }
+  /** An `mcp.login` finished: signed in, or `error`. */
+  | { type: 'mcp_login'; workspaceId: string; name: string; error?: string };
 
 /** server → client */
 export type ServerFrame =
