@@ -33,9 +33,21 @@ the main process hosts the server in-process and shows the page in a window,
 so nothing has to stay open in a terminal.
 
 ```bash
-pnpm build && pnpm release:desktop   # release-desktop/Marvis-darwin-<arch>/Marvis.app and a .dmg
+pnpm build && pnpm desktop:install   # /Applications/Marvis.app, running this checkout's build
+pnpm build && pnpm release:desktop   # a standalone Marvis.app and .dmg in release-desktop/
 pnpm desktop                         # dev: Electron on packages/desktop/dist (after pnpm build)
 ```
+
+- **Linked or standalone.** `desktop:install` builds an app that is Electron
+  plus a two-line entry importing `packages/desktop/dist/main.js` from this
+  checkout — what the `marvis` alias is to the CLI — so `pnpm build` is all
+  an update takes. `release:desktop` bundles everything into the app, to hand
+  to someone; it never changes after it is built.
+- **Rebuilds show up.** Running from a checkout, the app watches the web
+  bundle and reloads the window when `index.html` changes, and watches the
+  server packages' `dist/` and offers a restart once a build settles (2.5 s
+  quiet; a restart stops running sessions, so it is never done unasked)
+  — `desktop/src/rebuilds.ts`.
 
 - It is the same server, so the same state: `~/.agent/web` (token, projects),
   keys in `~/.agent/.env`. It starts with the project used most recently; a

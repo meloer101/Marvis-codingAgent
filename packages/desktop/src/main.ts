@@ -22,6 +22,7 @@ import {
   fileWorkspaceStore,
   findRunningInstance,
   loadOrCreateToken,
+  resolveStaticDir,
   startServer,
   webStateDir,
   workspacesFile,
@@ -30,6 +31,7 @@ import {
 import type { FolderPicker, RunningServer } from '@harness-code/server';
 
 import { DEFAULT_PORT, isAppUrl, lastProject, pageUrl } from './launch.js';
+import { backendDirs, sourceRoot, watchRebuilds } from './rebuilds.js';
 import { readLoginShellEnv } from './shell-env.js';
 
 interface Page {
@@ -37,8 +39,11 @@ interface Page {
   port: number;
 }
 
+const HERE = dirname(fileURLToPath(import.meta.url));
 /** Next to this file: `dist/` in development, `dist/bundle/` in the app (scripts/package.mjs). */
-const PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'preload.cjs');
+const PRELOAD = join(HERE, 'preload.cjs');
+/** The checkout this build sits in: development, or the app linked to it. Undefined in the packaged app. */
+const SOURCE = sourceRoot(HERE);
 /** The window's buttons, centred on the page's 44px top rows (preload.cts, shell.js). */
 const TRAFFIC_LIGHTS = { x: 16, y: 16 };
 /** How long quitting waits at most for the server to stop its sessions. */
@@ -163,6 +168,41 @@ function showWindow(): void {
   mainWindow.focus();
 }
 
+/**
+ * Running from a checkout, `pnpm build` shows up without reinstalling: a new
+ * web bundle reloads the window, a new server build offers a restart (which
+ * stops running sessions, so it is never done unasked).
+ */
+function followRebuilds(): void {
+  watchRebuilds({
+    webDir: resolveStaticDir(),
+    // Only this app's own server can be restarted with it.
+    backendDirs: server && SOURCE ? backendDirs(SOURCE) : [],
+    onWeb: () => mainWindow?.webContents.reloadIgnoringCache(),
+    onBackend: () => void offerRestart(),
+  });
+}
+
+let offeringRestart = false;
+async function offerRestart(): Promise<void> {
+  if (offeringRestart || quitting) return;
+  offeringRestart = true;
+  const options = {
+    type: 'info' as const,
+    message: 'Marvis was rebuilt',
+    detail: 'Restart to run the new build? Sessions that are running will stop.',
+    buttons: ['Restart', 'Later'],
+    defaultId: 0,
+    cancelId: 1,
+  };
+  const { response } = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
+  offeringRestart = false;
+  if (response === 0) {
+    app.relaunch();
+    app.quit();
+  }
+}
+
 /** A Finder-launched app has launchd's bare environment; take the login shell's (see shell-env.ts). */
 async function adoptShellEnv(): Promise<void> {
   if (process.platform === 'win32') return;
@@ -208,7 +248,8 @@ if (!app.requestSingleInstanceLock()) {
     } catch (err) {
       dialog.showErrorBox('Marvis could not start', err instanceof Error ? err.message : String(err));
     }
-    if (page) showWindow();
-    else app.quit();
+    if (!page) return app.quit();
+    showWindow();
+    followRebuilds();
   });
 }

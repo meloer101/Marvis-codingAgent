@@ -17,6 +17,7 @@
     "bundle": "node scripts/bundle-hc.mjs",
     "release:marvis": "node scripts/bundle-marvis.mjs",
     "desktop": "pnpm --filter @harness-code/desktop start",
+    "desktop:install": "node packages/desktop/scripts/package.mjs --link --install",
     "release:desktop": "node packages/desktop/scripts/package.mjs"
   },
   "pnpm": {
