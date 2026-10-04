@@ -86,8 +86,8 @@ export function AgentsSection({ workspaceId, projectName }: { workspaceId: strin
       <SectionIntro title="Sub-agents">
         Helpers the agent hands a self-contained job to with its <Code>task</Code> tool — a search, a plan, a review. Each
         works in a context of its own, with the tools you give it, and only its report comes back; the agent picks one by its
-        description. The project’s win over yours of the same name, and yours over the built-in ones; sessions started
-        afterwards see a change.
+        description. The project’s win over yours of the same name, and yours over the built-in ones. Open sessions take a
+        change up before their next message.
       </SectionIntro>
       {groups.map(({ scope, title }) => {
         const agents = data.agents.filter((a) => a.scope === scope);

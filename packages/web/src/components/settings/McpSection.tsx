@@ -97,7 +97,8 @@ export function McpSection({ workspaceId, projectName }: { workspaceId: string; 
       <SectionIntro title="MCP servers">
         Tools from outside Marvis: each server runs as a command, or is reached at a URL. They’re kept in your{' '}
         <Code>~/.agent/.mcp.json</Code> and the project’s <Code>.mcp.json</Code> — the project’s wins when both name one.
-        Sessions connect as they start, so one started after a change is the first to have it.
+        Open sessions take a change up before their next message, connecting only the servers that changed — and, after a
+        sign-in, those that had failed.
       </SectionIntro>
       <Problems problems={data.problems} />
       <Card

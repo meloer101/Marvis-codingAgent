@@ -81,8 +81,8 @@ export function SkillsSection({ workspaceId, projectName }: { workspaceId: strin
       <SectionIntro title="Skills">
         Instructions the agent loads when a task calls for them: sessions are told each skill’s name and description, and read
         the rest of its <Code>SKILL.md</Code> — and the files beside it — when it’s needed. Type <Code>/name</Code> in a message to
-        load one yourself. The project’s win over yours of the same name, and yours over the built-in ones; sessions started
-        afterwards see a change.
+        load one yourself. The project’s win over yours of the same name, and yours over the built-in ones. Open sessions take
+        a change up before their next message.
       </SectionIntro>
       <AddSkill
         workspaceId={workspaceId}

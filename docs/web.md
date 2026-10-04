@@ -161,7 +161,7 @@ the server with the same schemas the client is typed from.
 | `memory.list {workspaceId}` | the instruction files (`AGENTS.md`, `CLAUDE.md` in `~/.agent/` and at the project's root — or the `AGENTS.md` to write) and the memories in the global and project stores, each with what's wrong with it, if sessions skip it |
 | `memory.read` / `memory.write` / `memory.delete {workspaceId, target, text?}` | an instructions file or a memory (`{kind:'memory', scope, path}`): read, write (a memory must parse as one, in a scope that keeps its type; the store's `MEMORY.md` is written again) or delete (memories only) |
 | `mcp.list {workspaceId}` | the MCP servers in `~/.agent/.mcp.json` and the project's `.mcp.json`, as the files have them (`${VAR}`s unexpanded, no headers or env), which one of a name is used, and how each signs in — OAuth ones, whether tokens are stored |
-| `mcp.login {workspaceId, name}` | sign in to an OAuth server: answers with the page to authorize at, the callback caught on 127.0.0.1 as `marvis mcp login` does, and an `mcp_login` push when it ends — or at once when the tokens it has still work. Sessions started afterwards connect with it |
+| `mcp.login {workspaceId, name}` | sign in to an OAuth server: answers with the page to authorize at, the callback caught on 127.0.0.1 as `marvis mcp login` does, and an `mcp_login` push when it ends — or at once when the tokens it has still work. Live sessions then try the servers that had failed again; new ones connect with it |
 | `mcp.logout {workspaceId, name}` | forget a server's tokens |
 | `mcp.get {workspaceId, scope, name}` | one file's entry for a server, to edit: its command and arguments or URL, how it signs in, and its env and headers — a value the file has as a literal comes back `null`, never sent (one with a `${VAR}` in it is shown) |
 | `mcp.save {workspaceId, scope, server, previousName?}` | add a server to `~/.agent/.mcp.json` (`user`, made readable by you alone) or the project's `.mcp.json`, or — with `previousName` — change that one in place, renaming it when the names differ; a `null` env or header value keeps the file's, and what an entry has beyond what the form knows is kept. The entry must parse as a server, and a file that doesn't parse is never written over (`bad_request`); `conflict` for a name the file has already → the list again |
@@ -197,6 +197,18 @@ context meter that come with the new model). With background commands on
 `run_in_background` — between runs too — and the snapshot's `processes`
 carries each one's state and the last 64 KB it printed; a client folds them
 with `foldProcesses`.
+
+A live session takes up skills, sub-agents and MCP servers that changed
+(`AgentSession.reloadCapabilities`): as each run starts — so a file edited by
+hand, or written by the agent, is there for the next message — and, between
+runs, as soon as the settings page writes one (`mcp.save` / `mcp.remove`,
+`skills.*`, `agents.*`: the project's sessions for the project's files, every
+session for yours) or an `mcp.login` signs in, which also tries again the
+servers that had failed. Only the MCP servers whose entry changed reconnect.
+A run going takes a change up as it ends. What changed comes as a
+`capabilities` notice — "picked up changes — skills: added pdf · MCP: added
+github (12 tools)", a warning when a server couldn't be reached — with the
+changes as its `data`, and the page loads the session's `/` menu again.
 
 Every event gets a per-session, per-host `seq`, and the host keeps the last 5000
 frames, so a client that reconnects resubscribes with its `lastSeq` and gets

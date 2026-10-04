@@ -10,6 +10,7 @@ import {
   Info,
   LoaderCircle,
   Pencil,
+  RefreshCw,
   RotateCcw,
   X,
 } from 'lucide-react';
@@ -508,7 +509,8 @@ function NoticeRow({ notice }: { notice: Notice }) {
       </div>
     );
   }
-  const Icon = notice.level === 'info' ? Info : AlertTriangle;
+  // Skills, sub-agents or MCP servers taken up mid-session.
+  const Icon = notice.level !== 'info' ? AlertTriangle : notice.kind === 'capabilities' ? RefreshCw : Info;
   return (
     <div
       className={cn(

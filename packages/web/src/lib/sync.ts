@@ -922,6 +922,8 @@ export class SessionSync {
     const model = this.#models.get(id);
     if (!model || !model.apply(seq, event)) return;
     this.#publish(id);
+    // The session took up new skills or MCP servers: its `/` menu follows.
+    if (event.type === 'notice' && event.notice.kind === 'capabilities' && event.notice.data !== undefined) void this.#loadSlash(id);
   }
 
   #onPush(event: PushEvent): void {
