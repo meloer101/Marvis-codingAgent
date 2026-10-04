@@ -156,7 +156,12 @@
 状态：`observed` → `task/grader exists` → `fix landed` → `fix measured`（成对 CI 不含 0）或
 `fix unproven`。
 
-**两次运行：**
+**三次运行：**
+- **10-04 失败重跑**：`deepseek-flash`，9-23/24 那次的 18 个 agent 失败去掉 2 个 Rosetta 超时，剩 16 个各跑 1 次
+  （名单在 `evals/harbor/failures-0923.txt`），hc 为 main `2fe5c4a`，`--ak verify_stop=true`，其他配置同 9-23/24。
+  **通过 5/16**。这 16 个是挑出来的失败任务，重跑本身就会有一些因随机性通过，单次结果只能看方向。被拒的工具调用
+  60/610 → 0/574；2 个任务因 bash 超时 bug 卡到 30 分钟（见摩擦表）。花费约 ¥5.2。轨迹在
+  `evals/harbor/.jobs/2026-10-04__09-03-02/`（gitignore，只在本机）。
 - **9-23/24 全量**：`deepseek-flash`，Terminal-Bench 2.0 全部 89 个任务各跑 1 次（先跑 18 任务子集，再跑其余
   71 个；第二批多了一个 `grep` 修复，其他版本相同），本地 Docker（Apple M4 + Rosetta，
   `--agent-timeout-multiplier 2`）。**有效 71 个，通过 53 个 = 75%**。另外 18 个不计入：DeepSeek 余额耗尽
@@ -172,12 +177,12 @@
 
 | # | 失败模式 | 第一个错误的样子 | 9 月下旬计数 | 9 月上旬计数 | 之后（不计数） | eval 信号 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 12 | 验证不到位就宣布完成：只验证了自己做的东西，或者根本没能运行交付物 | 输出对了但漏了题目明写的 `:wq` 结尾（`large-scale-text-editing`）；只用一个干净文档测"不误改"（`filter-js-from-html`）；接口和调用方不符（`adaptive-rejection-sampler`）；环境里没有 SPARQL 引擎，"手工核对"后交了一个有语法错误的查询（`sparql-university`）；在自己切的验证集上 0.6243、刚过 0.62 的线就停，实际 0.617（`train-fasttext`）；Tm 算的区域和判分不一致（`dna-assembly`）；自测没覆盖到的走法（`regex-chess`，44/45）和矩阵行（`model-extraction-relu-logits`） | **8** | 0 | — | capability 任务 `verify-stated-requirements`、`verify-clean-input-unchanged`；`--ablation verify-stop` | fix landed（9-25，`agent/verify-stop.ts`）, unproven |
-| 13 | 笃定地给出错误的结论或解释 | 把"打印出来的是什么文字"答成"根本没有文字"（`gcode-to-text`）；光谱 x 轴在 1648–47183、明显不是 cm⁻¹，却用"G/2D 比值对得上"圆过去（`raman-fitting`）；认定题目示例"只是示意"，按自己推测的加载基址输出，匹配 0%（`extract-elf`） | **3** | 0 | `extract-elf` 去 grep `/opt/hc/hc.mjs` 找"参考答案" | — | observed |
-| 14 | 40 轮上限内做不完的大任务 | 写 MIPS 解释器、为 MIPS 编译 Doom、细胞分割，到第 40 轮还在修 bug，交付物停在坏掉的状态（`make-mips-interpreter`、`make-doom-for-mips`、`sam-cell-seg`） | **3** | 0 | — | — | observed。40 是 adapter 的默认 `max_turns`，Terminal-Bench 本身只限墙钟，见 G 节 |
+| 12 | 验证不到位就宣布完成：只验证了自己做的东西，或者根本没能运行交付物 | 输出对了但漏了题目明写的 `:wq` 结尾（`large-scale-text-editing`）；只用一个干净文档测"不误改"（`filter-js-from-html`）；接口和调用方不符（`adaptive-rejection-sampler`）；环境里没有 SPARQL 引擎，"手工核对"后交了一个有语法错误的查询（`sparql-university`）；在自己切的验证集上 0.6243、刚过 0.62 的线就停，实际 0.617（`train-fasttext`）；Tm 算的区域和判分不一致（`dna-assembly`）；自测没覆盖到的走法（`regex-chess`，44/45）和矩阵行（`model-extraction-relu-logits`） | **8** | 0 | — | capability 任务 `verify-stated-requirements`、`verify-clean-input-unchanged`；`--ablation verify-stop` | fix landed（9-25，`agent/verify-stop.ts`）。**10-04 重跑：收益很小。** 8 个里通过 4 个，但 verify-stop 只在 `adaptive-rejection-sampler` 里查出并改掉了问题，另外 3 个在提示前就做对了；失败的 4 个都回答"所有要求都满足"。每次触发多约 4 轮，`train-fasttext` 到第 40 轮才触发、没有轮数可用。仍默认关闭 |
+| 13 | 笃定地给出错误的结论或解释 | 把"打印出来的是什么文字"答成"根本没有文字"（`gcode-to-text`）；光谱 x 轴在 1648–47183、明显不是 cm⁻¹，却用"G/2D 比值对得上"圆过去（`raman-fitting`）；认定题目示例"只是示意"，按自己推测的加载基址输出，匹配 0%（`extract-elf`） | **3** | 0 | `extract-elf` 去 grep `/opt/hc/hc.mjs` 找"参考答案" | — | observed。10-04 重跑 `gcode-to-text`、`raman-fitting` 仍失败，verify-stop 照样放行；`extract-elf` 又去翻 harness 找答案，随后卡在 bash 超时 bug 上 |
+| 14 | 40 轮上限内做不完的大任务 | 写 MIPS 解释器、为 MIPS 编译 Doom、细胞分割，到第 40 轮还在修 bug，交付物停在坏掉的状态（`make-mips-interpreter`、`make-doom-for-mips`、`sam-cell-seg`） | **3** | 0 | — | — | observed。40 是 adapter 的默认 `max_turns`，Terminal-Bench 本身只限墙钟，见 G 节。10-04 重跑三个仍到第 40 轮 |
 | 15 | 重任务在 Rosetta 下超出墙钟（环境限制，不是 agent 行为） | 装依赖 24 分钟、跑 OCR 19 分钟（`caffe-cifar-10`、`extract-moves-from-video`） | **2** | 0 | — | — | 换 x86 / 云端沙箱后再看 |
-| 3 | 简单问题上过度工程 | 不先交一个 numpy 版，而是去 scipy、LAPACK、装 gcc、手写 C 内核（`largest-eigenval`，最后速度还差一点没过线） | **1** | 3（同一任务） | `eigen.py` 第 28/39 轮才第一次写（#4） | grader `diff-size`；还缺 capability 任务 | fix landed（"先试简单方案"规则），**9 月下旬在同一任务上重现，属于反证** |
-| 11 | 探查时破坏了不可再生的输入 | 第 2 轮直接 `sqlite3 main.db ".tables"`，SQLite 因 WAL 头部无效把被加密的 WAL 删了（`db-wal-recovery`） | **1** | 0 | 之后 20 轮在 `/proc`、块设备、harness 自己的日志里找（#7） | — | observed |
+| 3 | 简单问题上过度工程 | 不先交一个 numpy 版，而是去 scipy、LAPACK、装 gcc、手写 C 内核（`largest-eigenval`，最后速度还差一点没过线） | **1** | 3（同一任务） | `eigen.py` 第 28/39 轮才第一次写（#4） | grader `diff-size`；还缺 capability 任务 | fix landed（"先试简单方案"规则），**9 月下旬在同一任务上重现，属于反证**；10-04 重跑又先去写 C 内核，随后卡在 bash 超时 bug 上 |
+| 11 | 探查时破坏了不可再生的输入 | 第 2 轮直接 `sqlite3 main.db ".tables"`，SQLite 因 WAL 头部无效把被加密的 WAL 删了（`db-wal-recovery`） | **1** | 0 | 之后 20 轮在 `/proc`、块设备、harness 自己的日志里找（#7） | — | observed。10-04 重跑通过（1 次，说明不了什么） |
 | 7 | 钻牛角尖：一条错的路越走越深，命令都成功，只是方向错 | 手写一个又一个 XSS 变体；翻 `/proc`、手工模拟 WAL；下载棋子图片 | 0 | 3 | 1（`db-wal-recovery`） | 还没有 | observed。现有 step-back 提示（`stallNote`）只在连续 3 轮工具调用**全部失败**时触发，覆盖不到，见 H 节 |
 | 8 | 做完了不停，跑到回合上限 | 任务已经能通过，仍继续打磨直到 40 轮 | 0 | 2 | — | 回合数 | fix landed（turn-budget nudge）；9 月下旬到 40 轮的 3 条都是没做完（#14），不是做完不停 |
 | 4 | 交付物投入过晚 | 第一次写真正的输出之前，做了很多轮探索或 scratch 工作 | 0 | 1 | 1（`largest-eigenval`） | grader `first-touch` | fix landed, unproven |
@@ -190,8 +195,9 @@
 
 | 摩擦 | 涉及轨迹 | 次数 | 说明 |
 | --- | --- | --- | --- |
-| `yolo` 模式下权限引擎硬拒绝合法命令 | **68/70** | 209 次，占全部 2075 次工具调用的 10.1% | `python -c` 91 次（48 条）、heredoc 解析不了 35 次（28 条）、`$(...)` 36 次（23 条）、`write` 写工作区外（`/tmp`）28 次（22 条）、管道到 `sh` 10 次、递归删除工作区内的目录 6 次（包括 agent 自己的 `scratch/`）。每次基本都要多花一轮改写。**9-25 已放宽**：`yolo` 下放行内联代码、`$(...)`、heredoc；文件工具可以读写系统临时目录；删除工作区内的目录不再被拒。管道到 shell 和其他破坏性命令仍在所有模式拒绝。下次 Harbor 运行时验证 |
-| 翻 harness 自己的文件（`.agent/`、`/opt/hc`、`/logs/agent`） | 12/70 | — | `marvis` 把 `.agent/` 写在任务目录里，agent 一 `ls` 就看到；有的去翻自己的日志，有的去 grep `hc.mjs` 找"参考答案"。**9-25 已修**：不是项目的目录改写到 `~/.agent/projects/`，Harbor adapter 用 `HC_STATE_DIR` 把状态直接写进日志目录。下次 Harbor 运行时验证 |
+| `yolo` 模式下权限引擎硬拒绝合法命令 | **68/70** | 209 次，占全部 2075 次工具调用的 10.1% | `python -c` 91 次（48 条）、heredoc 解析不了 35 次（28 条）、`$(...)` 36 次（23 条）、`write` 写工作区外（`/tmp`）28 次（22 条）、管道到 `sh` 10 次、递归删除工作区内的目录 6 次（包括 agent 自己的 `scratch/`）。每次基本都要多花一轮改写。**9-25 已放宽**：`yolo` 下放行内联代码、`$(...)`、heredoc；文件工具可以读写系统临时目录；删除工作区内的目录不再被拒。管道到 shell 和其他破坏性命令仍在所有模式拒绝。**10-04 验证**：同样 16 个任务，被拒 60/610 → 0/574 |
+| 翻 harness 自己的文件（`.agent/`、`/opt/hc`、`/logs/agent`） | 12/70 | — | `marvis` 把 `.agent/` 写在任务目录里，agent 一 `ls` 就看到；有的去翻自己的日志，有的去 grep `hc.mjs` 找"参考答案"。**9-25 已修**：不是项目的目录改写到 `~/.agent/projects/`，Harbor adapter 用 `HC_STATE_DIR` 把状态直接写进日志目录。**10-04：没解决**，`extract-elf` 仍去翻 `/opt/hc/hc.mjs`、`/logs/agent/hc.log`、`/root/.agent/` 找"reference solution"，安装目录和日志目录还在 agent 能看到的地方 |
+| bash 超时不生效 | 2/16（10-04） | — | 超时只 kill 了 `sh`，管道、`&&`、后台里的子进程占着输出管道，工具一直等；`grep -r /` 和一个跑飞的 python 各卡到 Harbor 的 30 分钟上限。**已修复**（`5ae0284`）：命令单独成进程组，超时和中断都杀整组 |
 | `grep` 工具的 `path` 指向单个文件时报 `ENOTDIR` | 1（第一批） | 2 次 | 容器里没有 `rg`，JS fallback 把文件路径当目录用。**已修复**，第二批没有再出现 |
 
 ## H · Agentic behavior quality
@@ -219,8 +225,10 @@
   打开）。9-27 在 capability 套件上做了成对比较（每组 5 次，`deepseek-flash`）：两个
   `verify-*` 任务开关两组**都是 100%**，对照任务两组都是 0%，所以**没测出收益**——任务对 flash 太容易，没复现
   真实运行里的失败。代价测出来了：每次多 4–8 轮，成本是原来的 1.4–2.4 倍（绝对值每次 $0.002–0.004）。剩下：
-  (1) 更难、更像真实失败的任务（要求埋在长题目中间，而不是醒目地列出来）；(2) 下次 Harbor 运行开着它，看 #12
-  的计数和多出的回合（Harbor 用 `--ae` 传不了设置，要在 `.agent/settings.json` 或 adapter 里打开）。*(S–M)* — **measure**
+  (1) 更难、更像真实失败的任务（要求埋在长题目中间，而不是醒目地列出来）。(2) Harbor 上开着它跑：**10-04 跑了**
+  （`--ak verify_stop=true`），触发 11 次，只有 1 次查出并改掉了问题，没查出错的那几次都回答"所有要求都满足"，
+  每次多约 4 轮，见失败模式表 #12。自我核验抓不到模型自己看不见的错；值不值得默认打开，要先有多次运行的数据。
+  *(S–M)* — **measure**
 - **动手前先备份不可再生的输入**：`db-wal-recovery`（表中 #11）第 2 轮就用 `sqlite3` 打开数据库，导致被
   加密的 WAL 被删除，之后无法恢复。在 `<working_style>` 里加一条：对恢复、取证类任务，先复制原始文件再用
   可能修改它的工具去探查。*(S)* — **measure**
