@@ -6,6 +6,7 @@ import {
   Archive,
   ArchiveRestore,
   BookOpen,
+  Bot,
   ChartColumn,
   ChartPie,
   Columns2,
@@ -330,6 +331,14 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       keywords: 'settings add new import install skill.md github',
       icon: Puzzle,
       run: go(routeToHash({ kind: 'settings', section: 'skills' })),
+    });
+    items.push({
+      id: 'settings-agents',
+      group: 'App',
+      label: 'Sub-agents',
+      keywords: 'settings subagent agent task explore plan new tools model',
+      icon: Bot,
+      run: go(routeToHash({ kind: 'settings', section: 'agents' })),
     });
     items.push({
       id: 'settings-memory',

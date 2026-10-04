@@ -172,6 +172,11 @@ the server with the same schemas the client is typed from.
 | `skills.write {workspaceId, scope, name, text, create?}` | write a skill's `SKILL.md`, its folder made if missing (`create`: `conflict` when there is one); it must parse as a skill named for its folder (`bad_request`) |
 | `skills.delete {workspaceId, scope, name}` | delete a skill's folder, everything in it |
 | `skills.import {workspaceId, scope, source, replace?}` | copy skills in from a folder on this machine (a full path, `~` allowed) or an https Git URL, cloned shallowly — a GitHub `…/tree/<branch>/<path>` URL names a folder in it. A folder with a `SKILL.md` is one skill, named as its frontmatter names it; otherwise each one up to three levels down. Copied whole, never a `.git` or `node_modules`; `conflict` for one here already, unless `replace` → `{view, imported, skipped}` |
+| `agents.list {workspaceId}` | the sub-agents sessions there can send, as discovery finds them — the project's `.agent/agents/`, yours in `~/.agent/agents/`, the built-in ones — each with its tools, model and effort, marked `shadowed` when one of the same name before it is used, and the files sessions skip, with why; the built-in tools one can be given (never `task`) and the efforts a definition may ask for |
+| `agents.get {workspaceId, scope, name}` | a sub-agent's file, and its fields when it parses (a built-in one's too) |
+| `agents.save {workspaceId, scope, name, fields, previousName?}` | write a sub-agent from its fields (`description`, `tools` — omitted for all the built-in ones, empty for none — `model`, `effort`, `body`): new, or over `previousName`, renamed when the names differ, keeping what else its frontmatter had; `conflict` for a name taken there, `bad_request` for what wouldn't parse |
+| `agents.write {workspaceId, scope, name, text}` | write a sub-agent's file as it is; it must parse as one named for its file |
+| `agents.delete {workspaceId, scope, name}` | delete a sub-agent's file |
 | `stats.summary {workspaceId?, since?}` | every traced session started since then, in one project or all: each one's figures and the rollup across them — totals, averages, per model |
 | `session.slashCommands {id}` | the session's MCP prompt commands |
 | `session.skills {id}` | the session's skills (`/name [task]` loads one) |
@@ -624,8 +629,16 @@ The token is as powerful as the user's shell — a client can switch a session t
   name and a description (its `SKILL.md` then opens to write); a conflict
   offers Replace. Below, the project's, yours and the built-in skills, each
   with what it does, why sessions skip it or that another of its name is
-  used; opened in place to edit (a built-in one to read), deleted once
-  confirmed. The `/skills` dialog in a session links here. **Tools**: the switch
+  used; opened in place to edit (a built-in one to read, or copied to yours
+  whole), deleted once confirmed. The `/skills` dialog in a session links
+  here. **Sub-agents**: the project's, yours and the built-in ones, each with
+  its tools, model and effort as chips; "New sub-agent" on yours and the
+  project's opens a form — a name, the description the agent picks it by,
+  its tools (only the ones ticked, `read glob grep` to start, or all the
+  session's built-in ones), a model (suggested from the workspace's) and an
+  effort, and its instructions. On hover a row has Edit (the same form, or
+  "Edit the file instead"), its file, and Delete; a built-in one is read, or
+  copied to yours and opened to change. **Tools**: the switch
   for background commands in your settings (`settings.setBackgroundProcesses`),
   noting when the project's turn them on regardless; sessions started
   afterwards have them, as the tools a session shows the model are fixed when

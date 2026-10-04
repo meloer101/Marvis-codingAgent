@@ -165,7 +165,7 @@ Marvis 面向真实代码库设计，其安全边界如下：
 
 **Skills** —— 一个带 `SKILL.md` 的文件夹（[Agent Skills 规范](https://agentskills.io/specification)）。三级渐进披露：启动时只有 `name: 描述` 进系统提示；模型调用 `skill` 工具时载入完整正文；`references/` 仅在指令指过去时读取。放在项目的 `.agent/skills/` 或个人的 `~/.agent/skills/` 下；网页端 **设置 › Skills** 可以从模板新建、就地编辑 `SKILL.md`、删除，或从本机文件夹 / Git 仓库地址（如 GitHub 的 `…/tree/main/skills/pdf`）导入。
 
-**子代理** —— `task` 工具在全新上下文窗口中、仅就你给的提示运行另一个 `AgentLoop`，只把最终消息带回。一次 grep 密集的调研，从几万 token 缩为一段话。
+**子代理** —— `task` 工具在全新上下文窗口中、仅就你给的提示运行另一个 `AgentLoop`，只把最终消息带回。一次 grep 密集的调研，从几万 token 缩为一段话。定义是 `.agent/agents/<名字>.md`（项目）或 `~/.agent/agents/` 下的文件，可限定工具、模型与推理强度；网页端 **设置 › Sub-agents** 可以用表单新建、编辑、删除，或把内置的 `explore` / `plan` 复制一份来改。
 
 </details>
 

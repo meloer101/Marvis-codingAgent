@@ -1,8 +1,9 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { McpServerEntry, McpView, MemoryView, ProvidersView, SessionDenials, SettingsView, SkillsView } from '@harness-code/protocol';
+import type { AgentFields, AgentsView, McpServerEntry, McpView, MemoryView, ProvidersView, SessionDenials, SettingsView, SkillsView } from '@harness-code/protocol';
 
+import { AgentsSection } from './settings/AgentsSection';
 import { AutoModeSection } from './settings/AutoModeSection';
 import { McpSection } from './settings/McpSection';
 import { MemorySection } from './settings/MemorySection';
@@ -395,6 +396,101 @@ describe('SkillsSection', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Replace' })));
     expect(replace).toBe(true);
     expect(await screen.findByText('Added pdf.')).toBeTruthy();
+  });
+});
+
+describe('AgentsSection', () => {
+  const tools = [
+    { name: 'read', readOnly: true },
+    { name: 'glob', readOnly: true },
+    { name: 'grep', readOnly: true },
+    { name: 'bash', readOnly: false },
+  ];
+  const agents = (over: Partial<AgentsView> = {}): AgentsView => ({
+    agents: [
+      { name: 'test-runner', scope: 'project', path: '/p/.agent/agents/test-runner.md', description: 'Runs tests', tools: ['read', 'bash'], model: 'deepseek/deepseek-chat', effort: 'low' },
+      { name: 'broken', scope: 'user', path: '/home/me/.agent/agents/broken.md', description: '', problem: 'the body (role instructions) is empty' },
+      { name: 'explore', scope: 'builtin', path: '/marvis/agents/explore.md', description: 'Read-only search', tools: ['read', 'glob', 'grep'] },
+    ],
+    dirs: { project: '/p/.agent/agents', user: '/home/me/.agent/agents', builtin: '/marvis/agents' },
+    tools,
+    efforts: ['low', 'medium', 'high'],
+    ...over,
+  });
+  const show = (sync: SessionSync) =>
+    render(
+      <SyncProvider sync={sync}>
+        <AgentsSection workspaceId="w1" projectName="repo" />
+      </SyncProvider>,
+    );
+
+  it('lists each scope with what each one is given, and why one is skipped', async () => {
+    const { sync } = syncFor(() => agents());
+    show(sync);
+    expect(await screen.findByText('test-runner')).toBeTruthy();
+    expect(screen.getByText('read · bash')).toBeTruthy();
+    expect(screen.getByText('deepseek/deepseek-chat')).toBeTruthy();
+    expect(screen.getByText('effort low')).toBeTruthy();
+    expect(screen.getByText(/Sessions skip it: the body/)).toBeTruthy();
+    // A file that doesn't parse is edited as a file; a built-in one is read, or copied.
+    expect(screen.queryByRole('button', { name: 'Edit broken' })).toBeNull();
+    expect(screen.getByRole('button', { name: "Edit broken's file" })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Delete explore' })).toBeNull();
+    expect(screen.getByRole('button', { name: /Copy to yours/ })).toBeTruthy();
+  });
+
+  it('writes a new one from the form: the read-only tools picked to start with', async () => {
+    const { sync, settingsCall } = syncFor(() => agents());
+    show(sync);
+    const cards = await screen.findAllByRole('button', { name: 'New sub-agent' });
+    fireEvent.click(cards[1]!); // yours
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), { target: { value: 'scout' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /^Description/ }), { target: { value: 'Finds things' } });
+    const group = screen.getByRole('group', { name: 'Its tools' });
+    expect((within(group).getByRole('checkbox', { name: /read/ }) as HTMLInputElement).checked).toBe(true);
+    expect((within(group).getByRole('checkbox', { name: /bash/ }) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(within(group).getByRole('checkbox', { name: /glob/ }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Effort' }), { target: { value: 'low' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /^Instructions/ }), { target: { value: 'Look, then report.' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Create' })));
+    expect(settingsCall).toHaveBeenCalledWith('agents.save', {
+      workspaceId: 'w1',
+      scope: 'user',
+      name: 'scout',
+      fields: { description: 'Finds things', tools: ['read', 'grep'], effort: 'low', body: 'Look, then report.' },
+    });
+  });
+
+  it('edits one — giving it every tool — and renames it', async () => {
+    const fields: AgentFields = { description: 'Runs tests', tools: ['read', 'bash'], model: 'deepseek/deepseek-chat', effort: 'low', body: 'Run them.' };
+    const { sync, settingsCall } = syncFor((method) => (method === 'agents.get' ? { text: '…', fields } : agents()));
+    show(sync);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit test-runner' }));
+    expect(await screen.findByDisplayValue('Run them.')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), { target: { value: 'tester' } });
+    fireEvent.click(screen.getByRole('radio', { name: /All the session/ }));
+    fireEvent.change(screen.getByRole('combobox', { name: /^Model/ }), { target: { value: '' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save' })));
+    expect(settingsCall).toHaveBeenCalledWith('agents.save', {
+      workspaceId: 'w1',
+      scope: 'project',
+      name: 'tester',
+      previousName: 'test-runner',
+      fields: { description: 'Runs tests', effort: 'low', body: 'Run them.' },
+    });
+  });
+
+  it('copies a built-in one to yours, and opens it to change', async () => {
+    const fields: AgentFields = { description: 'Read-only search', tools: ['read', 'glob', 'grep'], effort: 'low', body: 'Find it.' };
+    const copied = agents();
+    copied.agents.push({ name: 'explore', scope: 'user', path: '/home/me/.agent/agents/explore.md', description: 'Read-only search' });
+    const { sync, settingsCall } = syncFor((method) => (method === 'agents.get' ? { text: '…', fields } : method === 'agents.save' ? copied : agents()));
+    show(sync);
+    const copy = await screen.findByRole('button', { name: /Copy to yours/ });
+    await act(async () => fireEvent.click(copy));
+    expect(settingsCall).toHaveBeenCalledWith('agents.get', { workspaceId: 'w1', scope: 'builtin', name: 'explore' });
+    expect(settingsCall).toHaveBeenCalledWith('agents.save', { workspaceId: 'w1', scope: 'user', name: 'explore', fields });
+    expect(await screen.findByRole('form', { name: 'Edit explore' })).toBeTruthy();
   });
 });
 

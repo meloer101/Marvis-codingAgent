@@ -222,7 +222,7 @@ export function SessionSidebar({
         </a>
         <a
           href={routeToHash({ kind: 'settings', section: 'permissions' })}
-          title="Settings — permissions, auto mode, memory, MCP servers, skills"
+          title="Settings — permissions, auto mode, memory, MCP servers, skills, sub-agents"
           aria-label="Settings"
           aria-current={route.kind === 'settings' ? 'page' : undefined}
           className={footerIcon}

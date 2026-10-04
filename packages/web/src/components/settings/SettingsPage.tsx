@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { BookOpen, Cpu, Plug, Puzzle, Settings, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
+import { BookOpen, Bot, Cpu, Plug, Puzzle, Settings, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import { MainHeader, SidebarOpener } from '@/components/Regions';
@@ -9,6 +9,7 @@ import type { SettingsSection } from '@/lib/route';
 import { useAppStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 
+import { AgentsSection } from './AgentsSection';
 import { AutoModeSection } from './AutoModeSection';
 import { McpSection } from './McpSection';
 import { MemorySection } from './MemorySection';
@@ -24,12 +25,13 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
   { id: 'memory', label: 'Memory', icon: BookOpen },
   { id: 'mcp', label: 'MCP servers', icon: Plug },
   { id: 'skills', label: 'Skills', icon: Puzzle },
+  { id: 'agents', label: 'Sub-agents', icon: Bot },
   { id: 'tools', label: 'Tools', icon: Wrench },
 ];
 
 /**
  * Settings (`#/settings/<section>`): models and their keys, permission rules,
- * auto mode and what it refused, memory, MCP servers, skills — for one project at a time, what's yours
+ * auto mode and what it refused, memory, MCP servers, skills, sub-agents — for one project at a time, what's yours
  * (every project's) beside what's the project's.
  */
 export function SettingsPage({ section }: { section: SettingsSection }) {
@@ -95,6 +97,8 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
               <McpSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
             ) : section === 'skills' ? (
               <SkillsSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
+            ) : section === 'agents' ? (
+              <AgentsSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
             ) : (
               <ToolsSection key={workspace.id} workspaceId={workspace.id} />
             )}

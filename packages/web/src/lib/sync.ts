@@ -73,7 +73,12 @@ export type SettingsMethod =
   | 'skills.read'
   | 'skills.write'
   | 'skills.delete'
-  | 'skills.import';
+  | 'skills.import'
+  | 'agents.list'
+  | 'agents.get'
+  | 'agents.save'
+  | 'agents.write'
+  | 'agents.delete';
 
 export type McpLoginPush = Extract<PushEvent, { type: 'mcp_login' }>;
 import type { Checkout } from './checkout';

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Eye, FolderOpen, LoaderCircle, Pencil, Plus, Puzzle, TriangleAlert } from 'lucide-react';
+import { Copy, Eye, FolderOpen, LoaderCircle, Pencil, Plus, Puzzle, TriangleAlert } from 'lucide-react';
 
 import type { SkillEntryInfo, SkillScope, SkillsView } from '@harness-code/protocol';
 
@@ -50,6 +50,7 @@ export function SkillsSection({ workspaceId, projectName }: { workspaceId: strin
   const sync = useSync();
   const { data, error, set } = useLoaded(() => sync.settingsCall('skills.list', { workspaceId }), workspaceId);
   const [editing, setEditing] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
   if (!data) return error ? <ErrorLine error={error} /> : <p className="text-xs text-muted-foreground">Reading the skills…</p>;
 
   const write = async (scope: Writable, name: string, text: string): Promise<void> => {
@@ -58,6 +59,16 @@ export function SkillsSection({ workspaceId, projectName }: { workspaceId: strin
   };
   const remove = async (scope: Writable, name: string): Promise<void> => {
     set(await sync.settingsCall('skills.delete', { workspaceId, scope, name }));
+  };
+  /** A built-in skill copied to yours — its folder whole — and opened to change. */
+  const copy = async (skill: SkillEntryInfo): Promise<void> => {
+    setCopyError(null);
+    try {
+      set((await sync.settingsCall('skills.import', { workspaceId, scope: 'user', source: skill.dir })).view);
+      setEditing(keyOf('user', skill.name));
+    } catch (err) {
+      setCopyError(errorText(err));
+    }
   };
 
   const groups: Array<{ scope: SkillScope; title: string }> = [
@@ -109,7 +120,7 @@ export function SkillsSection({ workspaceId, projectName }: { workspaceId: strin
                         skill={s}
                         editing={editing === key}
                         onEdit={() => setEditing(key)}
-                        {...(writable ? { onDelete: () => remove(s.scope as Writable, s.name) } : {})}
+                        {...(writable ? { onDelete: () => remove(s.scope as Writable, s.name) } : { onCopy: () => void copy(s) })}
                       />
                       {editing === key && (
                         <FileEditor
@@ -118,7 +129,7 @@ export function SkillsSection({ workspaceId, projectName }: { workspaceId: strin
                           readOnly={!writable}
                           {...(writable ? { onSave: (text: string) => write(s.scope as Writable, s.name, text) } : {})}
                           onCancel={() => setEditing(null)}
-                          note={writable ? `${s.dir}/SKILL.md` : 'A built-in skill: copy it to your own to change it.'}
+                          note={writable ? `${s.dir}/SKILL.md` : 'A built-in skill: copy it to yours to change it.'}
                         />
                       )}
                     </li>
@@ -126,6 +137,7 @@ export function SkillsSection({ workspaceId, projectName }: { workspaceId: strin
                 })}
               </ul>
             )}
+            {scope === 'builtin' && <ErrorLine error={copyError} />}
           </Card>
         );
       })}
@@ -138,11 +150,13 @@ function SkillRow({
   editing,
   onEdit,
   onDelete,
+  onCopy,
 }: {
   skill: SkillEntryInfo;
   editing: boolean;
   onEdit: () => void;
   onDelete?: () => Promise<void>;
+  onCopy?: () => void;
 }) {
   return (
     <div className="group/skill flex items-start gap-2 text-xs">
@@ -167,9 +181,17 @@ function SkillRow({
               <Pencil />
             </Button>
           ) : (
-            <Button size="icon-xs" variant="ghost" aria-label={`Read ${s.name}`} title="Read" onClick={onEdit}>
-              <Eye />
-            </Button>
+            <>
+              <Button size="icon-xs" variant="ghost" aria-label={`Read ${s.name}`} title="Read" onClick={onEdit}>
+                <Eye />
+              </Button>
+              {onCopy && !s.shadowed && (
+                <Button size="xs" variant="ghost" onClick={onCopy} title="Copy it to yours, to change it — yours is then the one used">
+                  <Copy />
+                  Copy to yours
+                </Button>
+              )}
+            </>
           )}
           {onDelete && <DeleteButton name={s.name} onDelete={onDelete} />}
         </span>
