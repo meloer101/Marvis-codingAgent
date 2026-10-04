@@ -55,6 +55,9 @@ let quitting = false;
 
 app.setName('Marvis');
 app.setAboutPanelOptions({ applicationName: 'Marvis', applicationVersion: VERSION });
+// A development run (`pnpm desktop`) keeps its own Chromium profile, and with it its
+// own single-instance lock: one left open must not stop the installed app from starting.
+if (!app.isPackaged) app.setPath('userData', join(app.getPath('appData'), 'Marvis Dev'));
 
 const folderDialog = (opts: OpenDialogOptions) => {
   const options: OpenDialogOptions = { ...opts, properties: ['openDirectory', 'createDirectory'] };
@@ -177,6 +180,9 @@ if (!app.requestSingleInstanceLock()) {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
   });
+  // `kill` or Ctrl+C in the terminal of a development run: quit the usual way, server first.
+  process.on('SIGTERM', () => app.quit());
+  process.on('SIGINT', () => app.quit());
   app.on('will-quit', (event) => {
     if (!server || quitting) return;
     event.preventDefault();
