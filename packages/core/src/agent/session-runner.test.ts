@@ -1,9 +1,10 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { DEFAULT_CAPABILITIES } from '../provider/capabilities.js';
 import { ScriptedProvider } from '../provider/mock.js';
@@ -1046,5 +1047,113 @@ describe('AgentSession persistent memory', () => {
     expect(reads[1]?.result.content).toContain('staged body');
     await expect(access(join(cwd, '.agent', 'memory', 'feedback', 'foo.md'))).rejects.toThrow();
     await session.close();
+  });
+});
+
+describe('AgentSession.reloadCapabilities', () => {
+  async function project(): Promise<string> {
+    const cwd = await tempDir();
+    await mkdir(join(cwd, '.git'));
+    return cwd;
+  }
+  const writeSkill = async (cwd: string, name: string, body = 'Body.'): Promise<void> => {
+    await mkdir(join(cwd, '.agent', 'skills', name), { recursive: true });
+    await writeFile(join(cwd, '.agent', 'skills', name, 'SKILL.md'), `---\nname: ${name}\ndescription: ${name} things\n---\n\n${body}\n`);
+  };
+
+  it('takes up skills added, changed and removed, saying so — and nothing when nothing changed', async () => {
+    const cwd = await project();
+    const { session, notices } = await createSession({ cwd, skills: true });
+    expect(await session.reloadCapabilities()).toBeUndefined();
+
+    await writeSkill(cwd, 'zz-hot-one');
+    const added = await session.reloadCapabilities();
+    expect(added?.skills).toEqual({ added: ['zz-hot-one'], removed: [], changed: [] });
+    expect(session.listSkills().some((s) => s.name === 'zz-hot-one')).toBe(true);
+    expect(notices.at(-1)).toMatchObject({ kind: 'capabilities', level: 'info', text: expect.stringContaining('skills: added zz-hot-one') });
+
+    await writeSkill(cwd, 'zz-hot-one', 'New body.');
+    expect((await session.reloadCapabilities())?.skills?.changed).toEqual(['zz-hot-one']);
+    expect(await session.expandSlash('/zz-hot-one')).toBe(skillInvocation('zz-hot-one'));
+
+    await rm(join(cwd, '.agent', 'skills', 'zz-hot-one'), { recursive: true });
+    expect((await session.reloadCapabilities())?.skills?.removed).toEqual(['zz-hot-one']);
+    expect(session.listSkills().some((s) => s.name === 'zz-hot-one')).toBe(false);
+  });
+
+  it('checks again as each run starts, so a skill written by hand is there for the next message', async () => {
+    const cwd = await project();
+    const provider = new ScriptedProvider([{ text: 'one' }, { text: 'two' }]);
+    const { session, notices } = await createSession({ cwd, skills: true, model: sessionModel(provider) });
+    await session.runTurn('first');
+    await writeSkill(cwd, 'zz-by-hand');
+    await session.runTurn('second');
+    expect(notices.filter((n) => n.kind === 'capabilities')).toHaveLength(1);
+    expect(session.listSkills().some((s) => s.name === 'zz-by-hand')).toBe(true);
+  });
+
+  it('takes up sub-agents, giving the session a task tool for them', async () => {
+    const cwd = await project();
+    const { session } = await createSession({ cwd, subagents: true });
+    await mkdir(join(cwd, '.agent', 'agents'), { recursive: true });
+    await writeFile(join(cwd, '.agent', 'agents', 'zz-scout.md'), '---\nname: zz-scout\ndescription: Scout\ntools: read\n---\n\nLook.\n');
+    expect((await session.reloadCapabilities())?.agents).toEqual({ added: ['zz-scout'], removed: [], changed: [] });
+  });
+
+  it('connects an MCP server added, reconnects only one changed, and drops one removed', async () => {
+    const cwd = await project();
+    const mcpFile = join(cwd, '.mcp.json');
+    const { session, notices } = await createSession({ cwd, mcp: true });
+    expect(session.mcpStatus).toEqual([]);
+
+    const echo = { command: process.execPath, args: [ECHO_SERVER] };
+    await writeFile(mcpFile, JSON.stringify({ mcpServers: { echo } }));
+    const added = await session.reloadCapabilities();
+    expect(added?.mcp).toMatchObject({ added: ['echo'], removed: [], changed: [], failed: [] });
+    expect(session.mcpStatus).toMatchObject([{ name: 'echo', state: 'ready', toolCount: 1 }]);
+    expect(session.listSlashCommands().some((c) => c.name === 'summarize')).toBe(true);
+    expect(notices.at(-1)?.text).toContain('MCP: added echo (1 tool)');
+    expect(await session.reloadCapabilities()).toBeUndefined();
+
+    await writeFile(mcpFile, JSON.stringify({ mcpServers: { echo, gone: { command: join(cwd, 'no-such-command') } } }));
+    const broken = await session.reloadCapabilities();
+    expect(broken?.mcp).toMatchObject({ added: ['gone'], changed: [], failed: [{ name: 'gone' }] });
+    expect(notices.at(-1)).toMatchObject({ level: 'warn', text: expect.stringContaining('unavailable: gone') });
+    // Unchanged and failed: left alone, unless asked to try again.
+    expect(await session.reloadCapabilities()).toBeUndefined();
+    expect((await session.reloadCapabilities({ retryFailed: true }))?.mcp?.retried).toEqual(['gone']);
+
+    await writeFile(mcpFile, JSON.stringify({ mcpServers: { echo: { ...echo, env: { X: '1' } } } }));
+    expect((await session.reloadCapabilities())?.mcp).toMatchObject({ changed: ['echo'], removed: ['gone'] });
+    expect(session.mcpStatus).toMatchObject([{ name: 'echo', state: 'ready' }]);
+
+    await writeFile(mcpFile, '{ "mcpServers": ');
+    expect(await session.reloadCapabilities()).toBeUndefined();
+    expect(notices.at(-1)).toMatchObject({ kind: 'capabilities', level: 'warn', text: expect.stringMatching(/couldn't take up changes — MCP/) });
+    await session.close();
+  });
+
+  it('waits for a run going to end', async () => {
+    const cwd = await project();
+    let duringRun: Promise<unknown> | undefined;
+    const provider = new ScriptedProvider([{ text: 'ok' }]);
+    const harness = await createSession({
+      cwd,
+      skills: true,
+      model: sessionModel(provider),
+      onEvent: (e) => {
+        if (e.type === 'text_delta' && !duringRun) {
+          // Written and asked for while the run is still streaming.
+          mkdirSync(join(cwd, '.agent', 'skills', 'zz-mid-run'), { recursive: true });
+          writeFileSync(join(cwd, '.agent', 'skills', 'zz-mid-run', 'SKILL.md'), '---\nname: zz-mid-run\ndescription: d\n---\n\nBody.\n');
+          duringRun = harness.session.reloadCapabilities();
+        }
+      },
+    });
+    const { session, notices } = harness;
+    await session.runTurn('go');
+    expect(await duringRun).toBeUndefined();
+    await vi.waitFor(() => expect(session.listSkills().some((s) => s.name === 'zz-mid-run')).toBe(true));
+    expect(notices.filter((n) => n.kind === 'capabilities')).toHaveLength(1);
   });
 });

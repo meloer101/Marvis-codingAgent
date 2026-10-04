@@ -354,4 +354,31 @@ describe('WorkspaceHub settings', () => {
     expect(reloaded).toHaveBeenCalledTimes(2);
     expect(hub.denials()).toEqual([]);
   });
+
+  it("has the live sessions a skill, sub-agent or MCP server written applies to take it up — the project's, or every one for yours", async () => {
+    const home = await tempDir('hc-hub-home-');
+    const [a, b] = [await project('a'), await project('b')];
+    const { hub, launchId: aId } = await hubOn(memoryWorkspaceStore(), a, home);
+    const bId = (await hub.add(b)).id;
+    const one = await hub.start({ workspaceId: aId, text: 'hello' });
+    await runToEnd(hub, one.snapshot.id);
+    const two = await hub.start({ workspaceId: bId, text: 'there' });
+    await runToEnd(hub, two.snapshot.id);
+    const reloaded = vi.spyOn(SessionHost.prototype, 'reloadCapabilities').mockResolvedValue();
+    cleanups.push(async () => reloaded.mockRestore());
+    const skill = (name: string): string => `---\nname: ${name}\ndescription: d\n---\n\nBody.\n`;
+
+    await hub.writeSkill(aId, 'project', 'notes', skill('notes'), true);
+    expect(reloaded.mock.contexts).toEqual([hub.host(one.snapshot.id)]);
+
+    reloaded.mockClear();
+    await hub.saveAgent(bId, 'user', 'scout', { description: 'd', body: 'Look.' });
+    expect(reloaded.mock.contexts).toHaveLength(2);
+
+    reloaded.mockClear();
+    await hub.mcpSave(bId, 'project', { name: 'files', transport: 'stdio', command: 'npx' });
+    await hub.mcpRemove(bId, 'project', 'files');
+    expect(reloaded.mock.contexts).toEqual([hub.host(two.snapshot.id), hub.host(two.snapshot.id)]);
+    expect(reloaded.mock.calls[0]).toEqual([{}]);
+  });
 });

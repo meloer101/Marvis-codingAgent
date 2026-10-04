@@ -755,6 +755,16 @@ export class SessionHost {
     await this.#session?.reloadSettings();
   }
 
+  /**
+   * Skills, sub-agents or MCP servers changed: the session takes them up
+   * between runs — a run going takes them up as it ends — and says what
+   * changed in a `capabilities` notice. `retryFailed`: an MCP server that had
+   * failed is tried again (after a sign-in).
+   */
+  async reloadCapabilities(opts: { retryFailed?: boolean } = {}): Promise<void> {
+    await this.#session?.reloadCapabilities(opts);
+  }
+
   /** What auto mode refused in this session, newest first, and whether it has paused. */
   denials(): { paused: boolean; denials: AutoModeDenialInfo[] } {
     const session = this.#session;

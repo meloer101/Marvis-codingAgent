@@ -563,6 +563,16 @@ export class WorkspaceHub {
     return this.settings(id);
   }
 
+  /**
+   * Every live session — workspace `id`'s, or all — finds its skills,
+   * sub-agents and MCP servers again, in the background: a server to connect
+   * shouldn't hold up the answer to the write that added it.
+   */
+  #reloadCapabilities(id?: string, opts: { retryFailed?: boolean } = {}): void {
+    const entries = id !== undefined ? [this.#entries.get(id)].filter((e) => e !== undefined) : [...this.#entries.values()];
+    for (const e of entries) for (const host of e.registry.live()) void host.reloadCapabilities(opts).catch(() => {});
+  }
+
   /** Every live session — workspace `id`'s, or all — reads its settings again. */
   async #reloadSettings(id?: string): Promise<void> {
     const entries = id !== undefined ? [this.#entries.get(id) ?? this.#throwMissing(id)] : [...this.#entries.values()];
@@ -604,11 +614,18 @@ export class WorkspaceHub {
     return mcpView(this.#place(id));
   }
 
-  /** Sign in to MCP server `name` (`mcp.login`); every tab hears how a sign-in in a browser ends. */
-  mcpLogin(id: string, name: string): ReturnType<typeof mcpLogin> {
-    return mcpLogin(this.#place(id), name, (error) =>
-      this.#forward(id, { type: 'mcp_login', workspaceId: id, name, ...(error ? { error } : {}) }),
-    );
+  /**
+   * Sign in to MCP server `name` (`mcp.login`); every tab hears how a sign-in
+   * in a browser ends. Once signed in, live sessions — any workspace's: the
+   * tokens are the server's URL's — try the servers that had failed again.
+   */
+  async mcpLogin(id: string, name: string): ReturnType<typeof mcpLogin> {
+    const result = await mcpLogin(this.#place(id), name, (error) => {
+      this.#forward(id, { type: 'mcp_login', workspaceId: id, name, ...(error ? { error } : {}) });
+      if (!error) this.#reloadCapabilities(undefined, { retryFailed: true });
+    });
+    if ('status' in result) this.#reloadCapabilities(undefined, { retryFailed: true });
+    return result;
   }
 
   async mcpLogout(id: string, name: string): Promise<McpView> {
@@ -623,11 +640,13 @@ export class WorkspaceHub {
   /** Add or change an MCP server in the user's or the project's file; sessions started afterwards connect to it. */
   async mcpSave(id: string, scope: 'user' | 'project', server: McpServerEntry, previousName?: string): Promise<McpView> {
     await mcpSave(this.#place(id), scope, server, previousName);
+    this.#reloadCapabilities(scope === 'user' ? undefined : id);
     return this.mcp(id);
   }
 
   async mcpRemove(id: string, scope: 'user' | 'project', name: string): Promise<McpView> {
     await mcpRemove(this.#place(id), scope, name);
+    this.#reloadCapabilities(scope === 'user' ? undefined : id);
     return this.mcp(id);
   }
 
@@ -646,16 +665,19 @@ export class WorkspaceHub {
 
   async writeSkill(id: string, scope: 'user' | 'project', name: string, text: string, create?: boolean): Promise<SkillsView> {
     await writeSkill(this.#place(id), scope, name, text, create !== undefined ? { create } : {});
+    this.#reloadCapabilities(scope === 'user' ? undefined : id);
     return this.skills(id);
   }
 
   async deleteSkill(id: string, scope: 'user' | 'project', name: string): Promise<SkillsView> {
     await deleteSkill(this.#place(id), scope, name);
+    this.#reloadCapabilities(scope === 'user' ? undefined : id);
     return this.skills(id);
   }
 
   async importSkills(id: string, scope: 'user' | 'project', source: string, replace?: boolean): Promise<SkillsImportResult> {
     const result = await importSkills(this.#place(id), scope, source, replace !== undefined ? { replace } : {});
+    this.#reloadCapabilities(scope === 'user' ? undefined : id);
     return { ...result, view: await this.skills(id) };
   }
 
@@ -670,16 +692,19 @@ export class WorkspaceHub {
 
   async saveAgent(id: string, scope: 'user' | 'project', name: string, fields: AgentFields, previousName?: string): Promise<AgentsView> {
     await saveAgent(this.#place(id), scope, name, fields, previousName);
+    this.#reloadCapabilities(scope === 'user' ? undefined : id);
     return this.agents(id);
   }
 
   async writeAgent(id: string, scope: 'user' | 'project', name: string, text: string): Promise<AgentsView> {
     await writeAgent(this.#place(id), scope, name, text);
+    this.#reloadCapabilities(scope === 'user' ? undefined : id);
     return this.agents(id);
   }
 
   async deleteAgent(id: string, scope: 'user' | 'project', name: string): Promise<AgentsView> {
     await deleteAgent(this.#place(id), scope, name);
+    this.#reloadCapabilities(scope === 'user' ? undefined : id);
     return this.agents(id);
   }
 

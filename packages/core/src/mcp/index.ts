@@ -29,7 +29,7 @@ export {
 export { loginToServer } from './oauth-login.js';
 export type { LoginOptions, LoginResult } from './oauth-login.js';
 export { McpHub } from './hub.js';
-export type { McpServerStatus } from './hub.js';
+export type { McpHubChanges, McpServerStatus } from './hub.js';
 export { adaptMcpTool, mcpToolName } from './tool-adapter.js';
 export { resolveResources, findResourceReferences } from './resources.js';
 export type { ResolvedResources } from './resources.js';

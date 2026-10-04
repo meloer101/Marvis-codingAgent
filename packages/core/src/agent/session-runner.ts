@@ -65,6 +65,7 @@ import { attachedFileBlock } from './attachments.js';
 import { ToolRegistry } from '../tools/registry.js';
 import type { AnyToolSpec } from '../tools/types.js';
 import { SkillCatalog, createSkillTool, createListSkillsTool, discoverSkills } from '../skills/index.js';
+import type { Skill } from '../skills/index.js';
 import {
   MemoryCatalog,
   MemoryWriteBuffer,
@@ -81,7 +82,7 @@ import {
 } from '../subagents/index.js';
 import type { AgentDefinition } from '../subagents/index.js';
 import { McpHub, loadMcpConfig, resolveResources } from '../mcp/index.js';
-import type { McpServerStatus } from '../mcp/index.js';
+import type { McpHubChanges, McpServerStatus } from '../mcp/index.js';
 import { AGENT_CONVENTIONS, buildAgentSystemPrompt, buildSubagentSystemPrompt } from './prompt.js';
 import { systemUpdateSegments } from './system-update.js';
 import { AgentLoop, usableContextWindow } from './loop.js';
@@ -134,6 +135,7 @@ export type NoticeKind =
   | 'resource'
   | 'subagent'
   | 'auto-mode'
+  | 'capabilities'
   | 'error';
 
 export interface Notice {
@@ -157,6 +159,23 @@ export interface SlashCommandInfo {
   command: string;
   server: string;
   name: string;
+}
+
+/** Skills or sub-agents that came, went or changed, by name. */
+export interface NamedChanges {
+  added: string[];
+  removed: string[];
+  changed: string[];
+}
+
+/** What `reloadCapabilities` took up; each part only when something in it changed. */
+export interface CapabilityChanges {
+  skills?: NamedChanges;
+  agents?: NamedChanges;
+  mcp?: McpHubChanges & {
+    /** Servers connected (again) that couldn't be reached, and why. */
+    failed: Array<{ name: string; error: string }>;
+  };
 }
 
 /** A file attached to a message that the session may not read — refused before anything is sent. */
@@ -187,6 +206,14 @@ export type ImageInput = Omit<ImageBlock, 'type'>;
 export const MAX_IMAGES = 8;
 /** Past this (decoded), an image is too big to send. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** What a run is given beside its text (`AgentSession.runTurn`). */
+export interface RunTurnOptions {
+  signal?: AbortSignal;
+  attachments?: readonly string[];
+  images?: readonly ImageInput[];
+  takeInput?: () => readonly SteeringInput[];
+}
 
 /** A message the user sent while a run was going, for the run to take in (`runTurn`'s `takeInput`). */
 export interface SteeringInput {
@@ -286,6 +313,8 @@ interface SessionInit {
   skillCatalog: SkillCatalog;
   memoryCatalog: MemoryCatalog;
   memoryBuffer: MemoryWriteBuffer;
+  /** What the tool guardrails ask of a tool's name — rebuilt when the tools change. */
+  readOnlyTools: { lookup: (name: string) => boolean };
   engine: PermissionEngine;
   planApprovedMode: PermissionMode;
   planApprovedModeIsExplicit: boolean;
@@ -322,11 +351,13 @@ export class AgentSession {
   readonly #planApprovedMode: PermissionMode;
   readonly #planApprovedModeIsExplicit: boolean;
   readonly #memory: ProjectMemory;
-  readonly #agents: AgentDefinition[];
+  // Skills, sub-agents and MCP servers are taken up again between runs (`reloadCapabilities`).
+  #agents: AgentDefinition[];
   readonly #hub: McpHub;
-  readonly #mcpToolSpecs: AnyToolSpec[];
-  readonly #mcpPrompts: Map<string, { server: string; name: string }>;
-  readonly #skillCatalog: SkillCatalog;
+  #mcpToolSpecs: AnyToolSpec[];
+  #mcpPrompts: Map<string, { server: string; name: string }>;
+  #skillCatalog: SkillCatalog;
+  readonly #readOnlyTools: { lookup: (name: string) => boolean };
   readonly #memoryCatalog: MemoryCatalog;
   readonly #memoryBuffer: MemoryWriteBuffer;
   /** Commands `bash` started in the background; only with `settings.backgroundProcesses`. */
@@ -354,6 +385,14 @@ export class AgentSession {
   #contextWarned = false;
   #abortController: AbortController | undefined;
   #closed = false;
+  /** A run is going: a reload waits for it to end. */
+  #running = false;
+  /** A reload asked for while a run went. */
+  #reloadPending: { retryFailed: boolean } | undefined;
+  /** The reload going, if one is: the next waits for it. */
+  #reloading: Promise<CapabilityChanges | undefined> | undefined;
+  /** The last reason a reload couldn't read the config, so it's said once, not every run. */
+  #reloadProblem: string | undefined;
 
   private constructor(config: AgentSessionConfig, init: SessionInit) {
     this.id = init.recorder?.id ?? init.trace?.id ?? config.resumeId ?? randomUUID();
@@ -375,6 +414,7 @@ export class AgentSession {
     this.#mcpToolSpecs = init.mcpToolSpecs;
     this.#mcpPrompts = init.mcpPrompts;
     this.#skillCatalog = init.skillCatalog;
+    this.#readOnlyTools = init.readOnlyTools;
     this.#memoryCatalog = init.memoryCatalog;
     this.#memoryBuffer = init.memoryBuffer;
     this.#background =
@@ -432,12 +472,13 @@ export class AgentSession {
       ...(config.confirm ? { confirm: config.confirm } : {}),
     };
 
-    if (init.agents.length > 0) {
-      this.#taskTool = createTaskTool({
-        agents: init.agents,
-        run: (def, subPrompt, runCtx) => this.#runSubagent(def, subPrompt, runCtx),
-      });
-    }
+    this.#taskTool = this.#createTaskTool(init.agents);
+  }
+
+  #createTaskTool(agents: AgentDefinition[]): AnyToolSpec | undefined {
+    return agents.length > 0
+      ? createTaskTool({ agents, run: (def, subPrompt, runCtx) => this.#runSubagent(def, subPrompt, runCtx) })
+      : undefined;
   }
 
   // -- construction ---------------------------------------------------------
@@ -548,13 +589,7 @@ export class AgentSession {
             : ''),
       });
     }
-    const mcpPrompts = new Map<string, { server: string; name: string }>();
-    if (!hub.empty) {
-      for (const { server, prompt } of await hub.prompts()) {
-        mcpPrompts.set(`${server}:${prompt.name}`, { server, name: prompt.name });
-        if (!mcpPrompts.has(prompt.name)) mcpPrompts.set(prompt.name, { server, name: prompt.name });
-      }
-    }
+    const mcpPrompts = await mcpPromptCommands(hub);
 
     // A session resumed is logged where it was started — for one from an
     // earlier version, that is still the project's own `.agent/`.
@@ -683,26 +718,16 @@ export class AgentSession {
       : undefined;
     const askHandler = config.askHandler ?? nonInteractiveAskHandler;
     const guardrailsEnabled = settings.toolGuardrails !== false;
+    const readOnlyTools = {
+      lookup: sessionReadOnlyLookup({
+        backgroundProcesses: settings.backgroundProcesses === true,
+        skills: skillCatalog.size > 0,
+        task: agents.length > 0,
+        mcp: mcpToolSpecs,
+      }),
+    };
     const guardrailHook = guardrailsEnabled
-      ? createToolGuardrailHooks({
-          isReadOnly: readOnlyLookup([
-            ...builtinTools(),
-            // Polling a background command that printed nothing new is a same-result read like any other.
-            ...(settings.backgroundProcesses === true
-              ? ([
-                  { name: 'bash_output', readOnly: true },
-                  { name: 'bash_kill', readOnly: true },
-                ] as AnyToolSpec[])
-              : []),
-            ...(skillCatalog.size > 0
-              ? [{ name: 'skill', readOnly: true } as AnyToolSpec]
-              : []),
-            ...(agents.length > 0
-              ? [{ name: 'task', readOnly: false } as AnyToolSpec]
-              : []),
-            ...mcpToolSpecs,
-          ]),
-        })
+      ? createToolGuardrailHooks({ isReadOnly: (name) => readOnlyTools.lookup(name) })
       : undefined;
     const verifyHook =
       (config.verifyBeforeStop ?? settings.verifyBeforeStop) === true
@@ -744,6 +769,7 @@ export class AgentSession {
       skillCatalog,
       memoryCatalog,
       memoryBuffer,
+      readOnlyTools,
       engine,
       planApprovedMode,
       planApprovedModeIsExplicit: explicitPlanApproved !== undefined,
@@ -857,6 +883,108 @@ export class AgentSession {
     if (settings.autoMode) current.autoMode = settings.autoMode;
     else delete current.autoMode;
     this.#autoClassifier?.setAutoMode(settings.autoMode);
+  }
+
+  /**
+   * The skills, sub-agents or MCP servers may have changed (the web's
+   * settings page wrote them, or a file was edited): find them again and take
+   * up what changed — a skill's or sub-agent's new text, an MCP server added,
+   * dropped or changed (only those reconnect; with `retryFailed`, one that
+   * had failed is tried again). The next run has them; a `capabilities`
+   * notice says what changed. While a run goes it waits for the run to end
+   * (resolving `undefined`); every run starts with a check of its own, too.
+   */
+  reloadCapabilities(opts: { retryFailed?: boolean } = {}): Promise<CapabilityChanges | undefined> {
+    if (this.#closed) return Promise.resolve(undefined);
+    if (this.#running) {
+      this.#reloadPending = { retryFailed: opts.retryFailed === true || this.#reloadPending?.retryFailed === true };
+      return Promise.resolve(undefined);
+    }
+    return this.#reload({ retryFailed: opts.retryFailed === true });
+  }
+
+  /** One reload at a time: each waits for the one before. */
+  #reload(opts: { retryFailed: boolean }): Promise<CapabilityChanges | undefined> {
+    const next = (this.#reloading ?? Promise.resolve(undefined))
+      .catch(() => undefined)
+      .then(() => this.#refreshCapabilities(opts));
+    this.#reloading = next;
+    return next;
+  }
+
+  async #refreshCapabilities(opts: { retryFailed: boolean }): Promise<CapabilityChanges | undefined> {
+    if (this.#closed) return undefined;
+    const config = this.#config;
+    const changes: CapabilityChanges = {};
+    const problems: string[] = [];
+
+    if (config.skills !== false) {
+      try {
+        const { skills } = await discoverSkills(this.#cwd);
+        const diff = diffNamed(this.#skillCatalog.list(), skills);
+        if (diff) {
+          this.#skillCatalog = new SkillCatalog(skills);
+          changes.skills = diff;
+        }
+      } catch (err) {
+        problems.push(`skills: ${errorText(err)}`);
+      }
+    }
+
+    if (config.subagents !== false) {
+      try {
+        const { agents } = await discoverAgents(this.#cwd);
+        const diff = diffNamed(this.#agents, agents);
+        if (diff) {
+          this.#agents = agents;
+          this.#taskTool = this.#createTaskTool(agents);
+          changes.agents = diff;
+        }
+      } catch (err) {
+        problems.push(`sub-agents: ${errorText(err)}`);
+      }
+    }
+
+    if (config.mcp !== false) {
+      try {
+        const { servers } = await loadMcpConfig(this.#cwd, config.env ? { env: config.env } : {});
+        const diff = await this.#hub.reconfigure(servers, { retryFailed: opts.retryFailed });
+        const touched = [...diff.added, ...diff.changed, ...diff.retried];
+        if (touched.length > 0 || diff.removed.length > 0) {
+          this.#mcpToolSpecs = this.#hub.empty ? [] : await this.#hub.toolSpecs();
+          this.#mcpPrompts = await mcpPromptCommands(this.#hub);
+          const failed = this.#hub
+            .status()
+            .filter((s) => touched.includes(s.name) && s.state === 'failed')
+            .map((s) => ({ name: s.name, error: s.error ?? 'failed' }));
+          changes.mcp = { ...diff, failed };
+        }
+      } catch (err) {
+        problems.push(`MCP: ${errorText(err)}`);
+      }
+    }
+
+    // A config that can't be read is said once, until it changes or reads again.
+    const problem = problems.length > 0 ? problems.join('; ') : undefined;
+    if (problem !== this.#reloadProblem && problem !== undefined) {
+      config.onNotice?.({ kind: 'capabilities', level: 'warn', text: `couldn't take up changes — ${problem}` });
+    }
+    this.#reloadProblem = problem;
+
+    if (!changes.skills && !changes.agents && !changes.mcp) return undefined;
+    this.#readOnlyTools.lookup = sessionReadOnlyLookup({
+      backgroundProcesses: this.#background !== undefined,
+      skills: this.#skillCatalog.size > 0,
+      task: this.#agents.length > 0,
+      mcp: this.#mcpToolSpecs,
+    });
+    config.onNotice?.({
+      kind: 'capabilities',
+      level: changes.mcp && changes.mcp.failed.length > 0 ? 'warn' : 'info',
+      text: describeCapabilityChanges(changes, this.#hub.status()),
+      data: changes,
+    });
+    return changes;
   }
 
   get autoModeEnvironmentConfigured(): boolean {
@@ -1119,18 +1247,28 @@ export class AgentSession {
    * `takeInput` hands over what the user said since (steering) whenever the
    * loop can take it in — after a step's tool results, or as the run would end.
    */
-  async runTurn(
-    input: string,
-    opts?: {
-      signal?: AbortSignal;
-      attachments?: readonly string[];
-      images?: readonly ImageInput[];
-      takeInput?: () => readonly SteeringInput[];
-    },
-  ): Promise<AgentRunResult> {
+  async runTurn(input: string, opts?: RunTurnOptions): Promise<AgentRunResult> {
     if (this.#closed) throw new Error('AgentSession is closed');
+    this.checkImages(opts?.images ?? []);
+    this.#running = true;
+    try {
+      // What changed since the last run — through the settings page, or a file
+      // edited by hand or by the agent — is this run's to use.
+      const pending = this.#reloadPending;
+      this.#reloadPending = undefined;
+      await this.#reload({ retryFailed: pending?.retryFailed === true });
+      return await this.#runTurn(input, opts);
+    } finally {
+      this.#running = false;
+      // Asked for while the run went: taken up now, for the `/` menu's sake, not at the next run.
+      const asked = this.#reloadPending;
+      this.#reloadPending = undefined;
+      if (asked) void this.#reload(asked).catch(() => {});
+    }
+  }
+
+  async #runTurn(input: string, opts?: RunTurnOptions): Promise<AgentRunResult> {
     const images = opts?.images ?? [];
-    this.checkImages(images);
     const attached = opts?.attachments?.length ? await this.#readAttachments(opts.attachments) : [];
 
     let effectiveText = input;
@@ -1633,4 +1771,80 @@ function toolOutputDir(artifactsDir: string, cwd: string, sessionId: string): st
 function readOnlyLookup(specs: readonly { name: string; readOnly: boolean }[]): (name: string) => boolean {
   const map = new Map(specs.map((s) => [s.name, s.readOnly]));
   return (name) => map.get(name) ?? false;
+}
+
+/** The guardrails' read-only lookup over everything a session's runs offer the model. */
+function sessionReadOnlyLookup(tools: {
+  backgroundProcesses: boolean;
+  skills: boolean;
+  task: boolean;
+  mcp: readonly AnyToolSpec[];
+}): (name: string) => boolean {
+  return readOnlyLookup([
+    ...builtinTools(),
+    // Polling a background command that printed nothing new is a same-result read like any other.
+    ...(tools.backgroundProcesses
+      ? ([
+          { name: 'bash_output', readOnly: true },
+          { name: 'bash_kill', readOnly: true },
+        ] as AnyToolSpec[])
+      : []),
+    ...(tools.skills ? [{ name: 'skill', readOnly: true } as AnyToolSpec] : []),
+    ...(tools.task ? [{ name: 'task', readOnly: false } as AnyToolSpec] : []),
+    ...tools.mcp,
+  ]);
+}
+
+/** `/name` commands for the MCP servers' prompts: `server:name` always, the bare name for the first server to have it. */
+async function mcpPromptCommands(hub: McpHub): Promise<Map<string, { server: string; name: string }>> {
+  const commands = new Map<string, { server: string; name: string }>();
+  if (hub.empty) return commands;
+  for (const { server, prompt } of await hub.prompts()) {
+    commands.set(`${server}:${prompt.name}`, { server, name: prompt.name });
+    if (!commands.has(prompt.name)) commands.set(prompt.name, { server, name: prompt.name });
+  }
+  return commands;
+}
+
+/** How two lists of named things differ, or `undefined` when they don't. */
+function diffNamed<T extends { name: string }>(before: readonly T[], after: readonly T[]): NamedChanges | undefined {
+  const was = new Map(before.map((x) => [x.name, JSON.stringify(x)]));
+  const is = new Map(after.map((x) => [x.name, JSON.stringify(x)]));
+  const added = after.filter((x) => !was.has(x.name)).map((x) => x.name);
+  const removed = before.filter((x) => !is.has(x.name)).map((x) => x.name);
+  const changed = after.filter((x) => was.has(x.name) && was.get(x.name) !== is.get(x.name)).map((x) => x.name);
+  return added.length + removed.length + changed.length > 0 ? { added, removed, changed } : undefined;
+}
+
+/** A reload's notice: what came, went and changed, per kind — and the MCP servers that couldn't be reached. */
+function describeCapabilityChanges(changes: CapabilityChanges, status: readonly McpServerStatus[]): string {
+  const list = (verb: string, names: readonly string[], label?: (name: string) => string): string[] =>
+    names.length > 0 ? [`${verb} ${names.map((n) => (label ? label(n) : n)).join(', ')}`] : [];
+  const named = (what: string, c: NamedChanges): string =>
+    `${what}: ${[...list('added', c.added), ...list('changed', c.changed), ...list('removed', c.removed)].join('; ')}`;
+  const tools = (name: string): string => {
+    const s = status.find((x) => x.name === name);
+    return s?.state === 'ready' ? `${name} (${s.toolCount} tool${s.toolCount === 1 ? '' : 's'})` : name;
+  };
+  const parts: string[] = [];
+  if (changes.skills) parts.push(named('skills', changes.skills));
+  if (changes.agents) parts.push(named('sub-agents', changes.agents));
+  if (changes.mcp) {
+    const m = changes.mcp;
+    const bits = [
+      ...list('added', m.added, tools),
+      ...list('reconnected', [...m.changed, ...m.retried], tools),
+      ...list('removed', m.removed),
+    ];
+    if (bits.length > 0) parts.push(`MCP: ${bits.join('; ')}`);
+  }
+  const failed = changes.mcp?.failed ?? [];
+  return (
+    `picked up changes — ${parts.join(' · ')}` +
+    (failed.length > 0 ? ` — unavailable: ${failed.map((f) => `${f.name} (${f.error})`).join(', ')}` : '')
+  );
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

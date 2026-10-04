@@ -22,20 +22,74 @@ export interface McpServerStatus {
   toolCount: number;
 }
 
+/** What `reconfigure` did, by server name. */
+export interface McpHubChanges {
+  added: string[];
+  removed: string[];
+  /** Its entry changed: connected again with the new one. */
+  changed: string[];
+  /** Unchanged but it had failed: tried again (`retryFailed`). */
+  retried: string[];
+}
+
 export class McpHub {
-  private readonly connections: McpConnection[];
-  private readonly transportByName = new Map<string, 'stdio' | 'http' | 'sse'>();
+  private connections: McpConnection[];
+  private readonly configByName = new Map<string, McpServerConfig>();
   private toolCache: AnyToolSpec[] | undefined;
   private readonly toolCountByName = new Map<string, number>();
+  private readonly opts: { connectTimeoutMs?: number; callTimeoutMs?: number };
 
   constructor(
     configs: readonly McpServerConfig[],
     opts: { connectTimeoutMs?: number; callTimeoutMs?: number } = {},
   ) {
+    this.opts = opts;
     this.connections = configs.map((c) => {
-      this.transportByName.set(c.name, c.transport);
+      this.configByName.set(c.name, c);
       return new McpConnection(c, opts);
     });
+  }
+
+  /**
+   * Take up a new set of servers — the config files changed — keeping each
+   * connection whose entry is the same, so a live session reconnects only
+   * what changed. A server dropped or changed is closed; with `retryFailed`,
+   * one that had failed is tried again (a sign-in may have fixed it). The
+   * new ones connect on the next `toolSpecs()`.
+   */
+  async reconfigure(configs: readonly McpServerConfig[], opts: { retryFailed?: boolean } = {}): Promise<McpHubChanges> {
+    const changes: McpHubChanges = { added: [], removed: [], changed: [], retried: [] };
+    const old = new Map(this.connections.map((c) => [c.name, c]));
+    const next: McpConnection[] = [];
+    const closing: McpConnection[] = [];
+    for (const config of configs) {
+      const kept = old.get(config.name);
+      old.delete(config.name);
+      const same = kept !== undefined && JSON.stringify(this.configByName.get(config.name)) === JSON.stringify(config);
+      if (kept && same && !(opts.retryFailed && kept.state === 'failed')) {
+        next.push(kept);
+        continue;
+      }
+      if (kept) {
+        closing.push(kept);
+        (same ? changes.retried : changes.changed).push(config.name);
+      } else {
+        changes.added.push(config.name);
+      }
+      this.toolCountByName.delete(config.name);
+      next.push(new McpConnection(config, this.opts));
+    }
+    for (const gone of old.values()) {
+      closing.push(gone);
+      changes.removed.push(gone.name);
+      this.toolCountByName.delete(gone.name);
+    }
+    this.connections = next;
+    this.configByName.clear();
+    for (const c of configs) this.configByName.set(c.name, c);
+    if (closing.length > 0 || changes.added.length > 0) this.toolCache = undefined;
+    await Promise.all(closing.map((c) => c.close()));
+    return changes;
   }
 
   get empty(): boolean {
@@ -81,7 +135,7 @@ export class McpHub {
   status(): McpServerStatus[] {
     return this.connections.map((c) => ({
       name: c.name,
-      transport: this.transportByName.get(c.name) ?? 'stdio',
+      transport: this.configByName.get(c.name)?.transport ?? 'stdio',
       state: c.state,
       ...(c.error !== undefined ? { error: c.error } : {}),
       toolCount: this.toolCountByName.get(c.name) ?? 0,
