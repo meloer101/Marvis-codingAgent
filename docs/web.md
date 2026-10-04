@@ -52,7 +52,10 @@ out of the repository), settings, MCP servers and environment, and its own
   `~/.agent/.env` — the place for keys every project shares — each filling only
   what is still unset (`core/config/dotenv.ts`). Nothing is loaded into the
   server's `process.env`, so one project's `.env` never reaches another's
-  sessions. `workspace.list` reports a project whose default model can't run
+  sessions. The files are read again at each use, so a key takes effect
+  without a restart: one given in the page — the new-session page asks for it
+  when the default model's provider has none, and Settings › Models lists every
+  provider — is saved in `~/.agent/.env` (`providers.setKey`). `workspace.list` reports a project whose default model can't run
   as configured (`defaults.keyProblem`, typically a missing key).
 - **Adding one** (`workspace.inspect`, then `workspace.add`): a directory, not a
   file; not `/` or the home directory itself. A directory inside a project that
@@ -108,6 +111,9 @@ the server with the same schemas the client is typed from.
 | `model.list {workspaceId?}` | the models a session there can be given, each with its windows, effort levels, price and why it can't run, if it can't |
 | `workspace.inspect {path}` | what adding a directory would mean — nothing started |
 | `workspace.add {path, createMarker?}` / `workspace.remove {id}` | host a project / stop hosting it |
+| `providers.list {workspaceId}` | the model providers its sessions can use, where each one's key comes from (the environment, the project's `.env`, the user's `~/.agent/.env`, settings — never the key), and the model new sessions start on |
+| `providers.setKey {workspaceId, provider, key}` | save a provider's API key in the user's `~/.agent/.env` (made private, `0600`), or remove it with `null`; sessions started afterwards use it and every page gets the workspaces' new state. The key is never sent back |
+| `providers.setModel {workspaceId, model}` | set the model new sessions start on in the user's settings; an empty one goes back to the built-in default |
 | `fs.suggestDirs {prefix}` | directory completion for the add dialog |
 | `fs.pickDir` | show the system's folder chooser on the server's machine; `{path}`, null when it was cancelled |
 | `fs.list {workspaceId, sessionId?, dir}` | a workspace folder's entries, folders first — the listing `@` uses, so no ignored files or secrets. With `sessionId`, this and every `fs.*`, `git.*`, `terminal.create` and `editor.open` call acts on the checkout that session works in: its worktree, if it has one |

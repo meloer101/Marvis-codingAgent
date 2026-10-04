@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { BUILTIN_PROVIDERS, ProviderRegistry, modelEffort, parseModelRef } from './router.js';
+import { BUILTIN_PROVIDERS, ProviderRegistry, modelEffort, parseModelRef, providerKeyVars } from './router.js';
 import {
   DEFAULT_REASONING_EFFORTS,
   effortOptions,
@@ -50,6 +50,17 @@ describe('ProviderRegistry', () => {
     expect(resolved.providerId).toBe('deepseek');
     expect(resolved.model).toBe('deepseek-v4-flash');
     expect(resolved.capabilities.promptCache).toBe('implicit');
+  });
+
+  it("says where a provider's key comes from, never the key", () => {
+    const settings = { providers: { openai: { apiKey: 'sk-literal' } } };
+    const reg = new ProviderRegistry({ settings, env: { KIMI_API_KEY: 'sk-kimi', HC_GROQ_API_KEY: 'gsk' } });
+    expect(reg.keyOrigin('openai')).toEqual({ settings: true });
+    expect(reg.keyOrigin('moonshot')).toEqual({ variable: 'KIMI_API_KEY' }); // its second name
+    expect(reg.keyOrigin('groq')).toEqual({ variable: 'HC_GROQ_API_KEY' }); // the one every provider has
+    expect(reg.keyOrigin('deepseek')).toBeUndefined();
+    expect(JSON.stringify(['openai', 'moonshot', 'groq'].map((id) => reg.keyOrigin(id)))).not.toMatch(/sk-|gsk/);
+    expect(providerKeyVars('deepseek', BUILTIN_PROVIDERS['deepseek']!)).toEqual(['HC_DEEPSEEK_API_KEY', 'DEEPSEEK_API_KEY']);
   });
 
   it('needs no credentials for a local runtime', () => {

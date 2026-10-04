@@ -8,6 +8,8 @@ import type { Workspace } from '@harness-code/protocol';
 import { useAddProject } from '@/components/AddProjectDialog';
 import { Composer } from '@/components/Composer';
 import { EffortPicker, ModeChip, ModelPicker, WorktreePicker } from '@/components/ComposerControls';
+import { KeyField } from '@/components/KeyField';
+import { useLoaded } from '@/components/settings/common';
 import { ContextButton } from '@/components/UsagePanel';
 import { MainHeader, SidebarOpener } from '@/components/Regions';
 import { UserMessage } from '@/components/Transcript';
@@ -162,7 +164,9 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
         )}
       </div>
       <div className="mx-auto flex w-full max-w-[700px] flex-col gap-2 px-5 pt-2 pb-4">
-        {keyProblem && starting === null && <KeyProblem message={keyProblem} />}
+        {keyProblem && starting === null && workspace && (
+          <KeyProblem message={keyProblem} modelRef={modelRef} workspaceId={workspace.id} />
+        )}
         <Composer
           key={`draft-${workspace?.id ?? ''}`}
           sessionId={`new-${workspace?.id ?? ''}`}
@@ -287,13 +291,60 @@ function Welcome({ workspace }: { workspace: Workspace | undefined }) {
 }
 
 /** The default model can't run here as configured — usually a key this project's environment lacks. */
-function KeyProblem({ message }: { message: string }) {
+/**
+ * Why the chosen model can't run here. A provider that only lacks its API key
+ * gets a field for it — the one thing between a new user and a first session;
+ * anything else is said, with the way to the settings that fix it.
+ */
+function KeyProblem({ message, modelRef, workspaceId }: { message: string; modelRef: string; workspaceId: string }) {
+  const sync = useSync();
+  const { data } = useLoaded(() => sync.settingsCall('providers.list', { workspaceId }), `${workspaceId}:${modelRef}`);
+  const provider = data?.providers.find((p) => p.id === modelRef.split('/')[0]);
+  const settings = (
+    <a
+      href={routeToHash({ kind: 'settings', section: 'models' })}
+      className="shrink-0 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+    >
+      Other providers
+    </a>
+  );
+
+  if (provider?.requiresKey && provider.keyVar && !provider.keySource) {
+    return (
+      <div className="flex animate-rise-lg flex-col gap-2 rounded-lg bg-warning-subtle px-3.5 py-3 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="size-1.5 shrink-0 rounded-full bg-warning" />
+          <span className="min-w-0 flex-1 text-[13px] font-semibold">{provider.label} needs an API key</span>
+          {settings}
+        </div>
+        <KeyField
+          label={provider.label}
+          onSave={async (key) => {
+            await sync.settingsCall('providers.setKey', { workspaceId, provider: provider.id, key });
+            // The workspaces' new state is pushed; what the picker offers is read again.
+            void sync.loadModels(workspaceId);
+          }}
+        />
+        <p className="text-muted-foreground">
+          Saved on this machine, in <code className="font-mono">{shortPath(data?.envPath ?? '~/.agent/.env')}</code>, for
+          every project. It goes to {provider.label} and nowhere else.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="flex animate-rise-lg items-start gap-2 rounded-lg bg-warning-subtle px-3.5 py-2.5 text-xs">
       <AlertTriangle className="mt-px size-3.5 shrink-0 text-warning" />
-      <span>
+      <span className="min-w-0 flex-1">
         {message} To share a key across projects, put it in <code className="font-mono">~/.agent/.env</code>.
       </span>
+      {settings}
     </div>
   );
+}
+
+/** A path under the home directory, as `~/…`: the home is whatever comes before `/.agent/`. */
+function shortPath(path: string): string {
+  const at = path.indexOf('/.agent/');
+  return at === -1 ? path : `~${path.slice(at)}`;
 }

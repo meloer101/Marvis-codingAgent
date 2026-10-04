@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 
 /** The settings page's sections, each its own address. */
-export const SETTINGS_SECTIONS = ['permissions', 'auto-mode', 'memory', 'mcp', 'tools'] as const;
+export const SETTINGS_SECTIONS = ['models', 'permissions', 'auto-mode', 'memory', 'mcp', 'tools'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export type Route =

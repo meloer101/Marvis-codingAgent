@@ -17,29 +17,38 @@ import { join, resolve } from 'node:path';
 import {
   AGENT_DIR,
   DEFAULT_ALLOW_RULES,
+  DEFAULT_SETTINGS,
+  DOTENV_FILE,
   FileOAuthStore,
   MCP_CONFIG_FILE,
   MEMORY_DIR,
+  ProviderRegistry,
   defaultRulesFor,
   deleteMemoryFile,
   findStateRoot,
   listMemoryFiles,
+  loadSettings,
   loginToServer,
+  parseDotEnv,
   parseMcpConfig,
   parseMemoryFile,
+  parseModelRef,
   parseRule,
   projectSettingsPath,
+  providerKeyVars,
   readMemoryFile,
   rebuildMemoryIndex,
   resolveProjectMemoryDir,
   safeResolve,
+  setDotEnvVar,
+  userDotEnvPath,
   userSettingsPath,
   validateScopeType,
   writeMemoryFile,
   writeProjectSettings,
   writeUserSettings,
 } from '@harness-code/core';
-import type { McpHttpServerConfig, McpServerConfig } from '@harness-code/core';
+import type { McpHttpServerConfig, McpServerConfig, Settings } from '@harness-code/core';
 import { AUTO_MODE_GROUPS } from '@harness-code/protocol';
 import type {
   AutoModeGroup,
@@ -51,6 +60,8 @@ import type {
   MemoryView,
   PermissionRuleList,
   PermissionRules,
+  ProviderInfo,
+  ProvidersView,
   SettingsView,
 } from '@harness-code/protocol';
 
@@ -168,6 +179,102 @@ async function written(write: () => Promise<unknown>): Promise<void> {
     if (err instanceof Error && /not valid JSON/.test(err.message)) throw new InvalidRequestError(err.message);
     throw err;
   }
+}
+
+// ── Models: providers and their keys ──────────────────────────────────
+
+/** The settings sessions of `place` run with, both files layered; the built-in ones when a file doesn't parse. */
+async function layeredSettings(place: SettingsPlace): Promise<Settings> {
+  try {
+    return (await loadSettings(place.root, { homeDir: place.home })).settings;
+  } catch {
+    return DEFAULT_SETTINGS; // the caller's `problems` say which file
+  }
+}
+
+/**
+ * Which of the environments `place.env` has `variable` from. It is filled from
+ * the real one, then the project's `.env`, then the user's (`projectEnv`), so a
+ * value neither file gives came from the first.
+ */
+async function envLayerOf(place: SettingsPlace, variable: string): Promise<'environment' | 'project' | 'user'> {
+  const value = place.env[variable];
+  const inFile = async (path: string): Promise<boolean> =>
+    parseDotEnv(await readFile(path, 'utf8').catch(() => ''))[variable] === value;
+  if (await inFile(join(place.root, DOTENV_FILE))) return 'project';
+  return (await inFile(userDotEnvPath(place.home))) ? 'user' : 'environment';
+}
+
+/** The providers sessions of `place` can use and where each one's key comes from — never the key. */
+export async function providersView(place: SettingsPlace): Promise<ProvidersView> {
+  const userPath = userSettingsPath(place.home);
+  const projectPath = await projectSettingsPath(place.root);
+  const [user, project] = await Promise.all([readJsonFile(userPath), readJsonFile(projectPath)]);
+  const problems = [user, project].flatMap((file) => ('problem' in file ? [file.problem] : []));
+  const settings = await layeredSettings(place);
+  const registry = new ProviderRegistry({ settings, env: place.env });
+
+  const providers: ProviderInfo[] = [];
+  for (const id of registry.list()) {
+    let cfg: ReturnType<ProviderRegistry['config']>;
+    try {
+      cfg = registry.config(id);
+    } catch {
+      continue; // named in settings without a base URL: not usable, so not offered
+    }
+    const takesKey = cfg.requiresKey === true || (cfg.apiKeyEnv?.length ?? 0) > 0;
+    const origin = registry.keyOrigin(id);
+    providers.push({
+      id,
+      label: cfg.label,
+      baseUrl: cfg.baseUrl,
+      requiresKey: cfg.requiresKey === true,
+      ...(takesKey ? { keyVar: cfg.apiKeyEnv?.[0] ?? providerKeyVars(id, cfg)[0]! } : {}),
+      ...(origin === undefined
+        ? {}
+        : 'settings' in origin
+          ? { keySource: 'settings' as const }
+          : { keySource: await envLayerOf(place, origin.variable), keySourceVar: origin.variable }),
+    });
+  }
+  const modelOf = (file: typeof user): boolean =>
+    'value' in file && typeof file.value.model === 'string' && file.value.model.trim() !== '';
+  return {
+    providers,
+    envPath: userDotEnvPath(place.home),
+    model: settings.model ?? '',
+    ...(modelOf(project) ? { modelSource: 'project' as const } : modelOf(user) ? { modelSource: 'user' as const } : {}),
+    settingsPath: userPath,
+    problems,
+  };
+}
+
+/**
+ * Save `providerId`'s key in the user's `~/.agent/.env`, for every project —
+ * or remove it from there (`null`). An environment that already has the key
+ * (the real one, the project's `.env`) still wins: the view says which is used.
+ */
+export async function setProviderKey(place: SettingsPlace, providerId: string, key: string | null): Promise<void> {
+  const provider = (await providersView(place)).providers.find((p) => p.id === providerId);
+  if (!provider) throw new InvalidRequestError(`there is no provider "${providerId}"`);
+  if (!provider.keyVar) throw new InvalidRequestError(`${provider.label} takes no API key`);
+  await setDotEnvVar(userDotEnvPath(place.home), provider.keyVar, key ?? undefined);
+}
+
+/** Set the model new sessions start on in the user's settings; an empty one goes back to the built-in default. */
+export async function setDefaultModel(place: SettingsPlace, model: string): Promise<void> {
+  let ref: string | undefined;
+  if (model.trim() !== '') {
+    const settings = await layeredSettings(place);
+    try {
+      const parsed = parseModelRef(model.trim(), settings.defaultProvider ?? 'openai');
+      new ProviderRegistry({ settings, env: place.env }).config(parsed.provider);
+      ref = `${parsed.provider}/${parsed.model}`;
+    } catch (err) {
+      throw new InvalidRequestError(err instanceof Error ? err.message : String(err));
+    }
+  }
+  await written(() => writeUserSettings({ model: ref }, { homeDir: place.home }));
 }
 
 // ── Memory ────────────────────────────────────────────────────────────

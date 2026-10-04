@@ -171,13 +171,15 @@ export async function startServer(opts: StartServerOptions): Promise<RunningServ
 function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
   const mock = opts.mock === true && !opts.buildConfig;
   return async (root) => {
-    const env = projectEnv(root);
+    // Read again at each use: a key saved in `~/.agent/.env` (`providers.setKey`)
+    // or added to the project's `.env` is there for the next session.
+    const env = (): NodeJS.ProcessEnv => projectEnv(root);
     const projectRoot = await findProjectRoot(root);
     // `--mock` sessions record into a throwaway dir (removed on close) so a
     // demo never touches the project's real `.agent/` — see `mockConfigFactory`.
     const mockDir = mock ? await mkdtemp(join(tmpdir(), 'hc-web-mock-')) : undefined;
-    const agentDir = mockDir ?? (await resolveStateDir(root, { env }));
-    const legacyDir = mock ? undefined : await legacyStateDir(root, { env });
+    const agentDir = mockDir ?? (await resolveStateDir(root, { env: env() }));
+    const legacyDir = mock ? undefined : await legacyStateDir(root, { env: env() });
 
     const defaults = async (): Promise<WorkspaceDefaults> => {
       if (mock) {
@@ -192,7 +194,7 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
         };
       }
       const { settings } = await loadSettings(root);
-      const providers = new ProviderRegistry({ settings, env });
+      const providers = new ProviderRegistry({ settings, env: env() });
       const model = opts.model ?? settings.model ?? '';
       const { levels, initial } = model ? modelEffort(model, settings) : { levels: [], initial: undefined };
       let keyProblem: string | undefined;
@@ -216,7 +218,7 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
     const models = async (): Promise<ModelInfo[]> => {
       if (mock) return mockModels();
       const { settings } = await loadSettings(root);
-      const providers = new ProviderRegistry({ settings, env });
+      const providers = new ProviderRegistry({ settings, env: env() });
       const refs = offeredModels({
         ...((opts.model ?? settings.model) ? { defaultModel: opts.model ?? settings.model } : {}),
         ...(settings.models ? { models: settings.models } : {}),
@@ -232,7 +234,7 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
         : (o) =>
             buildSessionConfig({
               cwd: o.cwd ?? root,
-              env,
+              env: env(),
               ...(o.model ?? opts.model ? { modelRef: o.model ?? opts.model } : {}),
               ...(o.mode ? { mode: o.mode } : {}),
               ...(o.effort ? { reasoningEffort: o.effort } : {}),
@@ -244,7 +246,7 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
       const { settings } = await loadSettings(root);
       const availability = isAutoModeAvailable(
         settings,
-        new ProviderRegistry({ settings, env }),
+        new ProviderRegistry({ settings, env: env() }),
         (opts.model ?? settings.model) || undefined,
       );
       return availability.available ? undefined : availability.reason;
@@ -257,7 +259,9 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
       buildConfig,
       defaults,
       models,
-      env,
+      get env() {
+        return env();
+      },
       autoModeProblem,
       previewDefaults: async () => {
         const d = await defaults();

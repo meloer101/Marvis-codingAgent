@@ -395,6 +395,16 @@ class Connection {
         return hub.trace((params as MethodParams<'session.trace'>).id);
       case 'settings.get':
         return hub.settings((params as MethodParams<'settings.get'>).workspaceId);
+      case 'providers.list':
+        return hub.providers((params as MethodParams<'providers.list'>).workspaceId);
+      case 'providers.setKey': {
+        const { workspaceId, provider, key } = params as MethodParams<'providers.setKey'>;
+        return hub.setProviderKey(workspaceId, provider, key);
+      }
+      case 'providers.setModel': {
+        const { workspaceId, model } = params as MethodParams<'providers.setModel'>;
+        return hub.setDefaultModel(workspaceId, model);
+      }
       case 'settings.setRules': {
         const { workspaceId, scope, list, rules } = params as MethodParams<'settings.setRules'>;
         return hub.setRules(workspaceId, scope, list, rules);

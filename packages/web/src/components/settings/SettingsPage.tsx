@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { BookOpen, Plug, Settings, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
+import { BookOpen, Cpu, Plug, Settings, ShieldCheck, Sparkles, Wrench } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 import { MainHeader, SidebarOpener } from '@/components/Regions';
@@ -12,10 +12,12 @@ import { cn } from '@/lib/utils';
 import { AutoModeSection } from './AutoModeSection';
 import { McpSection } from './McpSection';
 import { MemorySection } from './MemorySection';
+import { ModelsSection } from './ModelsSection';
 import { PermissionsSection } from './PermissionsSection';
 import { ToolsSection } from './ToolsSection';
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> = [
+  { id: 'models', label: 'Models', icon: Cpu },
   { id: 'permissions', label: 'Permissions', icon: ShieldCheck },
   { id: 'auto-mode', label: 'Auto mode', icon: Sparkles },
   { id: 'memory', label: 'Memory', icon: BookOpen },
@@ -24,8 +26,8 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
 ];
 
 /**
- * Settings (`#/settings/<section>`): permission rules, auto mode and what it
- * refused, memory, MCP servers — for one project at a time, what's yours
+ * Settings (`#/settings/<section>`): models and their keys, permission rules,
+ * auto mode and what it refused, memory, MCP servers — for one project at a time, what's yours
  * (every project's) beside what's the project's.
  */
 export function SettingsPage({ section }: { section: SettingsSection }) {
@@ -79,6 +81,8 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
           <div className="min-w-0 flex-1">
             {!workspace ? (
               <p className="text-xs text-muted-foreground">Add a project to see its settings.</p>
+            ) : section === 'models' ? (
+              <ModelsSection key={workspace.id} workspaceId={workspace.id} />
             ) : section === 'permissions' ? (
               <PermissionsSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
             ) : section === 'auto-mode' ? (

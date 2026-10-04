@@ -1,11 +1,12 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { McpView, MemoryView, SessionDenials, SettingsView } from '@harness-code/protocol';
+import type { McpView, MemoryView, ProvidersView, SessionDenials, SettingsView } from '@harness-code/protocol';
 
 import { AutoModeSection } from './settings/AutoModeSection';
 import { McpSection } from './settings/McpSection';
 import { MemorySection } from './settings/MemorySection';
+import { ModelsSection } from './settings/ModelsSection';
 import { PermissionsSection } from './settings/PermissionsSection';
 import { ToolsSection } from './settings/ToolsSection';
 import { platform } from '@/platform';
@@ -42,6 +43,7 @@ function syncFor(answer: (method: string, params: Record<string, unknown>) => un
   });
   const sync = {
     settingsCall,
+    loadModels: vi.fn(async () => {}),
     onMcpLogin: (fn: (e: McpLoginPush) => void) => {
       listeners.add(fn);
       return () => listeners.delete(fn);
@@ -261,5 +263,117 @@ describe('ToolsSection', () => {
     await act(async () => fireEvent.click(toggle));
     expect(settingsCall).toHaveBeenLastCalledWith('settings.setBackgroundProcesses', { workspaceId: 'w1', enabled: true });
     expect(toggle.getAttribute('aria-checked')).toBe('true');
+  });
+});
+
+describe('ModelsSection', () => {
+  const providers = (over: Partial<ProvidersView> = {}): ProvidersView => ({
+    providers: [
+      { id: 'dashscope', label: 'Alibaba DashScope (Qwen)', baseUrl: 'https://dashscope.aliyuncs.com/v1', requiresKey: true, keyVar: 'DASHSCOPE_API_KEY' },
+      { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', requiresKey: true, keyVar: 'DEEPSEEK_API_KEY' },
+      { id: 'ollama', label: 'Ollama', baseUrl: 'http://localhost:11434/v1', requiresKey: false },
+      {
+        id: 'openai',
+        label: 'OpenAI',
+        baseUrl: 'https://api.openai.com/v1',
+        requiresKey: true,
+        keyVar: 'OPENAI_API_KEY',
+        keySource: 'environment',
+        keySourceVar: 'OPENAI_API_KEY',
+      },
+    ],
+    envPath: '/home/me/.agent/.env',
+    model: 'deepseek/deepseek-flash',
+    settingsPath: '/home/me/.agent/settings.json',
+    problems: [],
+    ...over,
+  });
+  const withKey = (id: string): ProvidersView => {
+    const view = providers();
+    return { ...view, providers: view.providers.map((p) => (p.id === id ? { ...p, keySource: 'user', keySourceVar: p.keyVar! } : p)) };
+  };
+  const row = (label: string): HTMLElement => screen.getByText(label).closest('li') as HTMLElement;
+
+  it("lists the providers — the default model's first — with where each key comes from, and saves, replaces and removes one", async () => {
+    let current = providers();
+    const { sync, settingsCall } = syncFor((method, params) => {
+      if (method === 'providers.setKey') current = params.key === null ? providers() : withKey(params.provider as string);
+      return current;
+    });
+    render(
+      <SyncProvider sync={sync}>
+        <ModelsSection workspaceId="w1" />
+      </SyncProvider>,
+    );
+    await screen.findByText('DeepSeek');
+    const labels = within(screen.getByLabelText('Providers')).getAllByRole('listitem').map((li) => li.querySelector('span')?.textContent);
+    expect(labels).toEqual(['DeepSeek', 'OpenAI', 'Alibaba DashScope (Qwen)', 'Ollama']);
+    expect(within(row('DeepSeek')).getByText('no key')).toBeTruthy();
+    expect(within(row('Ollama')).getByText('needs no key')).toBeTruthy();
+    expect(within(row('Ollama')).queryByRole('button')).toBeNull();
+    // One from the environment is used before any saved here: nothing to add.
+    expect(within(row('OpenAI')).getByText('key from the environment · OPENAI_API_KEY')).toBeTruthy();
+    expect(within(row('OpenAI')).queryByRole('button')).toBeNull();
+    expect(screen.getByText('DeepSeek has no key yet: give it one below.')).toBeTruthy();
+
+    fireEvent.click(within(row('DeepSeek')).getByText('Add key'));
+    const field = within(row('DeepSeek')).getByLabelText('DeepSeek API key') as HTMLInputElement;
+    expect(field.type).toBe('password');
+    fireEvent.change(field, { target: { value: 'sk-test-key' } });
+    await act(async () => {
+      fireEvent.keyDown(field, { key: 'Enter' });
+    });
+    expect(settingsCall).toHaveBeenCalledWith('providers.setKey', { workspaceId: 'w1', provider: 'deepseek', key: 'sk-test-key' });
+    expect(within(row('DeepSeek')).getByText('key saved')).toBeTruthy();
+    expect(within(row('DeepSeek')).queryByLabelText('DeepSeek API key')).toBeNull();
+    expect(document.body.textContent).not.toContain('sk-test-key');
+    expect(screen.queryByText('DeepSeek has no key yet: give it one below.')).toBeNull();
+    expect(sync.loadModels).toHaveBeenCalledWith('w1'); // the pickers read what they offer again
+
+    expect(within(row('DeepSeek')).getByText('Replace')).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(row('DeepSeek')).getByText('Remove'));
+    });
+    expect(settingsCall).toHaveBeenCalledWith('providers.setKey', { workspaceId: 'w1', provider: 'deepseek', key: null });
+    expect(within(row('DeepSeek')).getByText('no key')).toBeTruthy();
+  });
+
+  it('sets the model new sessions start on, says where it is set, and shows a refusal', async () => {
+    let current = providers();
+    const { sync, settingsCall } = syncFor((method, params) => {
+      if (method === 'providers.setModel') {
+        if (params.model === 'nowhere/m') return new Error('Unknown provider "nowhere".');
+        current = params.model === '' ? providers() : providers({ model: params.model as string, modelSource: 'user' });
+      }
+      return current;
+    });
+    render(
+      <SyncProvider sync={sync}>
+        <ModelsSection workspaceId="w1" />
+      </SyncProvider>,
+    );
+    const field = (await screen.findByLabelText('Model for new sessions')) as HTMLInputElement;
+    expect(field.value).toBe('deepseek/deepseek-flash');
+    expect(screen.getByText(/The built-in default\./)).toBeTruthy();
+
+    fireEvent.change(field, { target: { value: 'nowhere/m' } });
+    await act(async () => {
+      fireEvent.keyDown(field, { key: 'Enter' });
+    });
+    expect(screen.getByText('Unknown provider "nowhere".')).toBeTruthy();
+
+    fireEvent.change(field, { target: { value: 'openai/gpt-test' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Save'));
+    });
+    expect(settingsCall).toHaveBeenCalledWith('providers.setModel', { workspaceId: 'w1', model: 'openai/gpt-test' });
+    expect(field.value).toBe('openai/gpt-test');
+    expect(screen.getByText(/From your settings, for every project\./)).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Reset'));
+    });
+    expect(settingsCall).toHaveBeenCalledWith('providers.setModel', { workspaceId: 'w1', model: '' });
+    expect(field.value).toBe('deepseek/deepseek-flash');
   });
 });

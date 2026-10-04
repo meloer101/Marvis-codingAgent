@@ -339,6 +339,42 @@ export interface SettingsView {
   problems: string[];
 }
 
+/** A model provider, as the settings page shows it. Its key is never part of this. */
+export interface ProviderInfo {
+  /** The `provider` of a `provider/model` ref. */
+  id: string;
+  label: string;
+  baseUrl: string;
+  /** It can't be used without a key; a local runtime needs none. */
+  requiresKey: boolean;
+  /** The variable `providers.setKey` saves its key under in `~/.agent/.env`; absent for one that takes none. */
+  keyVar?: string;
+  /**
+   * Where the key in use comes from, absent when there is none: the real
+   * `environment`, the `project`'s `.env`, the `user`'s `~/.agent/.env` (the
+   * one `providers.setKey` writes), or a literal in `settings`. The first that
+   * has it wins, in that order after `settings`.
+   */
+  keySource?: 'settings' | 'environment' | 'project' | 'user';
+  /** The variable that key is in, for the three that are environments. */
+  keySourceVar?: string;
+}
+
+/** The providers a workspace's sessions can use, and the model new ones start on (`providers.list`). */
+export interface ProvidersView {
+  providers: ProviderInfo[];
+  /** `~/.agent/.env`: where keys set here are saved, for every project. */
+  envPath: string;
+  /** The model new sessions start on. */
+  model: string;
+  /** Which settings say so — the project's win over yours; absent for the built-in default. */
+  modelSource?: 'project' | 'user';
+  /** `~/.agent/settings.json`: where `providers.setModel` writes. */
+  settingsPath: string;
+  /** Settings files that couldn't be read, `path: reason`. */
+  problems: string[];
+}
+
 /** A call auto mode refused in a live session. */
 export interface AutoModeDenialInfo {
   id: string;
@@ -886,6 +922,35 @@ export const methods = {
   /** Turn background commands on or off in the user's settings; sessions started afterwards have it. */
   'settings.setBackgroundProcesses': method<{ workspaceId: string; enabled: boolean }, SettingsView>(
     z.object({ workspaceId: workspaceIdSchema, enabled: z.boolean() }),
+  ),
+  /** The model providers a workspace's sessions can use, where each one's key comes from, and the default model. */
+  'providers.list': method<{ workspaceId: string }, ProvidersView>(z.object({ workspaceId: workspaceIdSchema })),
+  /**
+   * Save a provider's API key in the user's `~/.agent/.env` — every project's —
+   * or, with `null`, remove it from there. Sessions started afterwards use it;
+   * every page hears the workspaces' new state. The key is never sent back.
+   * `bad_request` for a provider that takes no key.
+   */
+  'providers.setKey': method<{ workspaceId: string; provider: string; key: string | null }, ProvidersView>(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      provider: z.string().min(1).max(64),
+      // One printable token: what a key is, and what a `.env` line can hold.
+      key: z
+        .string()
+        .min(1)
+        .max(512)
+        .regex(/^[\x21-\x7e]+$/, 'not an API key: one run of printable characters, no spaces')
+        .nullable(),
+    }),
+  ),
+  /**
+   * Set the model new sessions start on (`model` in the user's settings) —
+   * `provider/model` — or, with an empty string, go back to the built-in
+   * default. `bad_request` for an unknown provider.
+   */
+  'providers.setModel': method<{ workspaceId: string; model: string }, ProvidersView>(
+    z.object({ workspaceId: workspaceIdSchema, model: z.string().max(256) }),
   ),
   /** The live sessions auto mode refused something in — in one workspace, or all — newest denial first. */
   'autoMode.denials': method<{ workspaceId?: string }, SessionDenials[]>(

@@ -40,6 +40,7 @@ import type {
   PermissionRuleList,
   PushEvent,
   SessionDenials,
+  ProvidersView,
   SettingsView,
   SessionSnapshot,
   SessionSummary,
@@ -74,6 +75,9 @@ import {
   setAutoModeGroup,
   setBackgroundProcesses,
   setRules,
+  providersView,
+  setDefaultModel,
+  setProviderKey,
   settingsView,
   writeMemory,
 } from './settings.js';
@@ -514,6 +518,29 @@ export class WorkspaceHub {
     await setAutoModeGroup(this.#place(id), group, rules);
     await this.#reloadSettings();
     return this.settings(id);
+  }
+
+  /** The model providers workspace `id`'s sessions can use, and where each one's key comes from. */
+  async providers(id: string): Promise<ProvidersView> {
+    return providersView(this.#place(id));
+  }
+
+  /**
+   * Save a provider's key for the user — every project's — or remove it.
+   * Sessions started afterwards use it; every page hears what the workspaces'
+   * default models can now do.
+   */
+  async setProviderKey(id: string, provider: string, key: string | null): Promise<ProvidersView> {
+    await setProviderKey(this.#place(id), provider, key);
+    this.#announceWorkspaces();
+    return this.providers(id);
+  }
+
+  /** Set the model the user's new sessions start on; an empty one goes back to the built-in default. */
+  async setDefaultModel(id: string, model: string): Promise<ProvidersView> {
+    await setDefaultModel(this.#place(id), model);
+    this.#announceWorkspaces();
+    return this.providers(id);
   }
 
   /** Background commands on or off for the user; sessions started afterwards have it (the tools a session shows the model stay as they started). */

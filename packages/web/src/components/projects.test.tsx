@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Workspace, WorkspaceInspection } from '@harness-code/protocol';
+import type { ProvidersView, Workspace, WorkspaceInspection } from '@harness-code/protocol';
 
 import { AddProjectDialog } from './AddProjectDialog';
 import { DraftView } from './DraftView';
@@ -188,88 +188,65 @@ describe('DraftView', () => {
     );
   });
 
-  it('shows why the default model cannot run in this project', () => {
-    useAppStore.setState({
-      status: 'open',
-      workspaces: [workspace('aaa', 'alpha', { keyProblem: 'DeepSeek needs an API key.' })],
-    });
-    render(
-      <SyncProvider sync={fakeSync() as unknown as SessionSync}>
-        <DraftView />
-      </SyncProvider>,
-    );
-    expect(screen.getByText(/DeepSeek needs an API key\./)).toBeTruthy();
-    expect(screen.getByText(/~\/\.agent\/\.env/)).toBeTruthy();
-  });
-});
-
-describe('AddProjectDialog', () => {
-  const inspection = (over: Partial<WorkspaceInspection> = {}): WorkspaceInspection => ({
-    path: '/code/gamma',
-    exists: true,
-    isDirectory: true,
-    root: '/code/gamma',
-    projectRoot: '/code/gamma',
-    git: true,
-    needsMarker: false,
-    mcpServers: [],
-    warnings: [],
+  const providers = (over: Partial<ProvidersView> = {}): ProvidersView => ({
+    providers: [
+      { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', requiresKey: true, keyVar: 'DEEPSEEK_API_KEY' },
+    ],
+    envPath: '/home/me/.agent/.env',
+    model: 'deepseek/deepseek-flash',
+    settingsPath: '/home/me/.agent/settings.json',
+    problems: [],
     ...over,
   });
 
-  function open(sync: ReturnType<typeof fakeSync>) {
-    useAppStore.setState({ status: 'open', addProjectOpen: true });
+  it('asks for the API key the default model lacks, and saves it for every project', async () => {
+    useAppStore.setState({
+      status: 'open',
+      workspaces: [workspace('aaa', 'alpha', { model: 'deepseek/deepseek-flash', keyProblem: 'DeepSeek needs an API key.' })],
+    });
+    const settingsCall = vi.fn(async (method: string) => {
+      if (method === 'providers.setKey') {
+        // The server pushes the workspaces' new state: the model can run now.
+        useAppStore.setState({ workspaces: [workspace('aaa', 'alpha', { model: 'deepseek/deepseek-flash' })] });
+      }
+      return providers();
+    });
+    const sync = fakeSync({ settingsCall });
     render(
       <SyncProvider sync={sync as unknown as SessionSync}>
-        <AddProjectDialog />
+        <DraftView />
       </SyncProvider>,
     );
-    return screen.getByLabelText('Project folder') as HTMLInputElement;
-  }
+    const field = (await screen.findByLabelText('DeepSeek API key')) as HTMLInputElement;
+    expect(field.type).toBe('password');
+    expect(screen.getByText('DeepSeek needs an API key')).toBeTruthy();
+    expect(screen.getByText('~/.agent/.env')).toBeTruthy();
+    expect((screen.getByText('Other providers') as HTMLAnchorElement).getAttribute('href')).toBe('#/settings/models');
+    expect((screen.getByText('Save key').closest('button') as HTMLButtonElement).disabled).toBe(true); // nothing typed
 
-  it('shows what trusting a project means, then adds it and opens a draft there', async () => {
-    const sync = fakeSync({
-      inspectPath: vi.fn(async () =>
-        inspection({
-          mcpServers: [{ name: 'fs', transport: 'stdio', command: 'npx -y server-filesystem .' }],
-          warnings: ['Its settings start sessions in YOLO mode: nothing asks before running.'],
-        }),
-      ),
-      addWorkspace: vi.fn(async () => workspace('ccc', 'gamma')),
-    });
-    const input = open(sync);
-    fireEvent.change(input, { target: { value: '~/code/gamma' } });
-    await screen.findByText('npx -y server-filesystem .');
-    expect(screen.getByText(/YOLO mode/)).toBeTruthy();
-    const button = await screen.findByRole('button', { name: 'Trust and add' });
-    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(button);
-    await waitFor(() => expect(sync.addWorkspace).toHaveBeenCalledWith('~/code/gamma', {}));
-    await waitFor(() => expect(window.location.hash).toBe('#/new/ccc'));
-    expect(useAppStore.getState().addProjectOpen).toBe(false);
+    fireEvent.change(field, { target: { value: '  sk-test-key  ' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    await waitFor(() =>
+      expect(settingsCall).toHaveBeenCalledWith('providers.setKey', { workspaceId: 'aaa', provider: 'deepseek', key: 'sk-test-key' }),
+    );
+    await waitFor(() => expect(screen.queryByLabelText('DeepSeek API key')).toBeNull()); // nothing left to ask
+    expect(sync.loadModels).toHaveBeenCalledWith('aaa');
+    expect(document.body.textContent).not.toContain('sk-test-key');
   });
 
-  it('asks to create .agent/ for a plain folder, and refuses what cannot be a project', async () => {
-    const answers: Record<string, WorkspaceInspection> = {
-      '~/notes': inspection({ path: '/home/notes', root: '/home/notes', git: false, needsMarker: true }),
-      '~': inspection({ problem: 'Your home directory is too broad for a project: pick a folder inside it' }),
-    };
-    const sync = fakeSync({
-      inspectPath: vi.fn(async (path: string) => answers[path] ?? null),
-      addWorkspace: vi.fn(async () => workspace('ddd', 'notes')),
+  it('says what is wrong when it is not a missing key, with the way to the settings', async () => {
+    useAppStore.setState({
+      status: 'open',
+      workspaces: [workspace('aaa', 'alpha', { model: 'nowhere/m', keyProblem: 'Unknown provider "nowhere".' })],
     });
-    const input = open(sync);
-    fireEvent.change(input, { target: { value: '~' } });
-    await screen.findByText(/too broad/);
-    expect((screen.getByRole('button', { name: 'Add project' }) as HTMLButtonElement).disabled).toBe(true);
-
-    fireEvent.change(input, { target: { value: '~/notes' } });
-    await screen.findByText(/creates/);
-    const add = screen.getByRole('button', { name: 'Add project' }) as HTMLButtonElement;
-    await waitFor(() => expect(add.disabled).toBe(false));
-    await act(async () => {
-      fireEvent.keyDown(input, { key: 'Enter' });
-    });
-    await waitFor(() => expect(sync.addWorkspace).toHaveBeenCalledWith('~/notes', { createMarker: true }));
+    render(
+      <SyncProvider sync={fakeSync({ settingsCall: vi.fn(async () => providers()) }) as unknown as SessionSync}>
+        <DraftView />
+      </SyncProvider>,
+    );
+    expect(screen.getByText(/Unknown provider "nowhere"\./)).toBeTruthy();
+    expect(screen.getByText(/~\/\.agent\/\.env/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Other providers')).toBeTruthy());
+    expect(screen.queryByPlaceholderText('Paste the key')).toBeNull();
   });
 });

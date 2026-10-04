@@ -15,6 +15,7 @@ import {
   Gauge,
   GitCompareArrows,
   GitFork,
+  KeyRound,
   Keyboard,
   ListChecks,
   ListCollapse,
@@ -296,6 +297,14 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       keywords: 'preferences configuration',
       icon: Settings,
       run: go(routeToHash({ kind: 'settings', section: 'permissions' })),
+    });
+    items.push({
+      id: 'settings-models',
+      group: 'App',
+      label: 'Models and API keys',
+      keywords: 'settings provider key default model deepseek openai',
+      icon: KeyRound,
+      run: go(routeToHash({ kind: 'settings', section: 'models' })),
     });
     items.push({
       id: 'settings-permissions',

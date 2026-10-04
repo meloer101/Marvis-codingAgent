@@ -300,14 +300,35 @@ export class ProviderRegistry {
 
   private apiKeyFor(providerId: string, cfg: ProviderConfig): string | undefined {
     if (cfg.apiKey) return cfg.apiKey;
-    const generic = this.env[`HC_${envKey(providerId)}_API_KEY`];
-    if (generic) return generic;
-    for (const name of cfg.apiKeyEnv ?? []) {
-      const value = this.env[name];
-      if (value) return value;
-    }
-    return undefined;
+    const from = this.keyVariable(providerId, cfg);
+    return from === undefined ? undefined : this.env[from];
   }
+
+  /** The environment variable `providerId`'s key is read from, of those it looks in; undefined when none is set. */
+  private keyVariable(providerId: string, cfg: ProviderConfig): string | undefined {
+    return providerKeyVars(providerId, cfg).find((name) => !!this.env[name]);
+  }
+
+  /**
+   * Where `providerId`'s key comes from — a literal in settings, or an
+   * environment variable — without handing the key out; undefined when it has
+   * none.
+   */
+  keyOrigin(providerId: string): { settings: true } | { variable: string } | undefined {
+    const cfg = this.config(providerId);
+    if (cfg.apiKey) return { settings: true };
+    const variable = this.keyVariable(providerId, cfg);
+    return variable === undefined ? undefined : { variable };
+  }
+}
+
+/**
+ * The environment variables a provider's key is looked for in, in order:
+ * `HC_<PROVIDER>_API_KEY`, which every provider has, then the names its
+ * endpoint is known by (`DEEPSEEK_API_KEY`).
+ */
+export function providerKeyVars(providerId: string, cfg: Pick<ProviderConfig, 'apiKeyEnv'>): string[] {
+  return [`HC_${envKey(providerId)}_API_KEY`, ...(cfg.apiKeyEnv ?? [])];
 }
 
 function envKey(providerId: string): string {

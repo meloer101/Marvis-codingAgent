@@ -13,8 +13,9 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { AGENT_DIR } from './settings.js';
 
@@ -52,6 +53,41 @@ export function loadDotEnv(path: string, env: NodeJS.ProcessEnv = process.env): 
     if (env[key] === undefined) env[key] = value;
   }
   return env;
+}
+
+/** The variable a `.env` line sets, as `parseDotEnv` reads it; undefined for a comment or a line that sets none. */
+function lineKey(rawLine: string): string | undefined {
+  const line = rawLine.trim();
+  if (line === '' || line.startsWith('#')) return undefined;
+  const eq = line.indexOf('=');
+  return eq === -1 ? undefined : line.slice(0, eq).trim() || undefined;
+}
+
+/**
+ * Set `name` in the `.env` at `path` — or, with `undefined`, remove it —
+ * leaving every other line as it is. The file holds keys: it is written
+ * whole, then moved into place, readable by its owner only.
+ */
+export async function setDotEnvVar(path: string, name: string, value: string | undefined): Promise<void> {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`"${name}" is not a variable name`);
+  if (value !== undefined && /[\r\n]/.test(value)) throw new Error('a value is one line');
+  let text = '';
+  try {
+    text = await readFile(path, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  const lines = text === '' ? [] : text.replace(/\n$/, '').split('\n');
+  const kept = lines.filter((line) => lineKey(line) !== name);
+  if (value === undefined && kept.length === lines.length) return; // nothing to remove
+  // Replaced where it was, so a file keeps its order; a new one goes last.
+  const at = lines.findIndex((line) => lineKey(line) === name);
+  if (value !== undefined) kept.splice(at === -1 ? kept.length : Math.min(at, kept.length), 0, `${name}=${value}`);
+  await mkdir(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, kept.length > 0 ? `${kept.join('\n')}\n` : '', { encoding: 'utf8', mode: 0o600 });
+  await chmod(tmp, 0o600); // `mode` above is masked by the umask
+  await rename(tmp, path);
 }
 
 /** `~/.agent/.env` — keys shared by every project (`home` is injectable for tests). */

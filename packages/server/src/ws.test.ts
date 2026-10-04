@@ -6,11 +6,11 @@
  * event stream).
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { DEFAULT_CAPABILITIES, ScriptedProvider } from '@harness-code/core';
+import { DEFAULT_CAPABILITIES, ScriptedProvider, userDotEnvPath } from '@harness-code/core';
 import type { ResolvedModel, ScriptedTurn } from '@harness-code/core';
 import type { PushEvent, ServerFrame, SessionSummary } from '@harness-code/protocol';
 import { WebSocket } from 'ws';
@@ -327,5 +327,58 @@ describe('ws transport', () => {
     const result = (info as { result: { version: string; modes: string[] } }).result;
     expect(result.modes).toContain('plan');
     expect(typeof result.version).toBe('string');
+  });
+});
+
+describe('an API key given in the page', () => {
+  it("is saved in the user's ~/.agent/.env and used at once: the default model's problem goes away, no restart", async () => {
+    // A project whose default model is on a provider of its own, so the key's variable is nobody else's.
+    const cwd = await mkdtemp(join(tmpdir(), 'hc-ws-key-'));
+    await mkdir(join(cwd, '.agent'));
+    await writeFile(
+      join(cwd, '.agent', 'settings.json'),
+      JSON.stringify({
+        model: 'keytest/some-model',
+        providers: {
+          keytest: { label: 'Key Test', baseUrl: 'http://127.0.0.1:9/v1', requiresKey: true, apiKeyEnv: ['MARVIS_KEYTEST_API_KEY'] },
+        },
+      }),
+    );
+    const server = await startServer({ cwd });
+    cleanups.push(async () => {
+      await server.close();
+      await rm(cwd, { recursive: true, force: true });
+    });
+    const client = await Client.open(wsUrl(server), `http://127.0.0.1:${server.port}`);
+    await client.call('auth', { token: server.token });
+    type Listed = { result: Array<{ id: string; defaults: { keyProblem?: string } }> };
+    const defaults = async () => ((await client.call('workspace.list')) as Listed).result[0]!.defaults;
+    const workspaceId = ((await client.call('workspace.list')) as Listed).result[0]!.id;
+    expect((await defaults()).keyProblem).toMatch(/Key Test needs an API key/);
+
+    // Not a key: nothing is written.
+    expect(await client.call('providers.setKey', { workspaceId, provider: 'keytest', key: 'two words' })).toMatchObject({
+      ok: false,
+      error: { code: 'bad_request' },
+    });
+
+    const saved = await client.call('providers.setKey', { workspaceId, provider: 'keytest', key: 'kt-0123456789' });
+    expect(saved).toMatchObject({ ok: true });
+    const view = (saved as unknown as { result: { providers: Array<{ id: string; keySource?: string }>; envPath: string } }).result;
+    expect(view.providers.find((p) => p.id === 'keytest')).toMatchObject({ keySource: 'user', keySourceVar: 'MARVIS_KEYTEST_API_KEY' });
+    expect(JSON.stringify(saved)).not.toContain('kt-0123456789'); // never sent back
+    expect(view.envPath).toBe(userDotEnvPath());
+    expect(await readFile(userDotEnvPath(), 'utf8')).toContain('MARVIS_KEYTEST_API_KEY=kt-0123456789');
+
+    expect((await defaults()).keyProblem).toBeUndefined();
+    const pushed = (): boolean =>
+      client.pushes.some((e) => e.type === 'workspaces' && e.workspaces.some((w) => w.id === workspaceId && !w.defaults.keyProblem));
+    for (let i = 0; i < 100 && !pushed(); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(pushed()).toBe(true); // every open page hears it
+
+    // Removed again: back to needing one.
+    expect(await client.call('providers.setKey', { workspaceId, provider: 'keytest', key: null })).toMatchObject({ ok: true });
+    expect((await defaults()).keyProblem).toMatch(/Key Test needs an API key/);
+    client.close();
   });
 });
