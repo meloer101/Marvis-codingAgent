@@ -129,10 +129,13 @@ class HcAgent(BaseInstalledAgent):
         *args: Any,
         hc_mode: str = "yolo",
         max_turns: int = 40,
+        verify_stop: bool | str = False,
         **kwargs: Any,
     ) -> None:
         self._hc_mode = hc_mode
         self._max_turns = int(max_turns)
+        # `--ak verify_stop=true` arrives as a string.
+        self._verify_stop = str(verify_stop).lower() in {"1", "true", "yes"}
         super().__init__(*args, **kwargs)
         valid = {"yolo", "acceptEdits", "ask", "plan", "readOnly"}
         if hc_mode not in valid:
@@ -265,7 +268,16 @@ class HcAgent(BaseInstalledAgent):
         log_path = shlex.quote(str(_LOG_PATH))
         env.setdefault("HC_STATE_DIR", str(_STATE_DIR))
 
+        # hc has no flag for this setting, so it goes in the user-level
+        # settings file — under $HOME, out of the task directory.
+        settings = (
+            'mkdir -p "$HOME/.agent" && '
+            "printf '%s\\n' '{\"verifyBeforeStop\": true}' > \"$HOME/.agent/settings.json\"; "
+            if self._verify_stop
+            else ""
+        )
         command = (
+            f"{settings}"
             f"hc agent {prompt} --model {model} --mode {mode} "
             f"--output-format json --no-mcp --no-skills --no-subagents "
             f"--max-turns {self._max_turns} "

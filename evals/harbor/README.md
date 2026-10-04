@@ -103,6 +103,7 @@ harbor run -d terminal-bench/terminal-bench-2 -a oracle -l 1 -n 1 -y
 |---|---|---|
 | `hc_mode` | `yolo` | hc permission mode. `yolo` = full auto; anything stricter will make hc refuse writes/bash unattended. |
 | `max_turns` | `40` | hc `--max-turns`. |
+| `verify_stop` | `false` | `true` turns on `verifyBeforeStop` (written to `~/.agent/settings.json` in the container; hc has no flag for it). |
 
 ## Reading results
 
