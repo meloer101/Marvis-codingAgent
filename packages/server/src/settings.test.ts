@@ -1,16 +1,21 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { FileOAuthStore, projectEnv } from '@harness-code/core';
 
-import { InvalidRequestError } from './host.js';
+import { ConflictError, InvalidRequestError } from './host.js';
 import {
   deleteMemory,
+  mcpGet,
   mcpLogin,
   mcpLogout,
+  mcpRemove,
+  mcpSave,
+  mcpTest,
   mcpView,
   memoryView,
   providersView,
@@ -186,6 +191,75 @@ describe('MCP servers', () => {
     await expect(mcpLogin(place, 'files', () => {})).rejects.toThrow(/doesn't sign in with OAuth/);
     await expect(mcpLogin(place, 'api', () => {})).rejects.toBeInstanceOf(InvalidRequestError);
     await expect(mcpLogin(place, 'nope', () => {})).rejects.toThrow(/no usable MCP server/);
+  });
+});
+
+describe('adding and changing MCP servers', () => {
+  const ECHO_SERVER = fileURLToPath(new URL('../../core/src/mcp/__fixtures__/echo-server.mjs', import.meta.url));
+  const userFile = (): string => join(home, '.agent', '.mcp.json');
+
+  it('adds one to a file not there yet, and refuses a second of the same name', async () => {
+    await mcpSave(place, 'user', { name: 'files', transport: 'stdio', command: ' npx ', args: ['-y', 'mcp-files'], env: { TOKEN: '${LINEAR_TOKEN}' } });
+    expect(await json(userFile())).toEqual({
+      mcpServers: { files: { type: 'stdio', command: 'npx', args: ['-y', 'mcp-files'], env: { TOKEN: '${LINEAR_TOKEN}' } } },
+    });
+    expect((await mcpView(place)).servers).toEqual([{ name: 'files', scope: 'user', transport: 'stdio', target: 'npx -y mcp-files', auth: 'none' }]);
+    await expect(mcpSave(place, 'user', { name: 'files', transport: 'stdio', command: 'other' })).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('shows an entry to edit without its literal secrets, and keeps them when saved as null', async () => {
+    await writeFile(
+      join(place.root, '.mcp.json'),
+      JSON.stringify({
+        other: true,
+        mcpServers: {
+          first: { command: 'a' },
+          api: { url: 'https://api.example.com/mcp', headers: { Authorization: 'Bearer sk-literal', 'X-Org': '${ORG}' }, timeout: 5 },
+          last: { command: 'z' },
+        },
+      }),
+    );
+    const entry = await mcpGet(place, 'project', 'api');
+    expect(entry).toEqual({ name: 'api', transport: 'http', url: 'https://api.example.com/mcp', headers: { Authorization: null, 'X-Org': '${ORG}' } });
+    expect(JSON.stringify(entry)).not.toContain('sk-literal');
+
+    await mcpSave(place, 'project', { ...entry, name: 'api2', headers: { Authorization: null, 'X-Team': 't' } }, 'api');
+    const doc = (await json(join(place.root, '.mcp.json'))) as { other: boolean; mcpServers: Record<string, unknown> };
+    expect(doc.other).toBe(true);
+    expect(Object.keys(doc.mcpServers)).toEqual(['first', 'api2', 'last']);
+    expect(doc.mcpServers.api2).toEqual({
+      type: 'http',
+      url: 'https://api.example.com/mcp',
+      headers: { Authorization: 'Bearer sk-literal', 'X-Team': 't' },
+      timeout: 5,
+    });
+    await expect(mcpSave(place, 'project', { name: 'x', transport: 'http', url: 'https://x', headers: { A: null } })).rejects.toThrow(/no header "A" to keep/);
+  });
+
+  it("refuses what wouldn't parse, and never writes over a file that doesn't", async () => {
+    await expect(mcpSave(place, 'user', { name: 'nope', transport: 'stdio', command: '  ' })).rejects.toBeInstanceOf(InvalidRequestError);
+    await expect(mcpSave(place, 'user', { name: 'nope', transport: 'http', url: 'ftp://x' })).rejects.toThrow(/not an http/);
+    await writeFile(join(place.root, '.mcp.json'), '{ "mcpServers": ');
+    await expect(mcpSave(place, 'project', { name: 'a', transport: 'stdio', command: 'a' })).rejects.toBeInstanceOf(InvalidRequestError);
+    expect(await readFile(join(place.root, '.mcp.json'), 'utf8')).toBe('{ "mcpServers": ');
+  });
+
+  it('removes one, leaving the rest', async () => {
+    await mcpSave(place, 'user', { name: 'a', transport: 'stdio', command: 'a' });
+    await mcpSave(place, 'user', { name: 'b', transport: 'sse', url: 'https://b.example.com/sse' });
+    await mcpRemove(place, 'user', 'a');
+    expect(await json(userFile())).toEqual({ mcpServers: { b: { type: 'sse', url: 'https://b.example.com/sse' } } });
+    await expect(mcpRemove(place, 'user', 'a')).rejects.toThrow(/has no MCP server "a"/);
+  });
+
+  it('connects to one as a session would, and says what it has — or why not', async () => {
+    await mcpSave(place, 'project', { name: 'echo', transport: 'stdio', command: process.execPath, args: [ECHO_SERVER] });
+    await mcpSave(place, 'project', { name: 'gone', transport: 'stdio', command: join(home, 'no-such-command') });
+    const echo = await mcpTest(place, 'project', 'echo');
+    expect(echo).toMatchObject({ ok: true, tools: [{ name: 'echo', description: 'Echo the message back' }] });
+    const gone = await mcpTest(place, 'project', 'gone', { connectTimeoutMs: 5000 });
+    expect(gone.ok).toBe(false);
+    await expect(mcpTest(place, 'user', 'echo')).rejects.toBeInstanceOf(InvalidRequestError);
   });
 });
 

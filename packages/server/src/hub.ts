@@ -33,6 +33,8 @@ import type {
   GitBranches,
   GitDiff,
   GitStatus,
+  McpServerEntry,
+  McpTestResult,
   McpView,
   MemoryTarget,
   MemoryView,
@@ -45,6 +47,9 @@ import type {
   SessionSnapshot,
   SessionSummary,
   SessionTrace,
+  SkillScope,
+  SkillsImportResult,
+  SkillsView,
   StatsSummary,
   TerminalInfo,
   Workspace,
@@ -67,8 +72,12 @@ import type { RegistryListener, SessionCheckout, SessionConfigFactory } from './
 import { workspacePath } from './paths.js';
 import {
   deleteMemory,
+  mcpGet,
   mcpLogin,
   mcpLogout,
+  mcpRemove,
+  mcpSave,
+  mcpTest,
   mcpView,
   memoryView,
   readMemory,
@@ -82,6 +91,7 @@ import {
   writeMemory,
 } from './settings.js';
 import type { SettingsPlace } from './settings.js';
+import { deleteSkill, importSkills, readSkill, skillsView, writeSkill } from './skills.js';
 import { TerminalManager, loadPty } from './terminals.js';
 import type { SpawnPty } from './terminals.js';
 import { workspaceId } from './workspaces.js';
@@ -600,6 +610,49 @@ export class WorkspaceHub {
   async mcpLogout(id: string, name: string): Promise<McpView> {
     await mcpLogout(this.#place(id), name);
     return this.mcp(id);
+  }
+
+  async mcpGet(id: string, scope: 'user' | 'project', name: string): Promise<McpServerEntry> {
+    return mcpGet(this.#place(id), scope, name);
+  }
+
+  /** Add or change an MCP server in the user's or the project's file; sessions started afterwards connect to it. */
+  async mcpSave(id: string, scope: 'user' | 'project', server: McpServerEntry, previousName?: string): Promise<McpView> {
+    await mcpSave(this.#place(id), scope, server, previousName);
+    return this.mcp(id);
+  }
+
+  async mcpRemove(id: string, scope: 'user' | 'project', name: string): Promise<McpView> {
+    await mcpRemove(this.#place(id), scope, name);
+    return this.mcp(id);
+  }
+
+  mcpTest(id: string, scope: 'user' | 'project', name: string): Promise<McpTestResult> {
+    return mcpTest(this.#place(id), scope, name);
+  }
+
+  /** The skills workspace `id`'s sessions load, and the folders they skip. */
+  async skills(id: string): Promise<SkillsView> {
+    return skillsView(this.#place(id));
+  }
+
+  readSkill(id: string, scope: SkillScope, name: string): Promise<string> {
+    return readSkill(this.#place(id), scope, name);
+  }
+
+  async writeSkill(id: string, scope: 'user' | 'project', name: string, text: string, create?: boolean): Promise<SkillsView> {
+    await writeSkill(this.#place(id), scope, name, text, create !== undefined ? { create } : {});
+    return this.skills(id);
+  }
+
+  async deleteSkill(id: string, scope: 'user' | 'project', name: string): Promise<SkillsView> {
+    await deleteSkill(this.#place(id), scope, name);
+    return this.skills(id);
+  }
+
+  async importSkills(id: string, scope: 'user' | 'project', source: string, replace?: boolean): Promise<SkillsImportResult> {
+    const result = await importSkills(this.#place(id), scope, source, replace !== undefined ? { replace } : {});
+    return { ...result, view: await this.skills(id) };
   }
 
   /** Fork session `id` (`SessionRegistry.fork`) in its own workspace; resolves with the new id. */

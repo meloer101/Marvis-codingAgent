@@ -35,6 +35,19 @@ interface ParseInput {
   source: SkillSource;
 }
 
+/**
+ * The `name` a SKILL.md's frontmatter gives, if it gives one that could name
+ * a skill — what a folder copied in from elsewhere is to be called.
+ */
+export function skillNameOf(raw: string): string | undefined {
+  try {
+    const name = (matter(raw).data as Record<string, unknown>).name;
+    return typeof name === 'string' && name.length <= MAX_NAME && NAME_RE.test(name) ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function parseSkill({ raw, dirName, dir, source }: ParseInput): ValidationResult {
   let data: Record<string, unknown>;
   let body: string;

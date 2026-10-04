@@ -95,6 +95,7 @@ export class McpConnection {
   private connectPromise: Promise<void> | undefined;
   private _state: McpConnectionState = 'idle';
   private _error: string | undefined;
+  private _needsAuth = false;
 
   constructor(
     config: McpServerConfig,
@@ -112,6 +113,11 @@ export class McpConnection {
 
   get error(): string | undefined {
     return this._error;
+  }
+
+  /** It failed for want of a sign-in (`marvis mcp login`), not for being unreachable. */
+  get needsAuth(): boolean {
+    return this._needsAuth;
   }
 
   /**
@@ -157,7 +163,8 @@ export class McpConnection {
       this._state = 'ready';
     } catch (err) {
       this._state = 'failed';
-      this._error = isAuthError(err)
+      this._needsAuth = isAuthError(err);
+      this._error = this._needsAuth
         ? `needs authorization — run: marvis mcp login ${this.name}`
         : err instanceof Error
           ? err.message

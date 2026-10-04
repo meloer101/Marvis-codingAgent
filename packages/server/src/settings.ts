@@ -2,17 +2,18 @@
  * What the web's settings page reads and writes, for one workspace: the
  * permission rules in the user's and the project's `.agent/settings.json`,
  * the user's auto-mode rules, the instruction files and memories sessions
- * start with, and the MCP servers they connect to — with their OAuth sign-in
- * (docs/web.md, "Settings").
+ * start with, and the MCP servers they connect to — added, changed, removed
+ * and tried, and signed in to with OAuth (docs/web.md, "Settings").
  *
  * Nothing secret goes back: settings are read for their rules alone (a
  * settings file can hold provider keys), and an MCP server is shown as its
- * file has it, `${VAR}`s unexpanded, never its headers or env. Writes go
+ * file has it, `${VAR}`s unexpanded, never its headers or env (to edit one,
+ * a literal value is left out, and kept when saved back). Writes go
  * through core's writers, which won't overwrite a file that doesn't parse.
  */
 
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import {
   AGENT_DIR,
@@ -22,6 +23,7 @@ import {
   FileOAuthStore,
   MCP_CONFIG_FILE,
   MEMORY_DIR,
+  McpConnection,
   ProviderRegistry,
   defaultRulesFor,
   deleteMemoryFile,
@@ -53,7 +55,9 @@ import { AUTO_MODE_GROUPS } from '@harness-code/protocol';
 import type {
   AutoModeGroup,
   InstructionFileInfo,
+  McpServerEntry,
   McpServerInfo,
+  McpTestResult,
   McpView,
   MemoryFileInfo,
   MemoryTarget,
@@ -65,7 +69,7 @@ import type {
   SettingsView,
 } from '@harness-code/protocol';
 
-import { InvalidRequestError } from './host.js';
+import { ConflictError, InvalidRequestError } from './host.js';
 
 /** Where a workspace's settings are, and what its MCP `${VAR}`s expand from. */
 export interface SettingsPlace {
@@ -512,4 +516,158 @@ export async function mcpLogin(
 export async function mcpLogout(place: SettingsPlace, name: string): Promise<void> {
   const config = await oauthServer(place, name);
   await new FileOAuthStore(config.url, authRoot(place)).clear();
+}
+
+/** What an entry says of itself, beside which the rest of it is kept as it is. */
+const ENTRY_KEYS = ['type', 'command', 'args', 'env', 'url', 'headers', 'auth'];
+
+/** An env or header value, shown only when the secret it carries is in a `${VAR}` — `null` for a literal. */
+function shownValues(value: unknown): Record<string, string | null> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const out: Record<string, string | null> = {};
+  for (const [k, v] of Object.entries(value as Json)) {
+    if (typeof v === 'string') out[k] = /\$\{[A-Za-z_][A-Za-z0-9_]*\}/.test(v) ? v : null;
+  }
+  return out;
+}
+
+/** One scope's `.mcp.json`: where it is, and its object — `bad_request` when it doesn't parse, so it's never written over. */
+async function mcpFile(place: SettingsPlace, scope: 'user' | 'project'): Promise<{ path: string; doc: Json; servers: Json }> {
+  const path = mcpPaths(place, await findStateRoot(place.root))[scope];
+  const read = await readJsonFile(path);
+  if (!('value' in read)) throw new InvalidRequestError(read.problem);
+  const servers = read.value.mcpServers ?? {};
+  if (typeof servers !== 'object' || servers === null || Array.isArray(servers)) {
+    throw new InvalidRequestError(`${path}: "mcpServers" must be an object`);
+  }
+  return { path, doc: read.value, servers: servers as Json };
+}
+
+function entryIn(servers: Json, name: string, path: string): Json {
+  const entry = Object.hasOwn(servers, name) ? servers[name] : undefined;
+  if (typeof entry !== 'object' || entry === null) throw new InvalidRequestError(`${path} has no MCP server "${name}"`);
+  return entry as Json;
+}
+
+/** An MCP server's entry in the user's or the project's file, to edit — literal env and header values left out. */
+export async function mcpGet(place: SettingsPlace, scope: 'user' | 'project', name: string): Promise<McpServerEntry> {
+  const { path, servers } = await mcpFile(place, scope);
+  const entry = entryIn(servers, name, path);
+  let transport: McpServerEntry['transport'] = typeof entry.url === 'string' ? 'http' : 'stdio';
+  try {
+    transport = parseMcpConfig(JSON.stringify({ mcpServers: { [name]: entry } }), path, { env: place.env }).at(0)?.transport ?? transport;
+  } catch {
+    // As much of it as can be shown: saving it again says what's wrong.
+  }
+  const env = shownValues(entry.env);
+  const headers = shownValues(entry.headers);
+  return {
+    name,
+    transport,
+    ...(typeof entry.command === 'string' ? { command: entry.command } : {}),
+    ...(Array.isArray(entry.args) ? { args: strings(entry.args) } : {}),
+    ...(env ? { env } : {}),
+    ...(typeof entry.url === 'string' ? { url: entry.url } : {}),
+    ...(headers ? { headers } : {}),
+    ...(entry.auth === 'oauth' || entry.auth === 'none' ? { auth: entry.auth } : {}),
+  };
+}
+
+/** The values to write: each given one, or — `null` — the one the file has. */
+function valuesToWrite(given: Record<string, string | null> | undefined, old: unknown, what: string): Record<string, string> {
+  const kept = (typeof old === 'object' && old !== null ? old : {}) as Json;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(given ?? {})) {
+    if (v !== null) out[k] = v;
+    else if (typeof kept[k] === 'string') out[k] = kept[k];
+    else throw new InvalidRequestError(`there's no ${what} "${k}" to keep: give it a value`);
+  }
+  return out;
+}
+
+async function writeMcpFile(path: string, scope: 'user' | 'project', doc: Json): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  // Yours can hold tokens: made readable by you alone. The project's is for committing.
+  await writeFile(path, `${JSON.stringify(doc, null, 2)}\n`, { encoding: 'utf8', ...(scope === 'user' ? { mode: 0o600 } : {}) });
+}
+
+/**
+ * Add an MCP server to the user's or the project's `.mcp.json`, or — with
+ * `previousName` — change that one, keeping what its entry has beyond what
+ * an entry says and, for a `null` env or header value, the value it had.
+ */
+export async function mcpSave(
+  place: SettingsPlace,
+  scope: 'user' | 'project',
+  server: McpServerEntry,
+  previousName?: string,
+): Promise<void> {
+  const { path, doc, servers } = await mcpFile(place, scope);
+  const old = previousName !== undefined ? entryIn(servers, previousName, path) : {};
+  if (server.name !== previousName && Object.hasOwn(servers, server.name)) {
+    throw new ConflictError(`${path} has an MCP server named "${server.name}" already`);
+  }
+  const next: Json = { type: server.transport };
+  if (server.transport === 'stdio') {
+    const command = server.command?.trim() ?? '';
+    if (command === '') throw new InvalidRequestError('a stdio server needs the command it runs');
+    next.command = command;
+    if (server.args && server.args.length > 0) next.args = server.args;
+    const env = valuesToWrite(server.env, old.env, 'variable');
+    if (Object.keys(env).length > 0) next.env = env;
+  } else {
+    const url = server.url?.trim() ?? '';
+    if (!/^(?:https?:\/\/|\$\{)/i.test(url)) throw new InvalidRequestError(`not an http(s) URL: "${url}"`);
+    next.url = url;
+    const headers = valuesToWrite(server.headers, old.headers, 'header');
+    if (Object.keys(headers).length > 0) next.headers = headers;
+    if (server.auth) next.auth = server.auth;
+  }
+  for (const [k, v] of Object.entries(old)) if (!ENTRY_KEYS.includes(k)) next[k] = v;
+
+  // In its place, when it was there: a file's order is its writer's.
+  const entries = Object.entries(servers);
+  const at = previousName !== undefined ? entries.findIndex(([k]) => k === previousName) : -1;
+  if (at >= 0) entries[at] = [server.name, next];
+  else entries.push([server.name, next]);
+  const updated: Json = { ...doc, mcpServers: Object.fromEntries(entries) };
+  try {
+    parseMcpConfig(JSON.stringify(updated), path, { env: place.env, cwd: place.root });
+  } catch (err) {
+    throw new InvalidRequestError(err instanceof Error ? err.message : String(err));
+  }
+  await writeMcpFile(path, scope, updated);
+}
+
+/** Take an MCP server out of its file (its stored sign-in stays: another entry may share its URL). */
+export async function mcpRemove(place: SettingsPlace, scope: 'user' | 'project', name: string): Promise<void> {
+  const { path, doc, servers } = await mcpFile(place, scope);
+  entryIn(servers, name, path);
+  const { [name]: _, ...rest } = servers;
+  await writeMcpFile(path, scope, { ...doc, mcpServers: rest });
+}
+
+/** Connect to one file's MCP server as a session would, with the workspace's environment; list its tools; let it go. */
+export async function mcpTest(
+  place: SettingsPlace,
+  scope: 'user' | 'project',
+  name: string,
+  opts: { connectTimeoutMs?: number } = {},
+): Promise<McpTestResult> {
+  const { entries, problems } = await mcpEntries(place);
+  const entry = entries.find((e) => e.info.scope === scope && e.info.name === name);
+  if (!entry) throw new InvalidRequestError(`no MCP server "${name}" in ${scope === 'user' ? 'your' : "the project's"} ${MCP_CONFIG_FILE}`);
+  if (!entry.config) return { ok: false, error: problems.join('; ') || `MCP server "${name}" doesn't parse` };
+  const connection = new McpConnection(entry.config, { connectTimeoutMs: opts.connectTimeoutMs ?? 30_000 });
+  try {
+    const tools = await connection.listTools();
+    if (connection.state !== 'ready') {
+      return connection.needsAuth
+        ? { ok: false, error: 'it needs signing in', needsAuth: true }
+        : { ok: false, error: connection.error ?? "it couldn't be reached" };
+    }
+    return { ok: true, tools: tools.map((t) => ({ name: t.name, ...(t.description ? { description: t.description } : {}) })) };
+  } finally {
+    await connection.close();
+  }
 }

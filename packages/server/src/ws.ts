@@ -448,6 +448,40 @@ class Connection {
         const { workspaceId, name } = params as MethodParams<'mcp.logout'>;
         return hub.mcpLogout(workspaceId, name);
       }
+      case 'mcp.get': {
+        const { workspaceId, scope, name } = params as MethodParams<'mcp.get'>;
+        return hub.mcpGet(workspaceId, scope, name);
+      }
+      case 'mcp.save': {
+        const { workspaceId, scope, server, previousName } = params as MethodParams<'mcp.save'>;
+        return hub.mcpSave(workspaceId, scope, server, previousName);
+      }
+      case 'mcp.remove': {
+        const { workspaceId, scope, name } = params as MethodParams<'mcp.remove'>;
+        return hub.mcpRemove(workspaceId, scope, name);
+      }
+      case 'mcp.test': {
+        const { workspaceId, scope, name } = params as MethodParams<'mcp.test'>;
+        return hub.mcpTest(workspaceId, scope, name);
+      }
+      case 'skills.list':
+        return hub.skills((params as MethodParams<'skills.list'>).workspaceId);
+      case 'skills.read': {
+        const { workspaceId, scope, name } = params as MethodParams<'skills.read'>;
+        return hub.readSkill(workspaceId, scope, name).then((text) => ({ text }));
+      }
+      case 'skills.write': {
+        const { workspaceId, scope, name, text, create } = params as MethodParams<'skills.write'>;
+        return hub.writeSkill(workspaceId, scope, name, text, create);
+      }
+      case 'skills.delete': {
+        const { workspaceId, scope, name } = params as MethodParams<'skills.delete'>;
+        return hub.deleteSkill(workspaceId, scope, name);
+      }
+      case 'skills.import': {
+        const { workspaceId, scope, source, replace } = params as MethodParams<'skills.import'>;
+        return hub.importSkills(workspaceId, scope, source, replace);
+      }
       case 'stats.summary': {
         const { workspaceId, since } = params as MethodParams<'stats.summary'>;
         return hub.stats(workspaceId, since);

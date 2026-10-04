@@ -457,6 +457,63 @@ export interface McpView {
   problems: string[];
 }
 
+/**
+ * An MCP server's entry in its file, as it can be edited (`mcp.get`,
+ * `mcp.save`). An env or header value the file has as a literal — a secret,
+ * perhaps — comes back `null` and is never sent: saved as `null`, the file
+ * keeps it. One that only names `${VAR}`s is shown as it is.
+ */
+export interface McpServerEntry {
+  name: string;
+  transport: 'stdio' | 'http' | 'sse';
+  /** stdio: the command it runs, and its arguments. */
+  command?: string;
+  args?: string[];
+  env?: Record<string, string | null>;
+  /** http/sse: where it is, and the headers sent with each request. */
+  url?: string;
+  headers?: Record<string, string | null>;
+  /** How it signs in, when not left to decide: OAuth unless a header sets `Authorization`. */
+  auth?: 'oauth' | 'none';
+}
+
+/** What connecting to an MCP server as a session would found (`mcp.test`). */
+export type McpTestResult =
+  | { ok: true; tools: Array<{ name: string; description?: string }> }
+  | { ok: false; error: string; needsAuth?: boolean };
+
+/** Where a skill is: the project's `.agent/skills/`, your `~/.agent/skills/`, or among those Marvis ships with. */
+export type SkillScope = 'project' | 'user' | 'builtin';
+
+/** A skill as the settings page lists it (`skills.list`). */
+export interface SkillEntryInfo {
+  /** Its folder's name — the skill's, when its SKILL.md parses. */
+  name: string;
+  description: string;
+  scope: SkillScope;
+  /** Its folder. */
+  dir: string;
+  /** A skill of the same name before it — the project's, then yours, then the built-in ones — is the one used. */
+  shadowed?: boolean;
+  /** Why sessions skip it: its SKILL.md doesn't parse, or says too little. */
+  problem?: string;
+}
+
+export interface SkillsView {
+  skills: SkillEntryInfo[];
+  /** Where each scope's skills are, a folder for each. */
+  dirs: Record<SkillScope, string>;
+}
+
+/** What `skills.import` brought in. */
+export interface SkillsImportResult {
+  view: SkillsView;
+  /** The skills copied in, by name. */
+  imported: string[];
+  /** Folders with a SKILL.md that weren't: `name: why`. */
+  skipped: string[];
+}
+
 /** A background command and the tail of what it printed (`SessionSnapshot.processes`). */
 export type SessionProcess = BackgroundProcessInfo & { output: string };
 
@@ -585,6 +642,26 @@ const memoryTargetSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 const mcpNameSchema = z.string().min(1).max(128);
+const mcpScopeSchema = z.enum(['user', 'project']);
+/** Secrets and values a server is given: `null` keeps the one its file has. */
+const mcpValuesSchema = z.record(z.string().min(1).max(256), z.string().max(16 * 1024).nullable());
+const mcpServerEntrySchema = z.object({
+  // What a tool's name can carry: sessions call its tools `mcp__<name>__<tool>`.
+  name: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'a server name is letters, digits, - and _'),
+  transport: z.enum(['stdio', 'http', 'sse']),
+  command: z.string().max(4096).optional(),
+  args: z.array(z.string().max(4096)).max(200).optional(),
+  env: mcpValuesSchema.optional(),
+  url: z.string().max(4096).optional(),
+  headers: mcpValuesSchema.optional(),
+  auth: z.enum(['oauth', 'none']).optional(),
+});
+/** A skill's folder as it is on disk — one whose SKILL.md doesn't parse may be named otherwise. */
+const skillDirSchema = z.string().min(1).max(255).regex(/^(?!\.\.?$)[^/\\\0]+$/, 'not a skill folder');
+const skillNameSchema = z
+  .string()
+  .max(64)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'a skill name is lowercase letters and digits, words joined by single hyphens');
 
 interface MethodSpec<P = unknown, R = unknown> {
   /** Validates `ClientFrame.params` for this method — same schema on client and server. */
@@ -990,6 +1067,81 @@ export const methods = {
   /** Forget an MCP server's OAuth tokens. */
   'mcp.logout': method<{ workspaceId: string; name: string }, McpView>(
     z.object({ workspaceId: workspaceIdSchema, name: mcpNameSchema }),
+  ),
+  /** An MCP server's entry in the user's or the project's file, to edit: literal env and header values left out. */
+  'mcp.get': method<{ workspaceId: string; scope: 'user' | 'project'; name: string }, McpServerEntry>(
+    z.object({ workspaceId: workspaceIdSchema, scope: mcpScopeSchema, name: mcpNameSchema }),
+  ),
+  /**
+   * Add an MCP server to `~/.agent/.mcp.json` or the project's `.mcp.json` —
+   * or, with `previousName`, change the one of that name there, renaming it
+   * when the names differ. An env or header value of `null` keeps the one the
+   * file has. The entry must parse as a server, and a file that doesn't parse
+   * is never written over (`bad_request`); `conflict` for a name the file
+   * has already. Sessions started afterwards connect to it.
+   */
+  'mcp.save': method<
+    { workspaceId: string; scope: 'user' | 'project'; server: McpServerEntry; previousName?: string },
+    McpView
+  >(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      scope: mcpScopeSchema,
+      server: mcpServerEntrySchema,
+      previousName: mcpNameSchema.optional(),
+    }),
+  ),
+  /** Take an MCP server out of its file. */
+  'mcp.remove': method<{ workspaceId: string; scope: 'user' | 'project'; name: string }, McpView>(
+    z.object({ workspaceId: workspaceIdSchema, scope: mcpScopeSchema, name: mcpNameSchema }),
+  ),
+  /** Connect to an MCP server as a session would, list its tools, and let it go. */
+  'mcp.test': method<{ workspaceId: string; scope: 'user' | 'project'; name: string }, McpTestResult>(
+    z.object({ workspaceId: workspaceIdSchema, scope: mcpScopeSchema, name: mcpNameSchema }),
+  ),
+  /** The skills sessions in a workspace can load — the project's, yours and the built-in ones — and those they skip. */
+  'skills.list': method<{ workspaceId: string }, SkillsView>(z.object({ workspaceId: workspaceIdSchema })),
+  'skills.read': method<{ workspaceId: string; scope: SkillScope; name: string }, { text: string }>(
+    z.object({ workspaceId: workspaceIdSchema, scope: z.enum(['project', 'user', 'builtin']), name: skillDirSchema }),
+  ),
+  /**
+   * Write a skill's SKILL.md, its folder made if missing — with `create`,
+   * `conflict` when there is one. It must parse as a skill named for its
+   * folder (`bad_request`). Sessions started afterwards see it.
+   */
+  'skills.write': method<
+    { workspaceId: string; scope: 'user' | 'project'; name: string; text: string; create?: boolean },
+    SkillsView
+  >(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      scope: mcpScopeSchema,
+      name: skillNameSchema,
+      text: z.string().max(256 * 1024),
+      create: z.boolean().optional(),
+    }),
+  ),
+  /** Delete a skill's folder, everything in it. */
+  'skills.delete': method<{ workspaceId: string; scope: 'user' | 'project'; name: string }, SkillsView>(
+    z.object({ workspaceId: workspaceIdSchema, scope: mcpScopeSchema, name: skillDirSchema }),
+  ),
+  /**
+   * Copy skills in from `source`: a folder on this machine (absolute) or an
+   * https Git URL — a GitHub `…/tree/<branch>/<path>` one names a folder in
+   * it. A folder with a SKILL.md is one skill; otherwise every skill below
+   * it, a few levels down. `conflict` when one is here already, unless
+   * `replace`.
+   */
+  'skills.import': method<
+    { workspaceId: string; scope: 'user' | 'project'; source: string; replace?: boolean },
+    SkillsImportResult
+  >(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      scope: mcpScopeSchema,
+      source: z.string().min(1).max(4096),
+      replace: z.boolean().optional(),
+    }),
   ),
   /** Stop a command the session started in the background, and what it started; answers once it has ended. */
   'session.killProcess': method<{ id: string; processId: string }, BackgroundProcessInfo>(
