@@ -44,6 +44,7 @@ leaf of pure types shared by the web boundary.
 | `packages/tui` | Interactive terminal UI (Ink) — streaming markdown, tool cards, modals, slash commands. |
 | `packages/server` | Session host: `node:http` + a single `/ws` WebSocket carrying RPC and the event stream, origin/token auth, static serving. What `marvis web` runs. |
 | `packages/web` | Browser UI (React 19 · Vite · Tailwind 4 · shadcn · zustand) over the server. Transport, session lifecycle and security: [web.md](./web.md). |
+| `packages/desktop` | Electron shell: hosts the server in-process and shows the page in a window (Marvis.app). [web.md](./web.md), "Desktop app". |
 | `packages/protocol` | Frame / event / method types + zod schemas + the shared event-fold logic. No node deps, so both server and browser import it. |
 | `evals` | Benchmark tasks, fixtures, cassettes, the runner, and the ablation harness. |
 

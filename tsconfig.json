@@ -6,6 +6,7 @@
     { "path": "./packages/server" },
     { "path": "./packages/tui" },
     { "path": "./packages/cli" },
+    { "path": "./packages/desktop" },
     { "path": "./evals" }
   ]
 }

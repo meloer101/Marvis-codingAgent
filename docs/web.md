@@ -28,6 +28,29 @@ marvis web --rotate-token  # replace the saved access token
   bookmarks and open tabs keep working. `--mock` servers use a throwaway token
   and never record themselves.
 
+**Desktop app.** `packages/desktop` wraps the same server and page in Electron:
+the main process hosts the server in-process and shows the page in a window,
+so nothing has to stay open in a terminal.
+
+```bash
+pnpm build && pnpm release:desktop   # release-desktop/Marvis-darwin-<arch>/Marvis.app and a .dmg
+pnpm desktop                         # dev: Electron on packages/desktop/dist (after pnpm build)
+```
+
+- It is the same server, so the same state: `~/.agent/web` (token, projects),
+  keys in `~/.agent/.env`. It starts with the project used most recently; a
+  first launch asks for one. "Add project" shows Electron's own folder sheet.
+- **One server.** A `marvis web` of the same version already up is opened in
+  the window instead (closing that terminal disconnects the window); a
+  `marvis web` run while the app is up finds the app's server.
+- **Environment.** A Mac app opened from the Finder gets launchd's bare
+  environment, so the app adopts the login shell's (`$SHELL -ilc`) at startup:
+  PATH, and keys exported in the profile (`desktop/src/shell-env.ts`).
+- The window can be closed without stopping anything; quitting the app stops
+  its server and every session it runs.
+- Signed ad hoc, not with a Developer ID: it runs on the Mac that built it;
+  elsewhere Gatekeeper asks first (right-click › Open).
+
 **Development.** Run the server with the Vite dev server in front of it:
 
 ```bash

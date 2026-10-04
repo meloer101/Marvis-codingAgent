@@ -192,6 +192,7 @@ packages/tui      交互式终端 UI（Ink）
 packages/protocol frame / event / method 类型 + zod schema
 packages/server   会话宿主、WebSocket RPC、鉴权、静态服务 —— `marvis web` 运行的部分
 packages/web      浏览器 UI：React 19 · Vite · Tailwind 4 · shadcn · zustand
+packages/desktop  桌面端（Electron）：同一个服务器和页面装进一个 Marvis.app
 evals             基准任务与固件
 ```
 

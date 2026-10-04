@@ -259,7 +259,9 @@
 - **P2 10-03 已完成**：write 覆盖文件的真实 diff、子 agent 调用与工具耗时写入会话日志、图片附件、回退/编辑/分叉、
   统计与 trace 视图、设置页（权限规则、auto-mode 规则与拒绝记录、memory、MCP OAuth）、后台进程（`backgroundProcesses`
   默认关闭，打开后才改变模型可见的工具）。
-- **之后**：P3 桌面壳。
+- **P3 桌面壳 10-04 起步**：Electron 包住同一个服务器和页面（`pnpm release:desktop` 出 Marvis.app / .dmg），见
+  [`web.md`](./web.md)。剩余：Developer ID 签名与公证、自动更新、隐藏标题栏（页面要留出红绿灯位置）、窗口位置记忆、
+  退出前提醒还在跑的会话。
 
 ## Other
 

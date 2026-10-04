@@ -1,0 +1,19 @@
+{
+  "name": "@harness-code/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -b",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@harness-code/core": "workspace:*",
+    "@harness-code/server": "workspace:*"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "44.5.1"
+  }
+}

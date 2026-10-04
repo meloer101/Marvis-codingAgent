@@ -11,14 +11,17 @@
     "typecheck": "tsc -b && tsc -p tsconfig.test.json && pnpm --filter @harness-code/web typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo evals/dist evals/*.tsbuildinfo *.tsbuildinfo dist-bundle",
+    "clean": "rm -rf packages/*/dist packages/*/*.tsbuildinfo evals/dist evals/*.tsbuildinfo *.tsbuildinfo dist-bundle release-desktop",
     "hc": "node packages/cli/dist/index.js",
     "eval": "node evals/dist/cli.js",
     "bundle": "node scripts/bundle-hc.mjs",
-    "release:marvis": "node scripts/bundle-marvis.mjs"
+    "release:marvis": "node scripts/bundle-marvis.mjs",
+    "desktop": "pnpm --filter @harness-code/desktop start",
+    "release:desktop": "node packages/desktop/scripts/package.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "electron",
       "esbuild",
       "node-pty"
     ]

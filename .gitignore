@@ -3,6 +3,7 @@ node_modules/
 dist/
 dist-bundle/
 release/
+release-desktop/
 *.tsbuildinfo
 .DS_Store
 .env
