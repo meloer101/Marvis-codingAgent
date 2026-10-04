@@ -9,7 +9,8 @@ import type { ReasoningEffort } from '../provider/types.js';
 import type { AgentDefinition, AgentSource } from './types.js';
 
 /** Effort levels a definition may declare; the provider maps them per model. */
-const VALID_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
+export const AGENT_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const;
+const VALID_EFFORTS = AGENT_EFFORTS;
 
 export const NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const MAX_NAME = 64;
@@ -91,6 +92,56 @@ export function parseAgent(input: {
   }
 
   return { ok: true, agent };
+}
+
+/** What a definition's file says, as a form edits it. */
+export interface AgentFields {
+  description: string;
+  /** Omitted: the parent's built-in tools, all of them. Empty: none. */
+  tools?: string[];
+  model?: string;
+  effort?: string;
+  /** The role instructions. */
+  body: string;
+}
+
+/** The frontmatter keys `AgentFields` (and the name) stand for. */
+const FIELD_KEYS = ['name', 'description', 'tools', 'model', 'effort'];
+
+/**
+ * A definition's file: frontmatter for `name` and `fields`, then the body.
+ * Whatever else the frontmatter of `previous` — the file it replaces — has
+ * is kept, after them.
+ */
+export function formatAgentFile(name: string, fields: AgentFields, previous?: string): string {
+  let kept: Record<string, unknown> = {};
+  if (previous !== undefined) {
+    try {
+      // A copy: gray-matter caches what it parsed.
+      kept = { ...(matter(previous).data as Record<string, unknown>) };
+    } catch {
+      // A file that doesn't parse has nothing to keep.
+    }
+  }
+  for (const key of FIELD_KEYS) delete kept[key];
+  const data: Record<string, unknown> = { name, description: fields.description.trim() };
+  // No tools at all is a list; a string that says nothing would mean all of them.
+  if (fields.tools) data.tools = fields.tools.length === 0 ? [] : fields.tools.join(' ');
+  if (fields.model?.trim()) data.model = fields.model.trim();
+  if (fields.effort?.trim()) data.effort = fields.effort.trim();
+  // One line a value, never folded: a description reads as written.
+  return matter.stringify(`\n${fields.body.trim()}\n`, { ...data, ...kept }, { lineWidth: -1 } as unknown as matter.GrayMatterOption<string, never>);
+}
+
+/** The fields of a definition that parsed, as `formatAgentFile` takes them. */
+export function agentFields(agent: AgentDefinition): AgentFields {
+  return {
+    description: agent.description,
+    ...(agent.tools ? { tools: agent.tools } : {}),
+    ...(agent.model ? { model: agent.model } : {}),
+    ...(agent.effort ? { effort: agent.effort } : {}),
+    body: agent.body,
+  };
 }
 
 function msg(err: unknown): string {

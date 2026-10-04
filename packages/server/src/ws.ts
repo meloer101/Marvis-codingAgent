@@ -482,6 +482,24 @@ class Connection {
         const { workspaceId, scope, source, replace } = params as MethodParams<'skills.import'>;
         return hub.importSkills(workspaceId, scope, source, replace);
       }
+      case 'agents.list':
+        return hub.agents((params as MethodParams<'agents.list'>).workspaceId);
+      case 'agents.get': {
+        const { workspaceId, scope, name } = params as MethodParams<'agents.get'>;
+        return hub.getAgent(workspaceId, scope, name);
+      }
+      case 'agents.save': {
+        const { workspaceId, scope, name, fields, previousName } = params as MethodParams<'agents.save'>;
+        return hub.saveAgent(workspaceId, scope, name, fields, previousName);
+      }
+      case 'agents.write': {
+        const { workspaceId, scope, name, text } = params as MethodParams<'agents.write'>;
+        return hub.writeAgent(workspaceId, scope, name, text);
+      }
+      case 'agents.delete': {
+        const { workspaceId, scope, name } = params as MethodParams<'agents.delete'>;
+        return hub.deleteAgent(workspaceId, scope, name);
+      }
       case 'stats.summary': {
         const { workspaceId, since } = params as MethodParams<'stats.summary'>;
         return hub.stats(workspaceId, since);

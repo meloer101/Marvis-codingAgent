@@ -514,6 +514,50 @@ export interface SkillsImportResult {
   skipped: string[];
 }
 
+/** Where a sub-agent is defined: the project's `.agent/agents/`, your `~/.agent/agents/`, or among those Marvis ships with. */
+export type AgentScope = 'project' | 'user' | 'builtin';
+
+/** What a sub-agent's file says, as the settings page edits it (`agents.get`, `agents.save`). */
+export interface AgentFields {
+  /** What it's for: the agent picks a sub-agent by this. */
+  description: string;
+  /** The built-in tools it may use; omitted: all the session has. Empty: none. */
+  tools?: string[];
+  /** `provider/model`; omitted: the session's. */
+  model?: string;
+  /** Reasoning effort; omitted: the session's. */
+  effort?: string;
+  /** Its role instructions. */
+  body: string;
+}
+
+/** A sub-agent as the settings page lists it (`agents.list`). */
+export interface AgentEntryInfo {
+  /** Its file's name, without `.md` — the sub-agent's, when the file parses. */
+  name: string;
+  scope: AgentScope;
+  /** Its file. */
+  path: string;
+  description: string;
+  tools?: string[];
+  model?: string;
+  effort?: string;
+  /** One of the same name before it — the project's, then yours, then the built-in ones — is the one used. */
+  shadowed?: boolean;
+  /** Why sessions skip it: its file doesn't parse, or says too little. */
+  problem?: string;
+}
+
+export interface AgentsView {
+  agents: AgentEntryInfo[];
+  /** Where each scope's sub-agents are, a `<name>.md` for each. */
+  dirs: Record<AgentScope, string>;
+  /** The built-in tools a sub-agent can be given (never `task`: it can't send sub-agents of its own). */
+  tools: Array<{ name: string; readOnly: boolean }>;
+  /** The reasoning efforts a definition may ask for. */
+  efforts: string[];
+}
+
 /** A background command and the tail of what it printed (`SessionSnapshot.processes`). */
 export type SessionProcess = BackgroundProcessInfo & { output: string };
 
@@ -656,12 +700,25 @@ const mcpServerEntrySchema = z.object({
   headers: mcpValuesSchema.optional(),
   auth: z.enum(['oauth', 'none']).optional(),
 });
+const agentFieldsSchema = z.object({
+  description: z.string().max(1024),
+  tools: z.array(z.string().min(1).max(64)).max(64).optional(),
+  model: z.string().max(256).optional(),
+  effort: z.string().max(16).optional(),
+  body: z.string().max(128 * 1024),
+});
+/** A sub-agent's file name without `.md`, as it is on disk. */
+const agentFileSchema = z.string().min(1).max(255).regex(/^(?!\.\.?$)[^/\\\0]+$/, 'not a sub-agent file');
 /** A skill's folder as it is on disk — one whose SKILL.md doesn't parse may be named otherwise. */
 const skillDirSchema = z.string().min(1).max(255).regex(/^(?!\.\.?$)[^/\\\0]+$/, 'not a skill folder');
 const skillNameSchema = z
   .string()
   .max(64)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'a skill name is lowercase letters and digits, words joined by single hyphens');
+const agentNameSchema = z
+  .string()
+  .max(64)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'a sub-agent name is lowercase letters and digits, words joined by single hyphens');
 
 interface MethodSpec<P = unknown, R = unknown> {
   /** Validates `ClientFrame.params` for this method — same schema on client and server. */
@@ -1142,6 +1199,37 @@ export const methods = {
       source: z.string().min(1).max(4096),
       replace: z.boolean().optional(),
     }),
+  ),
+  /** The sub-agents sessions in a workspace can send — the project's, yours and the built-in ones — and those they skip. */
+  'agents.list': method<{ workspaceId: string }, AgentsView>(z.object({ workspaceId: workspaceIdSchema })),
+  /** A sub-agent's file, and — when it parses — what it says, to edit. */
+  'agents.get': method<{ workspaceId: string; scope: AgentScope; name: string }, { text: string; fields?: AgentFields }>(
+    z.object({ workspaceId: workspaceIdSchema, scope: z.enum(['project', 'user', 'builtin']), name: agentFileSchema }),
+  ),
+  /**
+   * Write a sub-agent from its fields — new, or, with `previousName`, over
+   * that one (renamed when the names differ), keeping what else its
+   * frontmatter had. `conflict` for a name taken here; `bad_request` for
+   * what wouldn't parse. Sessions started afterwards can send it.
+   */
+  'agents.save': method<
+    { workspaceId: string; scope: 'user' | 'project'; name: string; fields: AgentFields; previousName?: string },
+    AgentsView
+  >(
+    z.object({
+      workspaceId: workspaceIdSchema,
+      scope: mcpScopeSchema,
+      name: agentNameSchema,
+      fields: agentFieldsSchema,
+      previousName: agentFileSchema.optional(),
+    }),
+  ),
+  /** Write a sub-agent's file as it is; it must parse as one named for its file (`bad_request`). */
+  'agents.write': method<{ workspaceId: string; scope: 'user' | 'project'; name: string; text: string }, AgentsView>(
+    z.object({ workspaceId: workspaceIdSchema, scope: mcpScopeSchema, name: agentNameSchema, text: z.string().max(128 * 1024) }),
+  ),
+  'agents.delete': method<{ workspaceId: string; scope: 'user' | 'project'; name: string }, AgentsView>(
+    z.object({ workspaceId: workspaceIdSchema, scope: mcpScopeSchema, name: agentFileSchema }),
   ),
   /** Stop a command the session started in the background, and what it started; answers once it has ended. */
   'session.killProcess': method<{ id: string; processId: string }, BackgroundProcessInfo>(

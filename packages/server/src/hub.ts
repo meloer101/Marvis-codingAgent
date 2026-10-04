@@ -24,6 +24,9 @@ import { basename, join } from 'node:path';
 import { AGENT_DIR, STATE_DIR_ENV, projectEnv, resolveStateDir, rollupStats, stateHome } from '@harness-code/core';
 import type { EffortOptions, PermissionMode } from '@harness-code/core';
 import type {
+  AgentFields,
+  AgentScope,
+  AgentsView,
   AutoModeGroup,
   DirEntry,
   EditorId,
@@ -92,6 +95,7 @@ import {
 } from './settings.js';
 import type { SettingsPlace } from './settings.js';
 import { deleteSkill, importSkills, readSkill, skillsView, writeSkill } from './skills.js';
+import { agentsView, deleteAgent, getAgent, saveAgent, writeAgent } from './agents.js';
 import { TerminalManager, loadPty } from './terminals.js';
 import type { SpawnPty } from './terminals.js';
 import { workspaceId } from './workspaces.js';
@@ -653,6 +657,30 @@ export class WorkspaceHub {
   async importSkills(id: string, scope: 'user' | 'project', source: string, replace?: boolean): Promise<SkillsImportResult> {
     const result = await importSkills(this.#place(id), scope, source, replace !== undefined ? { replace } : {});
     return { ...result, view: await this.skills(id) };
+  }
+
+  /** The sub-agents workspace `id`'s sessions can send, and the files they skip. */
+  async agents(id: string): Promise<AgentsView> {
+    return agentsView(this.#place(id));
+  }
+
+  getAgent(id: string, scope: AgentScope, name: string): Promise<{ text: string; fields?: AgentFields }> {
+    return getAgent(this.#place(id), scope, name);
+  }
+
+  async saveAgent(id: string, scope: 'user' | 'project', name: string, fields: AgentFields, previousName?: string): Promise<AgentsView> {
+    await saveAgent(this.#place(id), scope, name, fields, previousName);
+    return this.agents(id);
+  }
+
+  async writeAgent(id: string, scope: 'user' | 'project', name: string, text: string): Promise<AgentsView> {
+    await writeAgent(this.#place(id), scope, name, text);
+    return this.agents(id);
+  }
+
+  async deleteAgent(id: string, scope: 'user' | 'project', name: string): Promise<AgentsView> {
+    await deleteAgent(this.#place(id), scope, name);
+    return this.agents(id);
   }
 
   /** Fork session `id` (`SessionRegistry.fork`) in its own workspace; resolves with the new id. */
