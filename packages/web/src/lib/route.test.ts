@@ -65,6 +65,7 @@ describe('the settings page', () => {
   it('parses and builds #/settings/<section>, the first section by default', () => {
     expect(parseRoute('#/settings')).toEqual({ kind: 'settings', section: 'permissions' });
     expect(parseRoute('#/settings/mcp')).toEqual({ kind: 'settings', section: 'mcp' });
+    expect(parseRoute('#/settings/skills')).toEqual({ kind: 'settings', section: 'skills' });
     expect(parseRoute('#/settings/nope')).toEqual({ kind: 'settings', section: 'permissions' });
     expect(routeToHash({ kind: 'settings', section: 'auto-mode' })).toBe('#/settings/auto-mode');
   });

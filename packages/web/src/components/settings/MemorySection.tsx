@@ -1,17 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { FileText, Pencil, Trash2, TriangleAlert } from 'lucide-react';
+import { FileText, Pencil, TriangleAlert } from 'lucide-react';
 
 import type { MemoryFileInfo, MemoryTarget } from '@harness-code/protocol';
 
 import { Button } from '@/components/ui/button';
 import { fmtBytes } from '@/lib/trace';
 import { useSync } from '@/lib/syncContext';
-import { cn } from '@/lib/utils';
 
-import { Card, ErrorLine, PathNote, SectionIntro, errorText, useLoaded } from './common';
-
-const ARM_MS = 4000;
+import { Card, DeleteButton, ErrorLine, FileEditor, PathNote, SectionIntro, useLoaded } from './common';
 
 function keyOf(target: MemoryTarget): string {
   return target.kind === 'instructions' ? `i:${target.scope}:${target.name}` : `m:${target.scope}:${target.path}`;
@@ -150,14 +147,6 @@ function MemoryRow({
   onEdit: () => void;
   onDelete: () => Promise<void>;
 }) {
-  // Delete arms first: a second click within a few seconds confirms.
-  const [armed, setArmed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!armed) return;
-    const t = setTimeout(() => setArmed(false), ARM_MS);
-    return () => clearTimeout(t);
-  }, [armed]);
   return (
     <div className="group/memory flex items-start gap-2 text-xs">
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -172,40 +161,20 @@ function MemoryRow({
             Sessions skip it: {memory.problem}
           </span>
         )}
-        <ErrorLine error={error} />
       </span>
       {!editing && (
         <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/memory:opacity-100 focus-within:opacity-100">
           <Button size="icon-xs" variant="ghost" aria-label={`Edit ${memory.name}`} title="Edit" onClick={onEdit}>
             <Pencil />
           </Button>
-          <button
-            type="button"
-            aria-label={armed ? `Confirm deleting ${memory.name}` : `Delete ${memory.name}`}
-            title={armed ? 'Click again to delete' : 'Delete'}
-            onClick={() => {
-              if (!armed) return setArmed(true);
-              setArmed(false);
-              onDelete().then(
-                () => setError(null),
-                (err: unknown) => setError(errorText(err)),
-              );
-            }}
-            className={cn(
-              'flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] transition-colors',
-              armed ? 'bg-destructive/10 text-destructive' : 'text-muted-foreground hover:text-destructive',
-            )}
-          >
-            <Trash2 className="size-3" />
-            {armed && 'Delete?'}
-          </button>
+          <DeleteButton name={memory.name} onDelete={onDelete} />
         </span>
       )}
     </div>
   );
 }
 
-/** A file's text in a mono field, read when it opens; Save writes it back. */
+/** A memory store file's text, edited in place. */
 function Editor({
   workspaceId,
   target,
@@ -218,64 +187,12 @@ function Editor({
   onCancel: () => void;
 }) {
   const sync = useSync();
-  const [text, setText] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  // The target is a fresh object each render: read again when what it names changes.
-  const key = keyOf(target);
-  const targetRef = useRef(target);
-  targetRef.current = target;
-  useEffect(() => {
-    let cancelled = false;
-    sync.settingsCall('memory.read', { workspaceId, target: targetRef.current }).then(
-      (r) => !cancelled && setText(r.text),
-      (err: unknown) => !cancelled && setError(errorText(err)),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [sync, workspaceId, key]);
-  const save = async (): Promise<void> => {
-    if (text === null) return;
-    setSaving(true);
-    try {
-      await onSave(text);
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setSaving(false);
-    }
-  };
   return (
-    <div className="flex flex-col gap-2 rounded-md bg-background p-2">
-      <textarea
-        aria-label="File text"
-        value={text ?? ''}
-        disabled={text === null}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            void save();
-          }
-          if (e.key === 'Escape') onCancel();
-        }}
-        rows={Math.min(24, Math.max(8, (text ?? '').split('\n').length + 1))}
-        placeholder={text === null ? 'Reading…' : undefined}
-        spellCheck={false}
-        className="w-full resize-y rounded-md bg-subtle p-2 font-mono text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-      />
-      <div className="flex items-center gap-2">
-        <ErrorLine error={error} />
-        <span className="flex-1" />
-        <Button size="xs" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button size="xs" onClick={() => void save()} disabled={text === null || saving}>
-          Save
-        </Button>
-      </div>
-    </div>
+    <FileEditor
+      load={() => sync.settingsCall('memory.read', { workspaceId, target }).then((r) => r.text)}
+      loadKey={`${workspaceId}:${keyOf(target)}`}
+      onSave={onSave}
+      onCancel={onCancel}
+    />
   );
 }
-

@@ -163,6 +163,15 @@ the server with the same schemas the client is typed from.
 | `mcp.list {workspaceId}` | the MCP servers in `~/.agent/.mcp.json` and the project's `.mcp.json`, as the files have them (`${VAR}`s unexpanded, no headers or env), which one of a name is used, and how each signs in — OAuth ones, whether tokens are stored |
 | `mcp.login {workspaceId, name}` | sign in to an OAuth server: answers with the page to authorize at, the callback caught on 127.0.0.1 as `marvis mcp login` does, and an `mcp_login` push when it ends — or at once when the tokens it has still work. Sessions started afterwards connect with it |
 | `mcp.logout {workspaceId, name}` | forget a server's tokens |
+| `mcp.get {workspaceId, scope, name}` | one file's entry for a server, to edit: its command and arguments or URL, how it signs in, and its env and headers — a value the file has as a literal comes back `null`, never sent (one with a `${VAR}` in it is shown) |
+| `mcp.save {workspaceId, scope, server, previousName?}` | add a server to `~/.agent/.mcp.json` (`user`, made readable by you alone) or the project's `.mcp.json`, or — with `previousName` — change that one in place, renaming it when the names differ; a `null` env or header value keeps the file's, and what an entry has beyond what the form knows is kept. The entry must parse as a server, and a file that doesn't parse is never written over (`bad_request`); `conflict` for a name the file has already → the list again |
+| `mcp.remove {workspaceId, scope, name}` | take a server out of its file (a stored sign-in stays) → the list again |
+| `mcp.test {workspaceId, scope, name}` | connect to that file's server as a session would, with the workspace's environment, and let it go: `{ok, tools}`, or `{ok: false, error, needsAuth?}` |
+| `skills.list {workspaceId}` | the skills sessions there load, as discovery finds them — the project's `.agent/skills/`, yours in `~/.agent/skills/`, the built-in ones — each marked `shadowed` when one of the same name before it is used, and the folders sessions skip, with why |
+| `skills.read {workspaceId, scope, name}` | a skill's `SKILL.md` (a built-in one's too) |
+| `skills.write {workspaceId, scope, name, text, create?}` | write a skill's `SKILL.md`, its folder made if missing (`create`: `conflict` when there is one); it must parse as a skill named for its folder (`bad_request`) |
+| `skills.delete {workspaceId, scope, name}` | delete a skill's folder, everything in it |
+| `skills.import {workspaceId, scope, source, replace?}` | copy skills in from a folder on this machine (a full path, `~` allowed) or an https Git URL, cloned shallowly — a GitHub `…/tree/<branch>/<path>` URL names a folder in it. A folder with a `SKILL.md` is one skill, named as its frontmatter names it; otherwise each one up to three levels down. Copied whole, never a `.git` or `node_modules`; `conflict` for one here already, unless `replace` → `{view, imported, skipped}` |
 | `stats.summary {workspaceId?, since?}` | every traced session started since then, in one project or all: each one's figures and the rollup across them — totals, averages, per model |
 | `session.slashCommands {id}` | the session's MCP prompt commands |
 | `session.skills {id}` | the session's skills (`/name [task]` loads one) |
@@ -602,7 +611,21 @@ The token is as powerful as the user's shell — a client can switch a session t
   first. **MCP servers**: each server as its file has it, the project's
   winning over yours by name; an OAuth one has Sign in — the page to
   authorize at opens in a new tab, "waiting for the browser" until the
-  `mcp_login` push, then the list again — or Sign out. **Tools**: the switch
+  `mcp_login` push, then the list again — or Sign out. "Add server" opens a
+  form, yours or the project's: filled in — a name, a command line split as a
+  shell would or a URL, env or header rows, how it signs in — or pasted as the
+  JSON a server's docs give (Claude Code's `mcpServers`, VS Code's `servers`,
+  one server or several; `lib/mcpEntry.ts`). Each saved server is tried at once
+  (`mcp.test`): "Connected · N tools", folding open to the tools, or why it
+  couldn't connect. On hover a row has Test, Edit — the same form, a value the
+  file keeps hidden shown as "set — type to replace it" — and Delete, armed
+  first. **Skills**: one block to add a skill — yours or the project's — from a
+  folder (typed, or the system's chooser) or a Git URL, or written new from a
+  name and a description (its `SKILL.md` then opens to write); a conflict
+  offers Replace. Below, the project's, yours and the built-in skills, each
+  with what it does, why sessions skip it or that another of its name is
+  used; opened in place to edit (a built-in one to read), deleted once
+  confirmed. The `/skills` dialog in a session links here. **Tools**: the switch
   for background commands in your settings (`settings.setBackgroundProcesses`),
   noting when the project's turn them on regardless; sessions started
   afterwards have them, as the tools a session shows the model are fixed when

@@ -4,6 +4,7 @@ import { LoaderCircle, Search, Sparkle } from 'lucide-react';
 import type { SkillInfo } from '@harness-code/protocol';
 
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { routeToHash } from '@/lib/route';
 
 /**
  * `/skills`: the session's installed skills. Picking one starts the message
@@ -49,7 +50,7 @@ export function SkillsDialog({
             </p>
           ) : shown.length === 0 ? (
             <p className="py-4 text-[13px] text-muted-foreground">
-              {skills.length === 0 ? 'No skills installed. Add one under .agent/skills/.' : 'No skill matches.'}
+              {skills.length === 0 ? 'No skills yet.' : 'No skill matches.'}
             </p>
           ) : (
             <ul className="-mx-1 max-h-[50vh] overflow-y-auto">
@@ -70,6 +71,13 @@ export function SkillsDialog({
               ))}
             </ul>
           )}
+          <a
+            href={routeToHash({ kind: 'settings', section: 'skills' })}
+            onClick={onClose}
+            className="w-fit text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            Add or edit skills in Settings
+          </a>
         </div>
       </DialogContent>
     </Dialog>

@@ -29,6 +29,7 @@ import {
   Pin,
   PinOff,
   Plug,
+  Puzzle,
   Plus,
   Search,
   Settings,
@@ -318,9 +319,17 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       id: 'settings-mcp',
       group: 'App',
       label: 'MCP servers',
-      keywords: 'settings oauth sign in login',
+      keywords: 'settings add server oauth sign in login connect tools',
       icon: Plug,
       run: go(routeToHash({ kind: 'settings', section: 'mcp' })),
+    });
+    items.push({
+      id: 'settings-skills',
+      group: 'App',
+      label: 'Skills',
+      keywords: 'settings add new import install skill.md github',
+      icon: Puzzle,
+      run: go(routeToHash({ kind: 'settings', section: 'skills' })),
     });
     items.push({
       id: 'settings-memory',

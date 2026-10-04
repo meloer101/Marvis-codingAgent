@@ -1,13 +1,14 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { McpView, MemoryView, ProvidersView, SessionDenials, SettingsView } from '@harness-code/protocol';
+import type { McpServerEntry, McpView, MemoryView, ProvidersView, SessionDenials, SettingsView, SkillsView } from '@harness-code/protocol';
 
 import { AutoModeSection } from './settings/AutoModeSection';
 import { McpSection } from './settings/McpSection';
 import { MemorySection } from './settings/MemorySection';
 import { ModelsSection } from './settings/ModelsSection';
 import { PermissionsSection } from './settings/PermissionsSection';
+import { SkillsSection, skillTemplate } from './settings/SkillsSection';
 import { ToolsSection } from './settings/ToolsSection';
 import { platform } from '@/platform';
 import { useAppStore } from '@/lib/store';
@@ -215,7 +216,7 @@ describe('McpSection', () => {
     );
     render(
       <SyncProvider sync={sync}>
-        <McpSection workspaceId="w1" />
+        <McpSection workspaceId="w1" projectName="repo" />
       </SyncProvider>,
     );
     const signIn = await screen.findByRole('button', { name: 'Sign in' });
@@ -235,7 +236,7 @@ describe('McpSection', () => {
     const { sync, push } = syncFor((method) => (method === 'mcp.login' ? { url: 'https://a/authorize' } : mcp(false)));
     render(
       <SyncProvider sync={sync}>
-        <McpSection workspaceId="w1" />
+        <McpSection workspaceId="w1" projectName="repo" />
       </SyncProvider>,
     );
     const signIn = await screen.findByRole('button', { name: 'Sign in' });
@@ -243,6 +244,164 @@ describe('McpSection', () => {
     await act(async () => push({ type: 'mcp_login', workspaceId: 'w1', name: 'linear', error: 'timed out waiting for the OAuth redirect' }));
     expect(await screen.findByText('timed out waiting for the OAuth redirect')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy();
+  });
+});
+
+describe('McpSection — adding and changing servers', () => {
+  const empty: McpView = { servers: [], userPath: '/home/me/.agent/.mcp.json', projectPath: '/p/.mcp.json', problems: [] };
+  const listed = (...names: string[]): McpView => ({
+    ...empty,
+    servers: names.map((name) => ({ name, scope: 'user' as const, transport: 'stdio' as const, target: 'npx x', auth: 'none' as const })),
+  });
+
+  it('adds what a pasted JSON names, one save each, and tries each at once', async () => {
+    const saved: string[] = [];
+    const { sync, settingsCall } = syncFor((method, params) => {
+      if (method === 'mcp.save') saved.push((params.server as McpServerEntry).name);
+      if (method === 'mcp.test') return { ok: true, tools: [{ name: 'read_file', description: 'Read a file' }, { name: 'write_file' }] };
+      return listed(...saved);
+    });
+    render(
+      <SyncProvider sync={sync}>
+        <McpSection workspaceId="w1" projectName="repo" />
+      </SyncProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Add server' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Paste JSON' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /JSON/ }), {
+      target: { value: JSON.stringify({ mcpServers: { fs: { command: 'npx', args: ['-y', 'fs'] }, time: { command: 'uvx mcp-time' } } }) },
+    });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add' })));
+    expect(settingsCall).toHaveBeenCalledWith('mcp.save', {
+      workspaceId: 'w1',
+      scope: 'user',
+      server: { name: 'fs', transport: 'stdio', command: 'npx', args: ['-y', 'fs'] },
+    });
+    expect(settingsCall).toHaveBeenCalledWith('mcp.save', expect.objectContaining({ server: { name: 'time', transport: 'stdio', command: 'uvx', args: ['mcp-time'] } }));
+    expect(settingsCall).toHaveBeenCalledWith('mcp.test', { workspaceId: 'w1', scope: 'user', name: 'fs' });
+    const connected = await screen.findAllByRole('button', { name: /Connected · 2 tools/ });
+    expect(connected).toHaveLength(2);
+    fireEvent.click(connected[0]!);
+    expect(screen.getByText('Read a file')).toBeTruthy();
+    expect(screen.queryByRole('form', { name: 'Add an MCP server' })).toBeNull();
+  });
+
+  it('fills in a server, and says why one is refused', async () => {
+    const { sync, settingsCall } = syncFor((method) => (method === 'mcp.save' ? new Error('/home/me/.agent/.mcp.json has an MCP server named "api" already') : empty));
+    render(
+      <SyncProvider sync={sync}>
+        <McpSection workspaceId="w1" projectName="repo" />
+      </SyncProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Add server' }));
+    fireEvent.click(screen.getByRole('radio', { name: /This project/ }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'api' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'HTTP' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'URL' }), { target: { value: 'https://api.example.com/mcp' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a header' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Headers 1 name' }), { target: { value: 'Authorization' } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Headers 1 value' }), { target: { value: 'Bearer ${API_TOKEN}' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add' })));
+    expect(settingsCall).toHaveBeenCalledWith('mcp.save', {
+      workspaceId: 'w1',
+      scope: 'project',
+      server: { name: 'api', transport: 'http', url: 'https://api.example.com/mcp', headers: { Authorization: 'Bearer ${API_TOKEN}' } },
+    });
+    expect(await screen.findByText(/named "api" already/)).toBeTruthy();
+  });
+
+  it('edits a server without its hidden values, which stay unless typed over', async () => {
+    const entry: McpServerEntry = { name: 'gh', transport: 'stdio', command: 'docker', args: ['run', '-i', 'ghcr.io/github/server'], env: { GITHUB_TOKEN: null, MODE: '${MODE}' } };
+    const { sync, settingsCall } = syncFor((method) => (method === 'mcp.get' ? entry : method === 'mcp.test' ? { ok: false, error: 'spawn docker ENOENT' } : listed('gh')));
+    render(
+      <SyncProvider sync={sync}>
+        <McpSection workspaceId="w1" projectName="repo" />
+      </SyncProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit gh' }));
+    const command = await screen.findByDisplayValue('docker run -i ghcr.io/github/server');
+    fireEvent.change(command, { target: { value: 'docker run -i --rm ghcr.io/github/server' } });
+    expect((screen.getByRole('textbox', { name: 'Environment 1 value' }) as HTMLInputElement).placeholder).toMatch(/set — type to replace/);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save' })));
+    expect(settingsCall).toHaveBeenCalledWith('mcp.save', {
+      workspaceId: 'w1',
+      scope: 'user',
+      previousName: 'gh',
+      server: { name: 'gh', transport: 'stdio', command: 'docker', args: ['run', '-i', '--rm', 'ghcr.io/github/server'], env: { GITHUB_TOKEN: null, MODE: '${MODE}' } },
+    });
+    expect(await screen.findByText(/Couldn’t connect: spawn docker ENOENT/)).toBeTruthy();
+  });
+});
+
+describe('SkillsSection', () => {
+  const skills = (over: Partial<SkillsView> = {}): SkillsView => ({
+    skills: [
+      { name: 'release-notes', description: 'Write release notes', scope: 'project', dir: '/p/.agent/skills/release-notes' },
+      { name: 'Bad', description: '', scope: 'user', dir: '/home/me/.agent/skills/Bad', problem: 'name "Bad" must be lowercase' },
+      { name: 'code-review', description: 'Review a diff', scope: 'builtin', dir: '/marvis/skills/code-review' },
+    ],
+    dirs: { project: '/p/.agent/skills', user: '/home/me/.agent/skills', builtin: '/marvis/skills' },
+    ...over,
+  });
+
+  it("lists each scope's skills, says why one is skipped, and opens a built-in one to read only", async () => {
+    const { sync } = syncFor((method) => (method === 'skills.read' ? { text: '---\nname: code-review\n---\n' } : skills()));
+    render(
+      <SyncProvider sync={sync}>
+        <SkillsSection workspaceId="w1" projectName="repo" />
+      </SyncProvider>,
+    );
+    expect(await screen.findByText('release-notes')).toBeTruthy();
+    expect(screen.getByText(/Sessions skip it: name "Bad" must be lowercase/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Delete code-review' })).toBeNull();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Read code-review' })));
+    expect(((await screen.findByRole('textbox', { name: 'File text' })) as HTMLTextAreaElement).readOnly).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+  });
+
+  it('writes a new skill from a template, then opens it to write', async () => {
+    const { sync, settingsCall } = syncFor((method, params) => (method === 'skills.read' ? { text: skillTemplate('pdf-forms', 'Fill PDF forms') } : skills({ skills: method === 'skills.write' ? [{ name: params.name as string, description: 'Fill PDF forms', scope: 'user', dir: '/home/me/.agent/skills/pdf-forms' }] : [] })));
+    render(
+      <SyncProvider sync={sync}>
+        <SkillsSection workspaceId="w1" projectName="repo" />
+      </SyncProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Write a new skill' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), { target: { value: 'pdf-forms' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /^Description/ }), { target: { value: 'Fill PDF forms' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Create' })));
+    expect(settingsCall).toHaveBeenCalledWith('skills.write', { workspaceId: 'w1', scope: 'user', name: 'pdf-forms', text: skillTemplate('pdf-forms', 'Fill PDF forms'), create: true });
+    expect(((await screen.findByRole('textbox', { name: 'File text' })) as HTMLTextAreaElement).value).toContain('name: pdf-forms');
+  });
+
+  it('imports from a URL, and replaces what is here only when asked', async () => {
+    let replace = false;
+    const { sync, settingsCall } = syncFor((method, params) => {
+      if (method !== 'skills.import') return skills();
+      if (!params.replace) return new Error('a skill named "pdf" is here already');
+      replace = true;
+      return { view: skills(), imported: ['pdf'], skipped: [] };
+    });
+    render(
+      <SyncProvider sync={sync}>
+        <SkillsSection workspaceId="w1" projectName="repo" />
+      </SyncProvider>,
+    );
+    const url = 'https://github.com/anthropics/skills/tree/main/skills/pdf';
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Folder or Git URL' }), { target: { value: url } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Import' })));
+    expect(settingsCall).toHaveBeenCalledWith('skills.import', { workspaceId: 'w1', scope: 'user', source: url });
+    expect(await screen.findByText(/is here already/)).toBeTruthy();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Replace' })));
+    expect(replace).toBe(true);
+    expect(await screen.findByText('Added pdf.')).toBeTruthy();
+  });
+});
+
+describe('skillTemplate', () => {
+  it('quotes a description YAML would misread', () => {
+    expect(skillTemplate('a', 'Plain words, and a comma')).toContain('description: Plain words, and a comma\n');
+    expect(skillTemplate('a', 'Use when: asked # always')).toContain('description: "Use when: asked # always"\n');
   });
 });
 

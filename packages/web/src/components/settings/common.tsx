@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Plus, TriangleAlert, X } from 'lucide-react';
+import { Plus, Trash2, TriangleAlert, X } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 /** A titled block of settings: a light grey zone, with what can be acted on in it white. */
@@ -197,6 +198,188 @@ export function RuleList({
         />
       </form>
       <ErrorLine error={error} />
+    </div>
+  );
+}
+
+/** A one-line field inside a white block: grey, mono, ringed on focus. */
+export const FIELD =
+  'h-7 min-w-0 rounded-md bg-subtle px-2.5 font-mono text-xs outline-none placeholder:font-sans placeholder:text-faint focus-visible:ring-2 focus-visible:ring-ring/30 disabled:opacity-60';
+
+/** A small label over a field, and what it holds. */
+export function Field({ label, hint, children, className }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
+  return (
+    <label className={cn('flex min-w-0 flex-col gap-1', className)}>
+      <span className="text-[11px] font-medium text-muted-foreground">
+        {label}
+        {hint && <span className="font-normal text-faint"> · {hint}</span>}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+/** One of a few choices, as a grey track with the chosen one white. */
+export function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<{ id: T; label: ReactNode }>;
+  onChange: (value: T) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex w-fit max-w-full rounded-md bg-muted p-0.5">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          role="radio"
+          aria-checked={value === o.id}
+          disabled={disabled}
+          onClick={() => onChange(o.id)}
+          className={cn(
+            'truncate rounded-[3px] px-2.5 py-[3px] text-xs transition-colors disabled:opacity-60',
+            value === o.id ? 'bg-background font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const ARM_MS = 4000;
+
+/**
+ * Delete, armed first: a second click within a few seconds confirms. What
+ * `onDelete` rejects with is shown beside it.
+ */
+export function DeleteButton({ name, onDelete }: { name: string; onDelete: () => Promise<void> }) {
+  const [armed, setArmed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), ARM_MS);
+    return () => clearTimeout(t);
+  }, [armed]);
+  return (
+    <>
+      {error && (
+        <span className="max-w-60 truncate text-[11px] text-destructive" title={error}>
+          {error}
+        </span>
+      )}
+      <button
+        type="button"
+        aria-label={armed ? `Confirm deleting ${name}` : `Delete ${name}`}
+        title={armed ? 'Click again to delete' : 'Delete'}
+        onClick={() => {
+          if (!armed) return setArmed(true);
+          setArmed(false);
+          onDelete().then(
+            () => setError(null),
+            (err: unknown) => setError(errorText(err)),
+          );
+        }}
+        className={cn(
+          'flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] transition-colors',
+          armed ? 'bg-destructive/10 text-destructive' : 'text-muted-foreground hover:text-destructive',
+        )}
+      >
+        <Trash2 className="size-3" />
+        {armed && 'Delete?'}
+      </button>
+    </>
+  );
+}
+
+/**
+ * A file's text in a mono field, read when it opens (again when `loadKey`
+ * changes); Save writes it back, ⌘↵ too, and Escape cancels. `readOnly`
+ * shows it with only a Close.
+ */
+export function FileEditor({
+  load,
+  loadKey,
+  onSave,
+  onCancel,
+  readOnly,
+  note,
+}: {
+  load: () => Promise<string>;
+  loadKey: string;
+  onSave?: (text: string) => Promise<void>;
+  onCancel: () => void;
+  readOnly?: boolean;
+  /** A quiet line beside the buttons. */
+  note?: ReactNode;
+}) {
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    let cancelled = false;
+    loadRef.current().then(
+      (t) => !cancelled && setText(t),
+      (err: unknown) => !cancelled && setError(errorText(err)),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [loadKey]);
+  const save = async (): Promise<void> => {
+    if (text === null || readOnly || !onSave) return;
+    setSaving(true);
+    try {
+      await onSave(text);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-md bg-background p-2">
+      <textarea
+        aria-label="File text"
+        value={text ?? ''}
+        disabled={text === null}
+        readOnly={readOnly}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            void save();
+          }
+          if (e.key === 'Escape') onCancel();
+        }}
+        rows={Math.min(24, Math.max(8, (text ?? '').split('\n').length + 1))}
+        placeholder={text === null ? 'Reading…' : undefined}
+        spellCheck={false}
+        className="w-full resize-y rounded-md bg-subtle p-2 font-mono text-xs leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      />
+      <div className="flex items-center gap-2">
+        <ErrorLine error={error} />
+        {!error && note && <span className="text-[11px] text-faint">{note}</span>}
+        <span className="flex-1" />
+        <Button size="xs" variant="ghost" onClick={onCancel}>
+          {readOnly ? 'Close' : 'Cancel'}
+        </Button>
+        {!readOnly && (
+          <Button size="xs" onClick={() => void save()} disabled={text === null || saving}>
+            Save
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

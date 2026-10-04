@@ -64,7 +64,16 @@ export type SettingsMethod =
   | 'memory.delete'
   | 'mcp.list'
   | 'mcp.login'
-  | 'mcp.logout';
+  | 'mcp.logout'
+  | 'mcp.get'
+  | 'mcp.save'
+  | 'mcp.remove'
+  | 'mcp.test'
+  | 'skills.list'
+  | 'skills.read'
+  | 'skills.write'
+  | 'skills.delete'
+  | 'skills.import';
 
 export type McpLoginPush = Extract<PushEvent, { type: 'mcp_login' }>;
 import type { Checkout } from './checkout';
