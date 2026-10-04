@@ -300,3 +300,40 @@ describe('modelEffort', () => {
     ).toEqual({ levels: DEFAULT_REASONING_EFFORTS, initial: 'medium' });
   });
 });
+
+describe('ProviderRegistry.check', () => {
+  const answering = (status: number, body: unknown) => {
+    const calls: Array<{ url: string; headers: Record<string, string> }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, headers: (init?.headers ?? {}) as Record<string, string> });
+      return new Response(JSON.stringify(body), { status });
+    }) as unknown as typeof fetch;
+    return { fetchImpl, calls };
+  };
+
+  it('asks for the models with the key, and lists them', async () => {
+    const { fetchImpl, calls } = answering(200, { data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }] });
+    const registry = new ProviderRegistry({ env: { DEEPSEEK_API_KEY: 'sk-x' }, fetchImpl });
+    expect(await registry.check('deepseek')).toEqual({ ok: true, models: ['deepseek-chat', 'deepseek-reasoner'] });
+    expect(calls[0]).toMatchObject({ url: 'https://api.deepseek.com/v1/models', headers: { authorization: 'Bearer sk-x' } });
+  });
+
+  it('says a key is missing, refused, or the endpoint unreachable — never what the key is', async () => {
+    expect(await new ProviderRegistry({ env: {} }).check('deepseek')).toMatchObject({ ok: false, problem: 'no-key' });
+    const refused = await new ProviderRegistry({ env: { DEEPSEEK_API_KEY: 'sk-secret' }, fetchImpl: answering(401, {}).fetchImpl }).check('deepseek');
+    expect(refused).toMatchObject({ ok: false, problem: 'rejected', status: 401 });
+    expect(JSON.stringify(refused)).not.toContain('sk-secret');
+    const down = (async () => {
+      throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    }) as unknown as typeof fetch;
+    expect(await new ProviderRegistry({ fetchImpl: down }).check('ollama')).toMatchObject({
+      ok: false,
+      problem: 'unreachable',
+      message: expect.stringContaining('ECONNREFUSED'),
+    });
+    expect(await new ProviderRegistry({ env: { DEEPSEEK_API_KEY: 'k' }, fetchImpl: answering(404, {}).fetchImpl }).check('deepseek')).toMatchObject({
+      problem: 'unexpected',
+      status: 404,
+    });
+  });
+});

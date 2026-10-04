@@ -558,6 +558,38 @@ export interface AgentsView {
   efforts: string[];
 }
 
+/** How a diagnostic check came out: fine, worth a look, broken, or just so. */
+export type DoctorStatus = 'ok' | 'warn' | 'error' | 'info';
+
+/** One thing `doctor.run` looked at. */
+export interface DoctorCheck {
+  id: string;
+  /** What was checked: "Default model". */
+  label: string;
+  status: DoctorStatus;
+  /** What was found. */
+  detail: string;
+  /** What to do about it, when it isn't fine. */
+  fix?: string;
+  /** The settings section it's set in. */
+  section?: 'models' | 'permissions' | 'auto-mode' | 'memory' | 'mcp' | 'skills' | 'agents' | 'tools';
+}
+
+export interface DoctorGroup {
+  id: 'model' | 'settings' | 'permissions' | 'mcp' | 'extensions' | 'environment';
+  title: string;
+  checks: DoctorCheck[];
+}
+
+/** What Marvis makes of a workspace's setup (`doctor.run`). */
+export interface DoctorReport {
+  groups: DoctorGroup[];
+  /** Connections were tried: the model's provider, and each MCP server. */
+  connected: boolean;
+  /** When it ran, ms since the epoch. */
+  at: number;
+}
+
 /** A background command and the tail of what it printed (`SessionSnapshot.processes`). */
 export type SessionProcess = BackgroundProcessInfo & { output: string };
 
@@ -1230,6 +1262,15 @@ export const methods = {
   ),
   'agents.delete': method<{ workspaceId: string; scope: 'user' | 'project'; name: string }, AgentsView>(
     z.object({ workspaceId: workspaceIdSchema, scope: mcpScopeSchema, name: agentFileSchema }),
+  ),
+  /**
+   * Check a workspace's setup: the model and its key, the settings files,
+   * permissions, MCP servers, skills, sub-agents and memory, and the tools
+   * around them — without the network. With `connect`, also ask the model's
+   * provider for its models (no tokens spent) and start each MCP server.
+   */
+  'doctor.run': method<{ workspaceId: string; connect?: boolean }, DoctorReport>(
+    z.object({ workspaceId: workspaceIdSchema, connect: z.boolean().optional() }),
   ),
   /** Stop a command the session started in the background, and what it started; answers once it has ended. */
   'session.killProcess': method<{ id: string; processId: string }, BackgroundProcessInfo>(

@@ -11,6 +11,10 @@ import { Command } from 'commander';
 
 import {
   AGENT_DIR,
+  findProjectRoot,
+  isAutoModeAvailable,
+  projectEnv,
+  resolveStateDir,
   resolveProjectMemoryDir,
   resolveStateDirs,
   BUILTIN_PROVIDERS,
@@ -669,10 +673,49 @@ program
 
 program
   .command('doctor')
-  .description('Show what the harness thinks its configuration is')
-  .action(async () => {
-    const { settings, sources } = await loadSettings();
-    console.log(JSON.stringify({ version: VERSION, sources, settings }, null, 2));
+  .description("Check this project's setup: the model and its key, settings, permissions, MCP servers, skills, sub-agents, memory, this machine")
+  .option('--cwd <dir>', 'the project to check', process.cwd())
+  .option('--connect', "also ask the model's provider for its models (no tokens spent) and start each MCP server")
+  .option('--json', 'print the report as JSON')
+  .action(async (opts: { cwd: string; connect?: boolean; json?: boolean }) => {
+    const root = await findProjectRoot(resolvePath(opts.cwd));
+    const env = projectEnv(root);
+    const { doctorReport } = await import('@harness-code/server');
+    const report = await doctorReport(
+      { root, projectRoot: root, home: homedir(), env },
+      {
+        autoModeProblem: async () => {
+          const { settings } = await loadSettings(root);
+          const availability = isAutoModeAvailable(settings, new ProviderRegistry({ settings, env }), settings.model || undefined);
+          return availability.available ? undefined : availability.reason;
+        },
+        stateDir: await resolveStateDir(root),
+      },
+      { connect: opts.connect === true },
+    );
+    const checks = report.groups.flatMap((g) => g.checks);
+    process.exitCode = checks.some((c) => c.status === 'error') ? 1 : 0;
+    if (opts.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
+    const tty = process.stdout.isTTY === true;
+    const paint = (code: string, text: string): string => (tty ? `\x1b[${code}m${text}\x1b[0m` : text);
+    const marks = { ok: paint('32', '✓'), warn: paint('33', '!'), error: paint('31', '✗'), info: paint('2', '·') } as const;
+    for (const group of report.groups) {
+      console.log(paint('1', group.title));
+      for (const c of group.checks) {
+        console.log(`  ${marks[c.status]} ${c.label}  ${c.status === 'info' ? paint('2', c.detail) : c.detail}`);
+        if (c.fix && (c.status === 'error' || c.status === 'warn')) console.log(paint('2', `      → ${c.fix}`));
+      }
+      console.log('');
+    }
+    const errors = checks.filter((c) => c.status === 'error').length;
+    const warnings = checks.filter((c) => c.status === 'warn').length;
+    console.log(
+      (errors + warnings === 0 ? 'Nothing needs you.' : `${errors} problem${errors === 1 ? '' : 's'}, ${warnings} thing${warnings === 1 ? '' : 's'} to look at.`) +
+        (report.connected ? '' : paint('2', ' Connections not checked: run with --connect.')),
+    );
   });
 
 program

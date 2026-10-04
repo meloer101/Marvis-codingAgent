@@ -188,7 +188,7 @@ async function written(write: () => Promise<unknown>): Promise<void> {
 // ── Models: providers and their keys ──────────────────────────────────
 
 /** The settings sessions of `place` run with, both files layered; the built-in ones when a file doesn't parse. */
-async function layeredSettings(place: SettingsPlace): Promise<Settings> {
+export async function layeredSettings(place: SettingsPlace): Promise<Settings> {
   try {
     return (await loadSettings(place.root, { homeDir: place.home })).settings;
   } catch {
@@ -388,7 +388,7 @@ export async function deleteMemory(place: SettingsPlace, target: MemoryTarget): 
 
 // ── MCP ───────────────────────────────────────────────────────────────
 
-function mcpPaths(place: SettingsPlace, stateRoot: string | undefined): { user: string; project: string } {
+export function mcpPaths(place: SettingsPlace, stateRoot: string | undefined): { user: string; project: string } {
   return {
     user: join(place.home, AGENT_DIR, MCP_CONFIG_FILE),
     project: join(stateRoot ?? resolve(place.root), MCP_CONFIG_FILE),

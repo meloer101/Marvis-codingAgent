@@ -500,6 +500,10 @@ class Connection {
         const { workspaceId, scope, name } = params as MethodParams<'agents.delete'>;
         return hub.deleteAgent(workspaceId, scope, name);
       }
+      case 'doctor.run': {
+        const { workspaceId, connect } = params as MethodParams<'doctor.run'>;
+        return hub.doctor(workspaceId, connect);
+      }
       case 'stats.summary': {
         const { workspaceId, since } = params as MethodParams<'stats.summary'>;
         return hub.stats(workspaceId, since);

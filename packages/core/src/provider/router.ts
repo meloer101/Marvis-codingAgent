@@ -127,6 +127,20 @@ export const BUILTIN_PROVIDERS: Record<string, ProviderConfig> = {
   },
 };
 
+/** What `ProviderRegistry.check` found. */
+export type ProviderCheck =
+  | { ok: true; models?: string[] }
+  | { ok: false; problem: 'no-key' | 'rejected' | 'unreachable' | 'unexpected'; status?: number; message: string };
+
+/** Why a request never got an answer, as plainly as the error has it: `ECONNREFUSED`, a timeout, a bad name. */
+function fetchFailure(err: unknown): string {
+  if (err instanceof Error && err.name === 'TimeoutError') return 'no answer in time';
+  const cause = (err as { cause?: { code?: unknown; message?: unknown } })?.cause;
+  if (cause && typeof cause.code === 'string') return cause.code;
+  if (cause && typeof cause.message === 'string') return cause.message;
+  return err instanceof Error ? err.message : String(err);
+}
+
 export interface ModelRef {
   provider: string;
   model: string;
@@ -307,6 +321,43 @@ export class ProviderRegistry {
   /** The environment variable `providerId`'s key is read from, of those it looks in; undefined when none is set. */
   private keyVariable(providerId: string, cfg: ProviderConfig): string | undefined {
     return providerKeyVars(providerId, cfg).find((name) => !!this.env[name]);
+  }
+
+  /**
+   * Whether `providerId` answers, and takes its key: one request for its list
+   * of models (`GET <baseUrl>/models`), which costs no tokens. The key never
+   * leaves this object. The model ids, when the answer lists them.
+   */
+  async check(providerId: string, opts: { timeoutMs?: number } = {}): Promise<ProviderCheck> {
+    const cfg = this.config(providerId);
+    const apiKey = this.apiKeyFor(providerId, cfg);
+    if (cfg.requiresKey && !apiKey) return { ok: false, problem: 'no-key', message: `${cfg.label} has no API key` };
+    const headers: Record<string, string> = { accept: 'application/json', ...(cfg.headers ?? {}) };
+    if (apiKey) headers['authorization'] = `Bearer ${apiKey}`;
+    let res: Response;
+    try {
+      res = await (this.opts.fetchImpl ?? fetch)(`${cfg.baseUrl.replace(/\/+$/, '')}/models`, {
+        headers,
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 10_000),
+      });
+    } catch (err) {
+      return { ok: false, problem: 'unreachable', message: `${cfg.label} at ${cfg.baseUrl} can't be reached: ${fetchFailure(err)}` };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, problem: 'rejected', status: res.status, message: `${cfg.label} refused the key (HTTP ${res.status})` };
+    }
+    if (!res.ok) {
+      return { ok: false, problem: 'unexpected', status: res.status, message: `${cfg.label} answered HTTP ${res.status} when asked for its models` };
+    }
+    try {
+      const body = (await res.json()) as { data?: unknown };
+      const models = Array.isArray(body.data)
+        ? body.data.map((m) => (m as { id?: unknown })?.id).filter((id): id is string => typeof id === 'string')
+        : undefined;
+      return { ok: true, ...(models ? { models } : {}) };
+    } catch {
+      return { ok: true };
+    }
   }
 
   /**

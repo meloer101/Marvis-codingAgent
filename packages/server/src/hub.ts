@@ -29,6 +29,7 @@ import type {
   AgentsView,
   AutoModeGroup,
   DirEntry,
+  DoctorReport,
   EditorId,
   EditorInfo,
   FileContent,
@@ -96,6 +97,7 @@ import {
 import type { SettingsPlace } from './settings.js';
 import { deleteSkill, importSkills, readSkill, skillsView, writeSkill } from './skills.js';
 import { agentsView, deleteAgent, getAgent, saveAgent, writeAgent } from './agents.js';
+import { doctorReport } from './doctor.js';
 import { TerminalManager, loadPty } from './terminals.js';
 import type { SpawnPty } from './terminals.js';
 import { workspaceId } from './workspaces.js';
@@ -124,6 +126,8 @@ export interface WorkspaceSetup {
   env?: NodeJS.ProcessEnv;
   /** Why its sessions can't use auto mode, when they can't. */
   autoModeProblem?: () => Promise<string | undefined>;
+  /** The model its sessions start on whatever the settings say: `marvis web --model`'s, or the mock's. */
+  modelOverride?: { ref: string; mock?: boolean };
 }
 
 export type WorkspaceSetupFactory = (root: string) => Promise<WorkspaceSetup>;
@@ -706,6 +710,28 @@ export class WorkspaceHub {
     await deleteAgent(this.#place(id), scope, name);
     this.#reloadCapabilities(scope === 'user' ? undefined : id);
     return this.agents(id);
+  }
+
+  /**
+   * What Marvis makes of workspace `id`'s setup (`doctor.run`); with
+   * `connect`, its model's provider asked for its models and each MCP server
+   * started.
+   */
+  async doctor(id: string, connect = false): Promise<DoctorReport> {
+    const entry = this.#entries.get(id) ?? this.#throwMissing(id);
+    const { autoModeProblem, modelOverride } = entry.setup;
+    return doctorReport(
+      this.#place(id),
+      {
+        ...(autoModeProblem ? { autoModeProblem } : {}),
+        ...(modelOverride ? { modelOverride } : {}),
+        terminals: () => this.terminals.available(),
+        folderPicker: () => this.canPickFolder(),
+        editors: async () => (await this.#editorList()).map((e) => e.name),
+        stateDir: entry.setup.agentDir,
+      },
+      { connect },
+    );
   }
 
   /** Fork session `id` (`SessionRegistry.fork`) in its own workspace; resolves with the new id. */

@@ -263,6 +263,7 @@ function workspaceSetups(opts: StartServerOptions): WorkspaceSetupFactory {
         return env();
       },
       autoModeProblem,
+      ...(mock ? { modelOverride: { ref: MOCK_MODEL_REF, mock: true } } : opts.model ? { modelOverride: { ref: opts.model } } : {}),
       previewDefaults: async () => {
         const d = await defaults();
         return { modelRef: d.model, mode: d.mode };
@@ -299,6 +300,8 @@ export { attachWsServer } from './ws.js';
 export type { WsServerOptions } from './ws.js';
 export { createStaticHandler, resolveStaticDir } from './http.js';
 export { mockConfigFactory } from './mock.js';
+export { doctorReport } from './doctor.js';
+export type { DoctorEnvironment } from './doctor.js';
 export { TerminalManager, loadPty } from './terminals.js';
 export type { Pty, SpawnPty } from './terminals.js';
 export {
