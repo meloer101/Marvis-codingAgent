@@ -260,7 +260,7 @@
   统计与 trace 视图、设置页（权限规则、auto-mode 规则与拒绝记录、memory、MCP OAuth）、后台进程（`backgroundProcesses`
   默认关闭，打开后才改变模型可见的工具）。
 - **P3 桌面壳 10-04 起步**：Electron 包住同一个服务器和页面（`pnpm release:desktop` 出 Marvis.app / .dmg），见
-  [`web.md`](./web.md)。剩余：Developer ID 签名与公证、自动更新、隐藏标题栏（页面要留出红绿灯位置）、窗口位置记忆、
+  [`web.md`](./web.md)。Mac 上无标题栏，红绿灯嵌在左上角。剩余：Developer ID 签名与公证、自动更新、窗口位置记忆、
   退出前提醒还在跑的会话。
 
 ## Other

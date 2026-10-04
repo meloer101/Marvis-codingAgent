@@ -47,7 +47,7 @@ export function SidePanel({ view, checkout }: { view: SessionViewState; checkout
   });
   return (
     <SlideRegion open={current !== null} width="min(440px, 42vw)" aria-label="Side panel" className="@container flex flex-col bg-muted">
-      <div className="flex h-11 shrink-0 items-center gap-0.5 pr-1.5 pl-3">
+      <div className="titlebar flex h-11 shrink-0 items-center gap-0.5 pr-1.5 pl-3">
         <div role="tablist" className="flex min-w-0 items-center gap-0.5 overflow-hidden">
           {/* Processes once the session has started one in the background. */}
           {TABS.filter(({ tab: t }) => t !== 'processes' || tab === t || (view.processes?.length ?? 0) > 0).map(({ tab: t, label }) => (

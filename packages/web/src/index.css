@@ -327,6 +327,24 @@
 }
 
 /*
+ * Desktop window (public/shell.js): in the Mac app there is no title bar. The
+ * 44px top rows (`.titlebar`) move the window, their controls excepted, and
+ * the corner toggle — the sidebar's, or the main header's while the sidebar
+ * is closed (`.clear-window-buttons`) — steps right of the window's buttons.
+ */
+:root[data-titlebar='inset'] {
+  .titlebar {
+    -webkit-app-region: drag;
+  }
+  .titlebar :is(button, a, input, select, textarea, [role='button'], [role='tab']) {
+    -webkit-app-region: no-drag;
+  }
+  .clear-window-buttons {
+    margin-left: 74px;
+  }
+}
+
+/*
  * Motion marks a change of state, nothing else (DESIGN.md, Motion). The
  * resting state is fully visible; the animations only enhance it, and reduced
  * motion turns all of them off (above).

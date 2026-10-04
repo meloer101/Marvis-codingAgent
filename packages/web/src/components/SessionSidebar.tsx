@@ -109,7 +109,7 @@ export function SessionSidebar({
   return (
     <SlideRegion open={useSidebarOpen()} width="248px">
       <aside aria-label="Sessions" className="flex h-full flex-col border-r bg-background">
-      <div className="flex h-11 shrink-0 items-center gap-1 pr-3 pl-2.5">
+      <div className="titlebar flex h-11 shrink-0 items-center gap-1 pr-3 pl-2.5">
         <SidebarCloser />
         <span className="text-sm font-semibold">
           Marvis

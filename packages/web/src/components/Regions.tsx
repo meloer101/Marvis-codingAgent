@@ -28,7 +28,7 @@ export function MainHeader({ children, className }: { children: ReactNode; class
   return (
     <header
       className={cn(
-        'flex h-11 shrink-0 items-center gap-2 overflow-hidden pr-3 text-[13px]',
+        'titlebar flex h-11 shrink-0 items-center gap-2 overflow-hidden pr-3 text-[13px]',
         sidebarOpen ? 'pl-5' : 'pl-2.5',
         className,
       )}
@@ -46,7 +46,7 @@ export function SidebarCloser() {
       onClick={toggleSidebar}
       aria-label="Hide sidebar"
       title="Hide sidebar"
-      className={headerIconButton}
+      className={cn(headerIconButton, 'clear-window-buttons')}
     >
       <PanelLeftClose />
     </button>
@@ -69,7 +69,7 @@ export function SidebarOpener({ workspaceId }: { workspaceId?: string | undefine
         onClick={toggleSidebar}
         aria-label={waiting > 0 ? `Show sidebar — ${waiting} waiting for you` : 'Show sidebar'}
         title={waiting > 0 ? `Show sidebar — ${waiting} waiting for you` : 'Show sidebar'}
-        className={headerIconButton}
+        className={cn(headerIconButton, 'clear-window-buttons')}
       >
         <PanelLeftOpen />
         {waiting > 0 && (

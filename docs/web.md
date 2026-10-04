@@ -46,8 +46,14 @@ pnpm desktop                         # dev: Electron on packages/desktop/dist (a
 - **Environment.** A Mac app opened from the Finder gets launchd's bare
   environment, so the app adopts the login shell's (`$SHELL -ilc`) at startup:
   PATH, and keys exported in the profile (`desktop/src/shell-env.ts`).
+- **No title bar on a Mac.** The window's buttons sit over the top-left
+  corner (`trafficLightPosition`, centred on the 44px top rows); the preload
+  tells the page (`window.marvisDesktop`), `public/shell.js` marks it before
+  first paint, and `index.css` ("Desktop window") makes the top rows move the
+  window and steps the corner toggle right of the buttons — except in full
+  screen, where the buttons are hidden. In a browser none of this applies.
 - The window can be closed without stopping anything; quitting the app stops
-  its server and every session it runs.
+  its server and every session it runs (waiting at most 3 s for them).
 - Signed ad hoc, not with a Developer ID: it runs on the Mac that built it;
   elsewhere Gatekeeper asks first (right-click › Open).
 

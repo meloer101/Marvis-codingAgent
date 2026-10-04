@@ -89,6 +89,18 @@ await build({
   logLevel: 'info',
 });
 
+// The window's preload, beside main.mjs where main looks for it: CommonJS, as a sandboxed preload must be.
+await build({
+  entryPoints: [resolve(desktop, 'src/preload.cts')],
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  target: 'node22',
+  outfile: resolve(bundleDir, 'preload.cjs'),
+  external: ['electron'],
+  logLevel: 'info',
+});
+
 await cp(webDist, resolve(bundleDir, 'web'), { recursive: true });
 for (const dir of ['skills', 'agents', 'memory']) {
   const from = resolve(root, 'packages/core', dir);

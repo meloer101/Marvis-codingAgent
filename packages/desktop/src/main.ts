@@ -10,6 +10,9 @@
  * run later finds this app's server the same way (`server.json`).
  */
 
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { app, BrowserWindow, dialog, nativeTheme, shell } from 'electron';
 import type { OpenDialogOptions } from 'electron';
 
@@ -33,6 +36,13 @@ interface Page {
   url: string;
   port: number;
 }
+
+/** Next to this file: `dist/` in development, `dist/bundle/` in the app (scripts/package.mjs). */
+const PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'preload.cjs');
+/** The window's buttons, centred on the page's 44px top rows (preload.cts, shell.js). */
+const TRAFFIC_LIGHTS = { x: 16, y: 16 };
+/** How long quitting waits at most for the server to stop its sessions. */
+const QUIT_GRACE_MS = 3000;
 
 const stateDir = webStateDir();
 let page: Page | null = null;
@@ -114,11 +124,17 @@ function createWindow(target: Page): BrowserWindow {
     minHeight: 480,
     title: 'Marvis',
     show: false,
+    // No title bar on a Mac: the window's buttons sit over the page's top-left corner.
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' as const, trafficLightPosition: TRAFFIC_LIGHTS } : {}),
     // The page's own background (DESIGN.md), so the window never flashes the other theme.
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#0f0f11' : '#ffffff',
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
   win.once('ready-to-show', () => win.show());
+  win.webContents.on('preload-error', (_event, path, err) => console.error(`preload ${path} failed:`, err));
+  // Full screen hides the window's buttons: the page takes back their corner.
+  win.on('enter-full-screen', () => win.webContents.send('marvis:full-screen', true));
+  win.on('leave-full-screen', () => win.webContents.send('marvis:full-screen', false));
   win.webContents.setWindowOpenHandler(({ url }) => {
     openOutside(url);
     return { action: 'deny' };
@@ -166,14 +182,15 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault();
     quitting = true;
     const closing = server;
-    void (recorded ? clearInstance(stateDir, process.pid) : Promise.resolve())
+    const closed = (recorded ? clearInstance(stateDir, process.pid) : Promise.resolve())
       .catch(() => {})
       .then(() => closing.close())
-      .catch(() => {})
-      .finally(() => {
-        server = null;
-        app.quit();
-      });
+      .catch(() => {});
+    // A server that won't wind down must not keep the app from quitting.
+    void Promise.race([closed, new Promise((resolve) => setTimeout(resolve, QUIT_GRACE_MS))]).finally(() => {
+      server = null;
+      app.quit();
+    });
   });
 
   // Not a top-level await: Electron emits `ready` only once this module has
