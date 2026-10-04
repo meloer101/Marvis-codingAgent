@@ -53,6 +53,7 @@ import {
 } from '@harness-code/core';
 import type { AlwaysAllow, ImageInput, SessionMetaPatch, SessionWorktreeMeta, SteeringInput } from '@harness-code/core';
 import type {
+  AskDecision,
   AutoModeDenialInfo,
   QueuedMessage,
   SendResult,
@@ -463,12 +464,11 @@ export class SessionHost {
   // -- human-in-the-loop answers --------------------------------------------
 
   /** First answer wins; a stale/duplicate `askId` is a no-op. */
-  answerAsk(askId: string, decision: 'once' | 'always' | 'deny' | 'auto', feedback?: string): void {
+  answerAsk(askId: string, decision: AskDecision, feedback?: string): void {
     const p = this.#pendingAsk;
     if (!p || p.askId !== askId) return;
     // An `always` the ask didn't offer (an older client) is a plain yes.
     if (decision === 'always') for (const rule of p.always?.rules ?? []) this.#requireSession().engine.addAllowRule(rule);
-    if (decision === 'auto') this.setMode('auto');
     const verdict: PermissionDecision =
       decision === 'deny'
         ? { decision: 'deny', reason: feedback ? `User declined: ${feedback}` : 'User declined' }

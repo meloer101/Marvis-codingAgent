@@ -329,9 +329,6 @@ export function interactiveAsk(
     {
       onBeforePrompt: () => sink.flushThinking(),
       echo: (line) => sink.dim(line),
-      getMode: () => getSession().mode,
-      getAutoAvailable: () => getSession().autoModeAvailable,
-      onAuto: () => getSession().setMode('auto'),
     },
   );
 }

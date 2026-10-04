@@ -23,25 +23,18 @@ import { createInterface } from 'node:readline';
 import type { Interface } from 'node:readline';
 
 import type { AskHandler, PermissionEngine, PermissionMode, PromptOption } from '@harness-code/core';
-import {
-  alwaysAllowFor,
-  askOptions,
-  offerAutoSwitch,
-  planOptions,
-} from '@harness-code/core';
+import { alwaysAllowFor, askOptions, planOptions } from '@harness-code/core';
 
 import { ESCAPE_TIMEOUT_MS, menuCapable, menuTitle, selectMenu } from './menu.js';
 import type { MenuTerminal } from './menu.js';
 
-export type ConfirmChoice = 'once' | 'always' | 'deny' | 'auto';
+export type ConfirmChoice = 'once' | 'always' | 'deny';
 
 export interface ConfirmRequest {
   title: string;
   detail: string;
   /** What "don't ask again for …" covers, e.g. "`npm test` commands"; without it that row is left out. */
   alwaysLabel?: string;
-  /** Offer "yes, and switch to auto mode". */
-  offerAuto?: boolean;
   signal?: AbortSignal;
 }
 
@@ -168,10 +161,7 @@ class ReadlinePrompter implements Prompter {
     return this.enqueue(async () => {
       if (req.signal?.aborted) return { choice: 'deny', feedback: '用户中断' };
 
-      const options = askOptions({
-        always: req.alwaysLabel,
-        offerAuto: req.offerAuto === true,
-      });
+      const options = askOptions({ always: req.alwaysLabel });
       const header = ['', menuTitle(req.title), ...req.detail.split('\n').map((l) => `    ${l}`)];
       const res = await this.choose(
         header,
@@ -182,7 +172,6 @@ class ReadlinePrompter implements Prompter {
           if (byNumber && byNumber.value !== 'deny') return byNumber.value;
           if (raw === 'y' || raw === 'yes') return 'once';
           if (req.alwaysLabel !== undefined && (raw === 'a' || raw === 'always')) return 'always';
-          if (req.offerAuto && (raw === 's' || raw === 'auto')) return 'auto';
           return undefined;
         },
         '  why (optional, Enter to skip): ',
@@ -204,11 +193,12 @@ class ReadlinePrompter implements Prompter {
       const res = await this.choose(
         header,
         'Would you like to proceed?',
-        planOptions(yesMode),
+        planOptions(yesMode, { autoAvailable: req.autoAvailable === true }),
         req.signal,
         (raw, byNumber) => {
           if (byNumber && byNumber.value !== 'no') return byNumber.value;
           if (raw === 'y' || raw === 'yes') return 'yes';
+          if (req.autoAvailable && yesMode !== 'auto' && (raw === 's' || raw === 'auto')) return 'auto';
           if (raw === 'm' || raw === 'manual') return 'manual';
           return undefined;
         },
@@ -216,6 +206,7 @@ class ReadlinePrompter implements Prompter {
       );
       if (req.signal?.aborted) return { approved: false, feedback: '用户中断' };
       if (res?.value === 'yes') return { approved: true, mode: yesMode };
+      if (res?.value === 'auto') return { approved: true, mode: 'auto' };
       if (res?.value === 'manual') return { approved: true, mode: 'ask' };
       return res?.text ? { approved: false, feedback: res.text } : { approved: false };
     });
@@ -250,12 +241,6 @@ export interface InteractiveAskOptions {
   onBeforePrompt?: () => void;
   /** Echoes the "+ allow X (this session)" confirmation line. */
   echo?: (line: string) => void;
-  /** Current permission mode, used to decide whether to offer `[s]`. */
-  getMode?: () => PermissionMode;
-  /** Whether auto mode can be switched to from this prompt. */
-  getAutoAvailable?: () => boolean;
-  /** Switch the live session into auto mode after `[s]`. */
-  onAuto?: () => void;
 }
 
 /**
@@ -268,20 +253,13 @@ export function interactiveAskHandler(
   prompter: Prompter,
   opts: InteractiveAskOptions = {},
 ): AskHandler {
-  return async ({ toolName, input, reason, forcedByRule, signal }) => {
+  return async ({ toolName, input, reason, signal }) => {
     opts.onBeforePrompt?.();
     const always = alwaysAllowFor(toolName, input);
-    const offerAuto = offerAutoSwitch({
-      mode: opts.getMode?.() ?? 'ask',
-      autoAvailable: opts.getAutoAvailable?.() ?? false,
-      toolName,
-      ...(forcedByRule ? { forcedByRule: true } : {}),
-    });
     const res = await prompter.confirm({
       title: reason.startsWith('mcp__') ? reason : capitalize(reason),
       detail: describeToolInput(toolName, input),
       ...(always ? { alwaysLabel: always.label } : {}),
-      offerAuto,
       ...(signal ? { signal } : {}),
     });
     if (res.choice === 'once') return { decision: 'allow' };
@@ -290,10 +268,6 @@ export function interactiveAskHandler(
         for (const rule of always.rules) engine.addAllowRule(rule);
         opts.echo?.(`+ allow ${always.rules.join(', ')} (this session)`);
       }
-      return { decision: 'allow' };
-    }
-    if (res.choice === 'auto') {
-      opts.onAuto?.();
       return { decision: 'allow' };
     }
     return {

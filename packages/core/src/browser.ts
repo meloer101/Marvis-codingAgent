@@ -12,7 +12,7 @@
  */
 
 export { describeToolInput } from './tools/util.js';
-export { nextPermissionMode, offerAutoSwitch, permissionModeCycle, planApprovalLabel } from './permissions/cycle.js';
+export { nextPermissionMode, permissionModeCycle, planApprovalLabel } from './permissions/cycle.js';
 export { fmtTokens, fmtUSD } from './util/format.js';
 export { attachedFileBlock, attachedFilePath, typedText } from './agent/attachments.js';
 

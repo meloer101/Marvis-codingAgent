@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
-import { offerAutoSwitch, planApprovalLabel } from '@harness-code/core/browser';
+import { planApprovalLabel } from '@harness-code/core/browser';
 import type { PermissionMode } from '@harness-code/core';
 
 import { MODES } from '@/components/ComposerControls';
@@ -10,6 +10,11 @@ import { Button } from '@/components/ui/button';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { useAppStore } from '@/lib/store';
 import { useSync } from '@/lib/syncContext';
+
+/** Sentence-case a lower-case label: "yes, and use auto mode" → "Yes, and use auto mode". */
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
 /** "`npm test` commands" with the backticked part set as code. */
 function withCode(text: string): ReactNode[] {
@@ -50,8 +55,9 @@ function askReason(reason: string, toolName: string): string {
 /**
  * Human-in-the-loop prompts, docked above the composer (opencode-style, no
  * modal). Edits are reviewed as a diff, writes as the file content, bash as
- * the highlighted command (`toolPreview`). Keys match the TUI: y / a / n / s
- * for a permission ask, y / m / e for a plan, Esc denies or keeps planning.
+ * the highlighted command (`toolPreview`). Keys: y / a / n for a permission
+ * ask, y / s / m / e for a plan, Esc denies or keeps planning. Switching to
+ * auto mode is offered only when approving a plan, never on a single call.
  * Feedback rides along with a deny or a rejection so the model learns why;
  * inside the feedback box, Esc or ⌘/Ctrl+Enter sends it.
  *
@@ -70,18 +76,11 @@ export function PendingDock({ view }: { view: SessionViewState }) {
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const requestId = askId ?? planId;
 
-  const offerAuto =
-    !!pendingAsk &&
-    offerAutoSwitch({
-      mode: view.mode,
-      autoAvailable,
-      toolName: pendingAsk.toolName,
-      forcedByRule: pendingAsk.forcedByRule === true,
-    });
-
   // Approving sends no mode: the session applies its own resolved
   // planApprovedMode, which the server mirrors here for the label.
   const planYesMode = pendingPlan?.yesMode ?? 'acceptEdits';
+  // Auto mode gets its own approve button unless plain approval already lands there.
+  const planOffersAuto = autoAvailable && planYesMode !== 'auto';
 
   useEffect(() => {
     setFeedback('');
@@ -130,10 +129,10 @@ export function PendingDock({ view }: { view: SessionViewState }) {
     if (pendingAsk && askId) {
       if (key === 'y') hit(() => void sync.answerAsk(view.id, askId, 'once'));
       else if (key === 'a' && pendingAsk.alwaysAllow) hit(() => void sync.answerAsk(view.id, askId, 'always'));
-      else if (key === 's' && offerAuto) hit(() => void sync.answerAsk(view.id, askId, 'auto'));
       else if (key === 'n' || e.key === 'Escape') hit(deny);
     } else if (pendingPlan && planId) {
       if (key === 'y') hit(() => void sync.answerPlan(view.id, planId, true));
+      else if (key === 's' && planOffersAuto) hit(() => void sync.answerPlan(view.id, planId, true, undefined, 'auto'));
       else if (key === 'm') hit(() => void sync.answerPlan(view.id, planId, true, undefined, 'ask'));
       else if (key === 'e') hit(revise);
       else if (e.key === 'Escape') hit(keepPlanning);
@@ -153,7 +152,7 @@ export function PendingDock({ view }: { view: SessionViewState }) {
   );
 
   const Key = ({ children }: { children: string }) => (
-    <kbd className="font-mono text-[11px] font-normal text-faint uppercase">{children}</kbd>
+    <kbd className="shrink-0 font-mono text-[11px] font-normal text-faint uppercase">{children}</kbd>
   );
 
   /** The block's first line: a dot that pulses as it arrives, the question, and why it is asked. */
@@ -179,19 +178,22 @@ export function PendingDock({ view }: { view: SessionViewState }) {
         {preview}
         {/* A note rides along with a deny; it is optional, so it waits to be asked for. */}
         {(noting || feedback !== '') && feedbackBox('Tell the model why — Esc or ⌘↵ denies with this note')}
+        {/* A long "always allow" (a path, a compound command) wraps as if 10rem wide, then grows into
+            the room left and truncates — the full text is its tooltip. Only a narrow dock wraps Deny. */}
         <div className="flex flex-wrap items-center gap-1.5">
           <Button size="sm" onClick={() => void sync.answerAsk(view.id, askId, 'once')}>
             Allow once<Key>y</Key>
           </Button>
           {pendingAsk.alwaysAllow && (
-            <Button size="sm" variant="outline" onClick={() => void sync.answerAsk(view.id, askId, 'always')}>
-              <span>Always allow {withCode(pendingAsk.alwaysAllow)}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              title={`Always allow ${pendingAsk.alwaysAllow.replaceAll('`', '')}`}
+              className="max-w-max min-w-0 shrink grow basis-40"
+              onClick={() => void sync.answerAsk(view.id, askId, 'always')}
+            >
+              <span className="truncate">Always allow {withCode(pendingAsk.alwaysAllow)}</span>
               <Key>a</Key>
-            </Button>
-          )}
-          {offerAuto && (
-            <Button size="sm" variant="outline" onClick={() => void sync.answerAsk(view.id, askId, 'auto')}>
-              Yes, auto mode<Key>s</Key>
             </Button>
           )}
           <Button size="sm" variant="ghost" onClick={deny}>
@@ -201,7 +203,7 @@ export function PendingDock({ view }: { view: SessionViewState }) {
             <button
               type="button"
               onClick={() => setNoting(true)}
-              className="ml-auto rounded-md px-1.5 py-1 text-xs text-faint transition-colors hover:text-foreground"
+              className="ml-auto shrink-0 rounded-md px-1.5 py-1 text-xs text-faint transition-colors hover:text-foreground"
             >
               Add a note
             </button>
@@ -212,8 +214,6 @@ export function PendingDock({ view }: { view: SessionViewState }) {
   }
 
   if (pendingPlan && planId) {
-    const label = planApprovalLabel(planYesMode);
-    const yesLabel = label.charAt(0).toUpperCase() + label.slice(1);
     return (
       <div ref={ref} tabIndex={-1} data-pending-dock="" onKeyDown={onKeyDown} className={dock}>
         <Title meta="Plan mode · changes nothing until you approve">{pendingPlan.title || 'Plan ready for review'}</Title>
@@ -223,9 +223,19 @@ export function PendingDock({ view }: { view: SessionViewState }) {
         {feedbackBox('What should change? Esc or ⌘↵ sends it back')}
         <div className="flex flex-wrap gap-1.5">
           <Button size="sm" onClick={() => void sync.answerPlan(view.id, planId, true)}>
-            {yesLabel}
+            {capitalize(planApprovalLabel(planYesMode))}
             <Key>y</Key>
           </Button>
+          {planOffersAuto && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void sync.answerPlan(view.id, planId, true, undefined, 'auto')}
+            >
+              {capitalize(planApprovalLabel('auto'))}
+              <Key>s</Key>
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"

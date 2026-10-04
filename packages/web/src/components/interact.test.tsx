@@ -350,13 +350,26 @@ describe('PendingDock', () => {
     composer.remove();
   });
 
-  it('uses the auto-mode offer rule from core (bash only, ask/acceptEdits only)', () => {
+  it('asks about a call with allow once / always allow / deny only — never a switch to auto mode', () => {
     useAppStore.setState({ info: { modes: ['ask', 'auto'] } as never });
-    renderDock(dockView());
-    expect(screen.getByText(/Yes, auto mode/)).toBeTruthy();
+    const sync = renderDock(dockView());
+    expect(screen.queryByText(/auto mode/)).toBeNull();
+    fireEvent.keyDown(sync.dock, { key: 's' });
+    expect(sync.answerAsk).not.toHaveBeenCalled();
+  });
+
+  it('offers auto mode beside plan approval when available and not already where approval lands', () => {
+    useAppStore.setState({ info: { modes: ['ask', 'auto'] } as never });
+    const plan = { pendingAsk: null, askId: null, planId: 'p1' };
+    const sync = renderDock(dockView({ ...plan, pendingPlan: { title: 'Plan', body: '1. do it', yesMode: 'acceptEdits' } }));
+    fireEvent.click(screen.getByText(/Yes, and use auto mode/));
+    expect(sync.answerPlan).toHaveBeenCalledWith('s1', 'p1', true, undefined, 'auto');
+    fireEvent.keyDown(sync.dock, { key: 's' });
+    expect(sync.answerPlan).toHaveBeenCalledTimes(2);
     cleanup();
-    renderDock(dockView({ pendingAsk: { toolName: 'write', input: { path: 'a' }, reason: 'r' } }));
-    expect(screen.queryByText(/Yes, auto mode/)).toBeNull();
+
+    renderDock(dockView({ ...plan, pendingPlan: { title: 'Plan', body: '1. do it', yesMode: 'auto' } }));
+    expect(screen.getAllByText(/auto mode/)).toHaveLength(1);
   });
 
   it('labels y from the session-resolved yesMode and lets the session apply it', () => {

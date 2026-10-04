@@ -639,7 +639,7 @@ export interface SessionSnapshot {
 
 export type SubscribeResult = { lastSeq: number } | { reset: true; snapshot: SessionSnapshot };
 
-export type AskDecision = 'once' | 'always' | 'deny' | 'auto';
+export type AskDecision = 'once' | 'always' | 'deny';
 
 // ---------------------------------------------------------------------------
 // Method table
@@ -1315,7 +1315,7 @@ export const methods = {
     z.object({
       sessionId: sessionIdSchema,
       askId: z.string(),
-      decision: z.enum(['once', 'always', 'deny', 'auto']),
+      decision: z.enum(['once', 'always', 'deny']),
       feedback: z.string().optional(),
     }),
   ),

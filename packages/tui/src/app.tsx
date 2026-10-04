@@ -19,7 +19,6 @@ import {
   listSessionIds,
   loadTranscript,
   nextPermissionMode,
-  offerAutoSwitch,
   skillInvocation,
 } from '@harness-code/core';
 import type { EventBuffer } from '@harness-code/protocol';
@@ -150,12 +149,9 @@ export function App({
   const answerAsk = useCallback(
     (ask: PendingAsk, choice: AskChoice, feedback?: string) => {
       if (store.pendingAsk !== ask) return;
-      if (choice === 'auto') {
-        store.answerAsk('once');
-        applyMode('auto');
-      } else store.answerAsk(choice, feedback);
+      store.answerAsk(choice, feedback);
     },
-    [store, applyMode],
+    [store],
   );
   const answerPlan = useCallback(
     (plan: PendingPlan, choice: PlanChoice, feedback?: string) => {
@@ -164,21 +160,12 @@ export function App({
         store.answerPlan(false, feedback);
         return;
       }
-      const mode = choice === 'yes' ? planYesMode : 'ask';
+      const mode = choice === 'yes' ? planYesMode : choice === 'auto' ? 'auto' : 'ask';
       store.answerPlan(true, undefined, mode);
       d({ type: 'SET_MODE', mode });
     },
     [store, planYesMode, d],
   );
-
-  const offerAuto =
-    state.pendingAsk !== null &&
-    offerAutoSwitch({
-      mode: state.mode,
-      autoAvailable: session.autoModeAvailable,
-      toolName: state.pendingAsk.toolName,
-      ...(state.pendingAsk.forcedByRule ? { forcedByRule: true } : {}),
-    });
 
   // Flush loop: pull from the mutable buffer/store into React state.
   useEffect(() => {
@@ -550,7 +537,6 @@ export function App({
           key={`ask-${askSeqRef.current}`}
           ask={state.pendingAsk}
           theme={theme}
-          offerAuto={offerAuto}
           onAnswer={(choice, feedback) => answerAsk(state.pendingAsk!, choice, feedback)}
         />
       )}
@@ -560,6 +546,7 @@ export function App({
           plan={state.pendingPlan}
           theme={theme}
           yesMode={planYesMode}
+          autoAvailable={session.autoModeAvailable}
           onAnswer={(choice, feedback) => answerPlan(state.pendingPlan!, choice, feedback)}
         />
       )}

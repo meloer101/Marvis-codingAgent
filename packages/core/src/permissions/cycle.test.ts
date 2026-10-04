@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   defaultPlanYesMode,
   nextPermissionMode,
-  offerAutoSwitch,
   permissionModeCycle,
   planApprovalLabel,
 } from './cycle.js';
@@ -36,23 +35,6 @@ describe('permissionModeCycle', () => {
 
   it('drops out-of-cycle modes (readOnly) back to ask', () => {
     expect(nextPermissionMode('readOnly', { includeAuto: true })).toBe('ask');
-  });
-});
-
-describe('offerAutoSwitch', () => {
-  const base = { mode: 'ask' as const, autoAvailable: true, toolName: 'bash' };
-
-  it('is offered for bash in ask/acceptEdits when auto is available and not forced', () => {
-    expect(offerAutoSwitch(base)).toBe(true);
-    expect(offerAutoSwitch({ ...base, mode: 'acceptEdits' })).toBe(true);
-  });
-
-  it('is hidden when auto is off, the tool is not bash, or an ask rule forced the prompt', () => {
-    expect(offerAutoSwitch({ ...base, autoAvailable: false })).toBe(false);
-    expect(offerAutoSwitch({ ...base, toolName: 'write' })).toBe(false);
-    expect(offerAutoSwitch({ ...base, forcedByRule: true })).toBe(false);
-    expect(offerAutoSwitch({ ...base, mode: 'plan' })).toBe(false);
-    expect(offerAutoSwitch({ ...base, mode: 'auto' })).toBe(false);
   });
 });
 

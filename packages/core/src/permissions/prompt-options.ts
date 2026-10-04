@@ -17,8 +17,8 @@ export interface PromptOption<V extends string = string> {
   input?: boolean;
 }
 
-export type AskChoice = 'once' | 'always' | 'auto' | 'deny';
-export type PlanChoice = 'yes' | 'manual' | 'no';
+export type AskChoice = 'once' | 'always' | 'deny';
+export type PlanChoice = 'yes' | 'auto' | 'manual' | 'no';
 
 function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -35,15 +35,13 @@ export function toolDisplayName(toolName: string): string {
 /**
  * Options for a tool-permission prompt. `always` is what "don't ask again"
  * would cover (an {@link AlwaysAllow} label); without one the row is left out.
+ * Switching to auto mode is a plan-approval choice, never offered here.
  */
-export function askOptions(opts: { always?: string | undefined; offerAuto?: boolean }): PromptOption<AskChoice>[] {
+export function askOptions(opts: { always?: string | undefined }): PromptOption<AskChoice>[] {
   return [
     { value: 'once', label: 'Yes' },
     ...(opts.always !== undefined
       ? [{ value: 'always' as const, label: `Yes, and don't ask again for ${opts.always} this session` }]
-      : []),
-    ...(opts.offerAuto
-      ? [{ value: 'auto' as const, label: 'Yes, and switch to auto mode' }]
       : []),
     {
       value: 'deny',
@@ -54,10 +52,16 @@ export function askOptions(opts: { always?: string | undefined; offerAuto?: bool
   ];
 }
 
-/** Options for a plan-approval prompt; `yesMode` is the mode approving lands in. */
-export function planOptions(yesMode: PermissionMode): PromptOption<PlanChoice>[] {
+/**
+ * Options for a plan-approval prompt; `yesMode` is the mode approving lands in.
+ * With auto mode available and not already the destination, it gets a row of its own.
+ */
+export function planOptions(yesMode: PermissionMode, opts: { autoAvailable?: boolean } = {}): PromptOption<PlanChoice>[] {
   return [
     { value: 'yes', label: capitalize(planApprovalLabel(yesMode)) },
+    ...(opts.autoAvailable && yesMode !== 'auto'
+      ? [{ value: 'auto' as const, label: capitalize(planApprovalLabel('auto')) }]
+      : []),
     // When approving already lands in `ask`, a second "manually approve" row would repeat it.
     ...(yesMode === 'ask'
       ? []

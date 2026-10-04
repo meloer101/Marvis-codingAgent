@@ -72,15 +72,6 @@ describe('ReadlinePrompter.confirm', () => {
     h.close();
   });
 
-  it('numbers the auto-mode row 3 and the No row 4 when auto is offered', async () => {
-    const h = harness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash', offerAuto: true });
-    await tick();
-    h.send('3');
-    expect(await p).toEqual({ choice: 'auto' });
-    h.close();
-  });
-
   it('treats the No number as a deny and still asks why', async () => {
     const h = harness();
     const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash' });
@@ -132,16 +123,6 @@ describe('ReadlinePrompter.confirm', () => {
     });
     expect(res.choice).toBe('deny');
     expect(res.feedback).toBe('用户中断');
-    h.close();
-  });
-
-  it('maps "s" to auto when offered', async () => {
-    const h = harness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash', offerAuto: true });
-    await tick();
-    expect(h.out()).toContain('3. Yes, and switch to auto mode');
-    h.send('s');
-    expect(await p).toEqual({ choice: 'auto' });
     h.close();
   });
 
@@ -231,21 +212,6 @@ describe('interactiveAskHandler', () => {
     if (d.decision === 'deny') expect(d.reason).toContain('use the test db');
   });
 
-  it('"auto" -> allow and calls onAuto', async () => {
-    const engine = { addAllowRule: () => {} };
-    let switched = false;
-    const ask = interactiveAskHandler(engine, fakePrompter({ choice: 'auto' }), {
-      getMode: () => 'ask',
-      getAutoAvailable: () => true,
-      onAuto: () => {
-        switched = true;
-      },
-    });
-    expect(await ask({ toolName: 'bash', input: { command: 'ls' }, reason: 'r' })).toEqual({
-      decision: 'allow',
-    });
-    expect(switched).toBe(true);
-  });
 });
 
 describe('ReadlinePrompter.approve', () => {
@@ -262,9 +228,9 @@ describe('ReadlinePrompter.approve', () => {
 
   it('labels y with the real destination instead of claiming auto mode', async () => {
     const h = harness();
-    const p = h.prompter.approve({ title: 'Plan', body: 'do it', autoAvailable: true, yesMode: 'yolo' });
+    const p = h.prompter.approve({ title: 'Plan', body: 'do it', yesMode: 'yolo' });
     await tick();
-    expect(h.out()).toContain('yolo');
+    expect(h.out()).toContain('1. Yes, and skip all permission prompts (yolo)');
     expect(h.out()).not.toContain('use auto mode');
     h.send('y');
     expect(await p).toEqual({ approved: true, mode: 'yolo' });
@@ -279,6 +245,18 @@ describe('ReadlinePrompter.approve', () => {
     expect(h.out()).toContain('3. No, keep planning');
     h.send('2');
     expect(await p).toEqual({ approved: true, mode: 'ask' });
+    h.close();
+  });
+
+  it('offers auto mode as its own row, on 2 or "s", when it is not already the destination', async () => {
+    const h = harness();
+    const p = h.prompter.approve({ title: 'Plan', body: 'do it', autoAvailable: true, yesMode: 'acceptEdits' });
+    await tick();
+    expect(h.out()).toContain('1. Yes, auto-accept edits');
+    expect(h.out()).toContain('2. Yes, and use auto mode');
+    expect(h.out()).toContain('3. Yes, manually approve edits');
+    h.send('s');
+    expect(await p).toEqual({ approved: true, mode: 'auto' });
     h.close();
   });
 
@@ -346,12 +324,12 @@ describe('ReadlinePrompter with an arrow-key menu', () => {
     h.close();
   });
 
-  it('switches to auto mode from its own row', async () => {
+  it('approves a plan into auto mode from its own row', async () => {
     const h = await menuHarness();
-    const p = h.prompter.confirm({ title: 'T', detail: 'd', alwaysLabel: 'Bash', offerAuto: true });
+    const p = h.prompter.approve({ title: 'Plan', body: 'do it', autoAvailable: true, yesMode: 'acceptEdits' });
     await tick();
-    await h.press('3');
-    expect(await p).toEqual({ choice: 'auto' });
+    await h.press('2');
+    expect(await p).toEqual({ approved: true, mode: 'auto' });
     h.close();
   });
 

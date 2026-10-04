@@ -28,20 +28,6 @@ export function nextPermissionMode(
   return cycle[(i + 1) % cycle.length] ?? 'ask';
 }
 
-/** Whether the permission prompt should offer “yes, and switch to auto mode”. */
-export function offerAutoSwitch(opts: {
-  mode: PermissionMode;
-  autoAvailable: boolean;
-  toolName: string;
-  forcedByRule?: boolean;
-}): boolean {
-  if (!opts.autoAvailable) return false;
-  if (opts.mode !== 'ask' && opts.mode !== 'acceptEdits') return false;
-  if (opts.toolName.toLowerCase() !== 'bash') return false;
-  if (opts.forcedByRule) return false;
-  return true;
-}
-
 /**
  * Label for the plan-approval "yes" choice, derived from the mode approval
  * actually switches to — so a `yolo` destination is never presented as auto.

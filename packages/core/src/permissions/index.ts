@@ -34,7 +34,6 @@ export type { AutoModeAvailability } from './available.js';
 export {
   permissionModeCycle,
   nextPermissionMode,
-  offerAutoSwitch,
   defaultPlanYesMode,
   planApprovalLabel,
 } from './cycle.js';

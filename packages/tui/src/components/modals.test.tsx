@@ -19,9 +19,9 @@ const ASK = {
   alwaysAllow: '`git push` commands',
 };
 
-async function mountAsk(offerAuto = false) {
+async function mountAsk() {
   const onAnswer = vi.fn();
-  const app = render(<PermissionModal ask={ASK} theme={DARK} offerAuto={offerAuto} onAnswer={onAnswer} />);
+  const app = render(<PermissionModal ask={ASK} theme={DARK} onAnswer={onAnswer} />);
   await settle();
   const press = async (data: string): Promise<void> => {
     app.stdin.write(data);
@@ -42,13 +42,6 @@ describe('PermissionModal', () => {
     expect(frame).toContain("2. Yes, and don't ask again for `git push` commands this session");
     expect(frame).toContain('3. No, and tell the agent what to do differently (esc)');
     expect(frame).not.toContain('auto mode');
-  });
-
-  it('offers the auto-mode switch as its own numbered row, before the No', async () => {
-    const { lastFrame } = await mountAsk(true);
-    const frame = lastFrame() ?? '';
-    expect(frame).toContain('3. Yes, and switch to auto mode');
-    expect(frame).toContain('4. No, and tell the agent what to do differently');
   });
 
   it('allows once on a bare Enter — no typing "yes"', async () => {
@@ -125,6 +118,20 @@ describe('PlanModal', () => {
     expect(frame).toContain('❯ 1. Yes, auto-accept edits');
     expect(frame).toContain('2. Yes, manually approve edits');
     expect(frame).toContain('3. No, keep planning');
+  });
+
+  it('offers auto mode as its own row when it is available', async () => {
+    const onAnswer = vi.fn();
+    const app = render(
+      <PlanModal plan={PLAN} theme={DARK} yesMode="acceptEdits" autoAvailable onAnswer={onAnswer} />,
+    );
+    await settle();
+    const frame = app.lastFrame() ?? '';
+    expect(frame).toContain('2. Yes, and use auto mode');
+    expect(frame).toContain('3. Yes, manually approve edits');
+    app.stdin.write('2');
+    await settle();
+    expect(onAnswer).toHaveBeenCalledExactlyOnceWith('auto', undefined);
   });
 
   it('does not repeat "manually approve" when that is already the destination', async () => {

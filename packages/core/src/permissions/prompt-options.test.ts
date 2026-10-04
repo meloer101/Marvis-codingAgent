@@ -22,14 +22,12 @@ describe('askOptions', () => {
     expect(askOptions({}).map((o) => o.value)).toEqual(['once', 'deny']);
   });
 
-  it('slots the auto-mode switch in before the No when offered', () => {
-    const opts = askOptions({ always: 'Bash', offerAuto: true });
-    expect(opts.map((o) => o.value)).toEqual(['once', 'always', 'auto', 'deny']);
-    expect(opts[2]!.label).toBe('Yes, and switch to auto mode');
+  it('never offers a switch to auto mode', () => {
+    expect(askOptions({ always: 'Bash' }).map((o) => o.label).join('\n')).not.toMatch(/auto mode/);
   });
 
   it('only the last row takes typed input', () => {
-    expect(askOptions({ always: 'x', offerAuto: true }).filter((o) => o.input)).toHaveLength(1);
+    expect(askOptions({ always: 'x' }).filter((o) => o.input)).toHaveLength(1);
   });
 });
 
@@ -43,5 +41,13 @@ describe('planOptions', () => {
   it('adds a manual-approval row unless approving already means manual', () => {
     expect(planOptions('acceptEdits').map((o) => o.value)).toEqual(['yes', 'manual', 'no']);
     expect(planOptions('ask').map((o) => o.value)).toEqual(['yes', 'no']);
+  });
+
+  it('offers auto mode as its own row when available and not already the destination', () => {
+    const opts = planOptions('acceptEdits', { autoAvailable: true });
+    expect(opts.map((o) => o.value)).toEqual(['yes', 'auto', 'manual', 'no']);
+    expect(opts[1]!.label).toBe('Yes, and use auto mode');
+    expect(planOptions('auto', { autoAvailable: true }).map((o) => o.value)).toEqual(['yes', 'manual', 'no']);
+    expect(planOptions('acceptEdits').map((o) => o.value)).not.toContain('auto');
   });
 });

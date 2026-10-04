@@ -40,18 +40,16 @@ function askTitle(toolName: string): string {
 export function PermissionModal({
   ask,
   theme,
-  offerAuto,
   onAnswer,
 }: {
   ask: PendingAsk;
   theme: Theme;
-  offerAuto?: boolean;
   /** `feedback` accompanies a `deny` the user explained. */
   onAnswer: (choice: AskChoice, feedback?: string) => void;
 }) {
   const lines = describeToolInput(ask.toolName, ask.input).split('\n');
   const hidden = Math.max(0, lines.length - PREVIEW_LINES);
-  const options = askOptions({ always: ask.alwaysAllow, offerAuto: offerAuto === true });
+  const options = askOptions({ always: ask.alwaysAllow });
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Text bold>{askTitle(ask.toolName)}</Text>
@@ -77,15 +75,18 @@ export function PlanModal({
   plan,
   theme,
   yesMode,
+  autoAvailable,
   onAnswer,
 }: {
   plan: PendingPlan;
   theme: Theme;
   /** The mode approving switches to — `session.planApprovedMode`. */
   yesMode: PermissionMode;
+  /** Offer auto mode as its own row when it is not already `yesMode`. */
+  autoAvailable?: boolean;
   onAnswer: (choice: PlanChoice, feedback?: string) => void;
 }) {
-  const options = planOptions(yesMode);
+  const options = planOptions(yesMode, { autoAvailable: autoAvailable === true });
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1}>
       <Text bold>{plan.title}</Text>

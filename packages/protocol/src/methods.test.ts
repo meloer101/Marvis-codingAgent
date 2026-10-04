@@ -31,12 +31,12 @@ describe('methods', () => {
     expect(schema.safeParse({ id: 's1', sinceSeq: 'nope' }).success).toBe(false);
   });
 
-  it('ask.answer accepts once/always/deny/auto', () => {
+  it('ask.answer accepts once/always/deny — auto mode is a plan-approval choice, not an ask answer', () => {
     const schema = methods['ask.answer'].params;
     expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'once' }).success).toBe(true);
     expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'always' }).success).toBe(true);
     expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'deny' }).success).toBe(true);
-    expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'auto' }).success).toBe(true);
+    expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'auto' }).success).toBe(false);
     expect(schema.safeParse({ sessionId: 's1', askId: 'a1', decision: 'maybe' }).success).toBe(false);
   });
 
