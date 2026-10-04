@@ -34,7 +34,7 @@ import type { MenuAction } from '@/components/ui/menu';
 import { relativeTime } from '@/lib/format';
 import { routeToHash, useRoute } from '@/lib/route';
 import { closePane, focusPane, openBeside, sessionHash } from '@/lib/split';
-import { loadSeen, markSeen, rowStatus, sidebarGroups } from '@/lib/sidebar';
+import { loadSeen, markSeen, rangeBetween, rowStatus, sidebarGroups } from '@/lib/sidebar';
 import type { RowStatus, SidebarGroup } from '@/lib/sidebar';
 import { useSidebarOpen } from '@/lib/sidebarOpen';
 import { useAppStore } from '@/lib/store';
@@ -51,6 +51,9 @@ const COLLAPSED_KEY = 'hc.sidebar.collapsed';
  * place (double-click) and carry a ⋯ / right-click menu. The search box
  * filters every project at once. A row opens in the focused pane of a split;
  * ⌥-click (or "Open beside") opens it next to the session on screen.
+ * ⇧-click selects the rows from the last one clicked, ⌘/Ctrl-click one more
+ * (a middle-click still opens a new tab); the selection is deleted together,
+ * from the bar under the list, its rows' menu or ⌫. Esc lets go of it.
  */
 export function SessionSidebar({
   activeId,
@@ -72,8 +75,14 @@ export function SessionSidebar({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(loadCollapsed);
   const [seen, setSeen] = useState(loadSeen);
   const [renaming, setRenaming] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<SessionSummary | null>(null);
+  const [deleting, setDeleting] = useState<SessionSummary[] | null>(null);
   const [removing, setRemoving] = useState<Workspace | null>(null);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  // Where a ⇧-click range starts: the row last clicked, else the session on screen.
+  const anchor = useRef<string | null>(activeId);
+  useEffect(() => {
+    anchor.current = activeId;
+  }, [activeId]);
   useTick(60_000); // relative times move on by themselves
 
   // The sessions on screen count as seen, up to their latest change.
@@ -101,6 +110,44 @@ export function SessionSidebar({
     platform.storage.set(COLLAPSED_KEY, JSON.stringify([...next]));
   };
 
+  // The rows on show, top to bottom; only these can be selected.
+  const order = useMemo(
+    () => groups.flatMap((g) => (searching || !collapsed.has(g.workspace.id) ? g.rows.map((r) => r.id) : [])),
+    [groups, searching, collapsed],
+  );
+  // A row folded away, filtered out or deleted drops out of the selection.
+  const selection = useMemo(() => {
+    const byId = new Map(sessions.map((s) => [s.id, s]));
+    return order.filter((id) => selected.has(id)).map((id) => byId.get(id)!);
+  }, [order, selected, sessions]);
+
+  const select = (id: string, how: 'range' | 'toggle'): void => {
+    if (how === 'range') {
+      setSelected(new Set(rangeBetween(order, anchor.current, id)));
+      return;
+    }
+    // The first ⌘-click keeps the session on screen, which already looks selected.
+    const from = selection.length > 0 ? selection.map((s) => s.id) : activeId && order.includes(activeId) ? [activeId] : [];
+    setSelected(flip(new Set(from), id));
+    anchor.current = id;
+  };
+  const open = (id: string): void => {
+    anchor.current = id;
+    if (selected.size > 0) setSelected(new Set());
+  };
+
+  const remove = async (rows: SessionSummary[]): Promise<void> => {
+    setDeleting(null);
+    setSelected(new Set());
+    // One at a time: dropping worktrees runs git in the same repository.
+    for (const row of rows) await sync.deleteSession(row.id);
+    const gone = new Set(rows.map((r) => r.id));
+    const pane = shown.findIndex((id) => gone.has(id));
+    if (pane === -1) return;
+    if (shown.some((id) => !gone.has(id))) closePane(pane);
+    else window.location.hash = routeToHash({ kind: 'new', workspaceId: rows.find((r) => r.id === shown[0])!.workspaceId });
+  };
+
   const fresh = useFreshRows(sessions);
   const addProject = useAddProject();
   const picking = useAppStore((s) => s.pickingFolder);
@@ -108,7 +155,22 @@ export function SessionSidebar({
 
   return (
     <SlideRegion open={useSidebarOpen()} width="248px">
-      <aside aria-label="Sessions" className="flex h-full flex-col border-r bg-background">
+      <aside
+        aria-label="Sessions"
+        className="flex h-full flex-col border-r bg-background"
+        onKeyDown={(e) => {
+          // Not keys from the search or rename field, nor from a menu or dialog (portalled out of the list).
+          if (selection.length === 0 || e.target instanceof HTMLInputElement) return;
+          if (!e.currentTarget.contains(e.target as Node)) return;
+          if (e.key === 'Escape') {
+            e.preventDefault(); // lets go of the selection; must not also stop a run
+            setSelected(new Set());
+          } else if (e.key === 'Backspace' || e.key === 'Delete') {
+            e.preventDefault();
+            setDeleting(selection);
+          }
+        }}
+      >
       <div className="titlebar flex h-11 shrink-0 items-center gap-1 pr-3 pl-2.5">
         <SidebarCloser />
         <span className="text-sm font-semibold">
@@ -174,25 +236,32 @@ export function SessionSidebar({
             onToggleArchived={() => setShowArchived(flip(showArchived, group.workspace.id))}
             onRemove={() => setRemoving(group.workspace)}
           >
-            {group.rows.map((row) => (
-              <SessionRow
-                key={row.id}
-                row={row}
-                active={row.id === activeId}
-                pane={shown.indexOf(row.id)}
-                canOpenBeside={activeId !== null && row.id !== activeId}
-                status={rowStatus(row, seen[row.id], shown.includes(row.id))}
-                riseDelay={fresh.get(row.id)}
-                renaming={renaming === row.id}
-                onStartRename={() => setRenaming(row.id)}
-                onRename={(title) => {
-                  setRenaming(null);
-                  if (title.trim() !== row.title) void sync.updateSession(row.id, { title });
-                }}
-                onCancelRename={() => setRenaming(null)}
-                onDelete={() => setDeleting(row)}
-              />
-            ))}
+            {group.rows.map((row) => {
+              const inSelection = selection.length > 1 && selected.has(row.id);
+              return (
+                <SessionRow
+                  key={row.id}
+                  row={row}
+                  active={row.id === activeId}
+                  selected={selection.length > 0 ? selected.has(row.id) : undefined}
+                  selectionSize={inSelection ? selection.length : 0}
+                  onSelect={(how) => select(row.id, how)}
+                  onOpen={() => open(row.id)}
+                  pane={shown.indexOf(row.id)}
+                  canOpenBeside={activeId !== null && row.id !== activeId}
+                  status={rowStatus(row, seen[row.id], shown.includes(row.id))}
+                  riseDelay={fresh.get(row.id)}
+                  renaming={renaming === row.id}
+                  onStartRename={() => setRenaming(row.id)}
+                  onRename={(title) => {
+                    setRenaming(null);
+                    if (title.trim() !== row.title) void sync.updateSession(row.id, { title });
+                  }}
+                  onCancelRename={() => setRenaming(null)}
+                  onDelete={() => setDeleting(inSelection ? selection : [row])}
+                />
+              );
+            })}
           </ProjectGroup>
         ))}
         {!searching && (
@@ -207,6 +276,31 @@ export function SessionSidebar({
           </button>
         )}
       </nav>
+
+      {selection.length > 0 && (
+        <div className="mx-2.5 flex h-9 shrink-0 items-center gap-1 rounded-md bg-subtle pr-1 pl-2.5">
+          <span className="flex-1 text-[12px] text-muted-foreground">{selection.length} selected</span>
+          <button
+            type="button"
+            onClick={() => setDeleting(selection)}
+            disabled={!connected}
+            title="Delete the selected sessions (⌫)"
+            className="flex h-[26px] items-center gap-1 rounded-md bg-background px-1.5 text-xs font-medium text-destructive transition-colors hover:bg-background/70 disabled:opacity-40"
+          >
+            <Trash2 className="size-3.5" />
+            Delete…
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            aria-label="Clear selection"
+            title="Clear selection (Esc)"
+            className="rounded p-1 text-faint transition-colors hover:text-foreground"
+          >
+            <X className="size-3.5" />
+          </button>
+        </div>
+      )}
 
       <div className="flex h-10 shrink-0 items-center gap-0.5 pr-3.5 pl-2.5">
         <ThemeToggle />
@@ -236,19 +330,7 @@ export function SessionSidebar({
         </span>
       </div>
 
-      <DeleteSessionDialog
-        session={deleting}
-        onClose={() => setDeleting(null)}
-        onConfirm={(row) => {
-          setDeleting(null);
-          void sync.deleteSession(row.id).then(() => {
-            const pane = shown.indexOf(row.id);
-            if (pane === -1) return;
-            if (shown.length > 1) closePane(pane);
-            else window.location.hash = routeToHash({ kind: 'new', workspaceId: row.workspaceId });
-          });
-        }}
-      />
+      <DeleteSessionsDialog sessions={deleting} onClose={() => setDeleting(null)} onConfirm={(rows) => void remove(rows)} />
       <RemoveProjectDialog
         workspace={removing}
         onClose={() => setRemoving(null)}
@@ -369,6 +451,10 @@ function ProjectGroup({
 function SessionRow({
   row,
   active,
+  selected,
+  selectionSize,
+  onSelect,
+  onOpen,
   pane,
   canOpenBeside,
   status,
@@ -382,6 +468,13 @@ function SessionRow({
   row: SessionSummary;
   /** It has the focus. */
   active: boolean;
+  /** Picked with ⇧- or ⌘-click; undefined while nothing is. */
+  selected: boolean | undefined;
+  /** How many rows its menu acts on: those selected with it, or 0 when it acts on this row alone. */
+  selectionSize: number;
+  onSelect: (how: 'range' | 'toggle') => void;
+  /** A plain click: it opens, and any selection goes. */
+  onOpen: () => void;
   /** The pane it shows in (-1: not on screen). */
   pane: number;
   canOpenBeside: boolean;
@@ -398,18 +491,22 @@ function SessionRow({
   if (renaming) return <RenameRow title={row.title} onDone={onRename} onCancel={onCancelRename} />;
 
   const update = (patch: { pinned?: boolean; archived?: boolean }) => () => void sync.updateSession(row.id, patch);
-  const actions: MenuAction[] = [
-    { label: 'Rename', icon: <Pencil />, onSelect: onStartRename },
-    row.pinned
-      ? { label: 'Unpin', icon: <PinOff />, onSelect: update({ pinned: false }) }
-      : { label: 'Pin', icon: <Pin />, onSelect: update({ pinned: true }) },
-    row.archived
-      ? { label: 'Unarchive', icon: <ArchiveRestore />, onSelect: update({ archived: false }) }
-      : { label: 'Archive', icon: <Archive />, onSelect: update({ archived: true }) },
-    ...(canOpenBeside ? [{ label: 'Open beside', icon: <Columns2 />, onSelect: () => openBeside(row.id) }] : []),
-    { label: 'Copy session id', icon: <Copy />, onSelect: () => void navigator.clipboard?.writeText(row.id) },
-    { label: 'Delete…', icon: <Trash2 />, onSelect: onDelete, destructive: true, separated: true },
-  ];
+  // Part of a selection, its menu acts on the selection.
+  const actions: MenuAction[] =
+    selectionSize > 1
+      ? [{ label: `Delete ${selectionSize} sessions…`, icon: <Trash2 />, onSelect: onDelete, destructive: true }]
+      : [
+          { label: 'Rename', icon: <Pencil />, onSelect: onStartRename },
+          row.pinned
+            ? { label: 'Unpin', icon: <PinOff />, onSelect: update({ pinned: false }) }
+            : { label: 'Pin', icon: <Pin />, onSelect: update({ pinned: true }) },
+          row.archived
+            ? { label: 'Unarchive', icon: <ArchiveRestore />, onSelect: update({ archived: false }) }
+            : { label: 'Archive', icon: <Archive />, onSelect: update({ archived: true }) },
+          ...(canOpenBeside ? [{ label: 'Open beside', icon: <Columns2 />, onSelect: () => openBeside(row.id) }] : []),
+          { label: 'Copy session id', icon: <Copy />, onSelect: () => void navigator.clipboard?.writeText(row.id) },
+          { label: 'Delete…', icon: <Trash2 />, onSelect: onDelete, destructive: true, separated: true },
+        ];
 
   return (
     <ContextActions actions={actions}>
@@ -420,7 +517,12 @@ function SessionRow({
         <a
           href={sessionHash(row.id)}
           onClick={(e) => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey) return; // the browser's own: a new tab or window
+            if (e.shiftKey || e.metaKey || e.ctrlKey) {
+              e.preventDefault(); // selects, in place of the browser's new tab or window
+              onSelect(e.shiftKey ? 'range' : 'toggle');
+              return;
+            }
+            onOpen();
             if (e.altKey && canOpenBeside) {
               e.preventDefault();
               openBeside(row.id);
@@ -435,10 +537,13 @@ function SessionRow({
           }}
           title={canOpenBeside ? '⌥-click to open beside' : undefined}
           aria-current={active ? 'page' : undefined}
+          data-selected={selected || undefined}
           className={cn(
             'flex h-7 items-center gap-2 rounded-md px-2 text-[12px] text-muted-foreground transition-colors hover:bg-subtle hover:text-foreground',
-            active && 'bg-muted font-medium text-foreground hover:bg-muted',
-            !active && pane !== -1 && 'bg-subtle text-foreground',
+            // While a selection is made, the fill marks it; the session on screen keeps its weight.
+            (selected ?? active) && 'bg-muted text-foreground hover:bg-muted',
+            active && 'font-medium text-foreground',
+            !(selected ?? active) && pane !== -1 && 'bg-subtle text-foreground',
             row.archived && 'text-faint',
           )}
         >
@@ -515,33 +620,45 @@ function RenameRow({ title, onDone, onCancel }: { title: string; onDone: (title:
   );
 }
 
-function DeleteSessionDialog({
-  session,
+/** Confirms deleting one session or several; running ones can't go, so they are listed but kept. */
+function DeleteSessionsDialog({
+  sessions,
   onClose,
   onConfirm,
 }: {
-  session: SessionSummary | null;
+  sessions: SessionSummary[] | null;
   onClose: () => void;
-  onConfirm: (session: SessionSummary) => void;
+  onConfirm: (sessions: SessionSummary[]) => void;
 }) {
+  const doomed = sessions?.filter((s) => !s.running) ?? [];
+  const running = (sessions?.length ?? 0) - doomed.length;
   return (
-    <Dialog open={session !== null} onOpenChange={(open) => !open && onClose()}>
-      {session && (
+    <Dialog open={sessions !== null} onOpenChange={(open) => !open && onClose()}>
+      {sessions && (
         <DialogContent
-          title="Delete this session?"
-          description={
-            session.worktree
-              ? `Its conversation, metadata, offloaded output and trace are removed for good — and its worktree, with any uncommitted changes. Its branch ${session.worktree.branch} goes too if it was merged.`
-              : 'Its conversation, metadata, offloaded output and trace are removed for good.'
-          }
+          title={sessions.length === 1 ? 'Delete this session?' : `Delete ${sessions.length} sessions?`}
+          description={describeDelete(sessions, doomed)}
         >
           <div className="flex flex-col gap-4 px-5 pt-3 pb-5">
-            <p className="truncate rounded-md bg-subtle px-3 py-2 text-[13px]">{session.title}</p>
+            <ul className="max-h-40 overflow-y-auto rounded-md bg-subtle px-3 py-2 text-[13px]">
+              {sessions.map((s) => (
+                <li key={s.id} className={cn('truncate', s.running && 'text-faint')}>
+                  {s.title || 'Untitled session'}
+                </li>
+              ))}
+            </ul>
+            {running > 0 && (
+              <p className="-mt-2 text-[12px] text-muted-foreground">
+                {running === sessions.length
+                  ? `${sessions.length === 1 ? 'It is' : 'They are all'} running — stop ${sessions.length === 1 ? 'it' : 'them'} first.`
+                  : `${running} of them ${running === 1 ? 'is' : 'are'} running and stay${running === 1 ? 's' : ''}.`}
+              </p>
+            )}
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={onClose}>
                 Cancel
               </Button>
-              <Button variant="destructive" size="sm" onClick={() => onConfirm(session)}>
+              <Button variant="destructive" size="sm" disabled={doomed.length === 0} onClick={() => onConfirm(doomed)}>
                 Delete
               </Button>
             </div>
@@ -550,6 +667,19 @@ function DeleteSessionDialog({
       )}
     </Dialog>
   );
+}
+
+function describeDelete(sessions: SessionSummary[], doomed: SessionSummary[]): string {
+  const [only] = sessions;
+  if (sessions.length === 1 && only) {
+    return only.worktree
+      ? `Its conversation, metadata, offloaded output and trace are removed for good — and its worktree, with any uncommitted changes. Its branch ${only.worktree.branch} goes too if it was merged.`
+      : 'Its conversation, metadata, offloaded output and trace are removed for good.';
+  }
+  const worktrees = doomed.filter((s) => s.worktree).length;
+  if (worktrees === 0) return 'Their conversations, metadata, offloaded output and traces are removed for good.';
+  const which = worktrees === doomed.length ? 'their worktrees' : `the worktrees of ${worktrees} of them`;
+  return `Their conversations, metadata, offloaded output and traces are removed for good — and ${which}, with any uncommitted changes. Merged branches go too.`;
 }
 
 function RemoveProjectDialog({

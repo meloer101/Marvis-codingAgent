@@ -46,6 +46,19 @@ export function sidebarGroups(
   return groups;
 }
 
+/**
+ * A ⇧-click's selection: the rows from `anchor` to `to`, both included, in
+ * the order the sidebar shows them (either direction). Just `to` when the
+ * anchor isn't on show — folded away, filtered out or gone.
+ */
+export function rangeBetween(order: readonly string[], anchor: string | null, to: string): string[] {
+  const end = order.indexOf(to);
+  if (end === -1) return [];
+  const start = anchor === null ? -1 : order.indexOf(anchor);
+  if (start === -1) return [to];
+  return order.slice(Math.min(start, end), Math.max(start, end) + 1);
+}
+
 /** What a row's right edge shows, most urgent first. */
 export type RowStatus = 'pending' | 'running' | 'unread' | 'idle';
 

@@ -1,7 +1,7 @@
 import type { SessionSummary, Workspace } from '@harness-code/protocol';
 import { describe, expect, it } from 'vitest';
 
-import { markSeen, rowStatus, sidebarGroups } from './sidebar';
+import { markSeen, rangeBetween, rowStatus, sidebarGroups } from './sidebar';
 
 const ws = (id: string): Workspace => ({
   id,
@@ -52,6 +52,21 @@ describe('sidebarGroups', () => {
     expect(sidebarGroups([ws('empty')], []).map((g) => g.rows)).toEqual([[]]);
     const found = sidebarGroups(workspaces, sessions, { query: '  NEW ' });
     expect(found.map((g) => [g.workspace.id, g.rows.map((r) => r.id)])).toEqual([['a', ['new']]]);
+  });
+});
+
+describe('rangeBetween', () => {
+  const order = ['a', 'b', 'c', 'd'];
+  it('runs from the anchor to the row clicked, either way, both included', () => {
+    expect(rangeBetween(order, 'b', 'd')).toEqual(['b', 'c', 'd']);
+    expect(rangeBetween(order, 'd', 'b')).toEqual(['b', 'c', 'd']);
+    expect(rangeBetween(order, 'c', 'c')).toEqual(['c']);
+  });
+
+  it('is just the row clicked without an anchor on show, and nothing for a row not on show', () => {
+    expect(rangeBetween(order, null, 'c')).toEqual(['c']);
+    expect(rangeBetween(order, 'folded', 'c')).toEqual(['c']);
+    expect(rangeBetween(order, 'a', 'gone')).toEqual([]);
   });
 });
 

@@ -11,6 +11,8 @@ const SHORTCUTS: Array<[string, string]> = [
   ['Shift+Tab', 'Switch permission mode'],
   ['⌘K / Ctrl+K', 'Command palette'],
   ['⇧⌘O / Ctrl+Shift+O', 'New session'],
+  ['⇧-click / ⌘-click', 'Sidebar: select a run of sessions / one more'],
+  ['⌫ (selection)', 'Delete the selected sessions'],
   ['⌥⌘B / Ctrl+Alt+B', 'Show or hide the changes panel'],
   ['Ctrl+`', 'Show or hide the terminal'],
   ['Ctrl+O', 'Show every tool call, or fold exploration again'],
