@@ -78,7 +78,8 @@ export type SettingsMethod =
   | 'agents.get'
   | 'agents.save'
   | 'agents.write'
-  | 'agents.delete';
+  | 'agents.delete'
+  | 'doctor.run';
 
 export type McpLoginPush = Extract<PushEvent, { type: 'mcp_login' }>;
 import type { Checkout } from './checkout';

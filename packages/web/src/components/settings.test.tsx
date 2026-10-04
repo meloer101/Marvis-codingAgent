@@ -1,10 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { AgentFields, AgentsView, McpServerEntry, McpView, MemoryView, ProvidersView, SessionDenials, SettingsView, SkillsView } from '@harness-code/protocol';
+import type { AgentFields, AgentsView, DoctorReport, McpServerEntry, McpView, MemoryView, ProvidersView, SessionDenials, SettingsView, SkillsView } from '@harness-code/protocol';
 
 import { AgentsSection } from './settings/AgentsSection';
 import { AutoModeSection } from './settings/AutoModeSection';
+import { DoctorSection, reportText } from './settings/DoctorSection';
 import { McpSection } from './settings/McpSection';
 import { MemorySection } from './settings/MemorySection';
 import { ModelsSection } from './settings/ModelsSection';
@@ -491,6 +492,56 @@ describe('AgentsSection', () => {
     expect(settingsCall).toHaveBeenCalledWith('agents.get', { workspaceId: 'w1', scope: 'builtin', name: 'explore' });
     expect(settingsCall).toHaveBeenCalledWith('agents.save', { workspaceId: 'w1', scope: 'user', name: 'explore', fields });
     expect(await screen.findByRole('form', { name: 'Edit explore' })).toBeTruthy();
+  });
+});
+
+describe('DoctorSection', () => {
+  const report = (connected: boolean): DoctorReport => ({
+    connected,
+    at: 0,
+    groups: [
+      {
+        id: 'model',
+        title: 'Model',
+        checks: [
+          { id: 'model.default', label: 'Default model', status: 'ok', detail: 'deepseek/deepseek-flash — from the built-in default', section: 'models' },
+          { id: 'model.key', label: 'DeepSeek API key', status: 'error', detail: 'None set', fix: 'Paste one in Settings › Models.', section: 'models' },
+          ...(connected ? [{ id: 'model.connection', label: 'DeepSeek connection', status: 'ok' as const, detail: 'DeepSeek answered' }] : []),
+        ],
+      },
+      {
+        id: 'mcp',
+        title: 'MCP servers',
+        checks: [{ id: 'mcp.project.gh', label: 'gh', status: 'warn', detail: 'Uses ${GITHUB_TOKEN}, which isn’t set', fix: 'Set it in an .env', section: 'mcp' }],
+      },
+    ],
+  });
+
+  it('runs the quick checks as it opens, counts what needs you, and links each to where it is fixed', async () => {
+    const { sync, settingsCall } = syncFor((_, params) => report(params.connect === true));
+    render(
+      <SyncProvider sync={sync}>
+        <DoctorSection workspaceId="w1" projectName="repo" />
+      </SyncProvider>,
+    );
+    expect(await screen.findByText('1 problem')).toBeTruthy();
+    expect(screen.getByText('1 thing to look at')).toBeTruthy();
+    expect(settingsCall).toHaveBeenCalledWith('doctor.run', { workspaceId: 'w1' });
+    expect(screen.getByText('Paste one in Settings › Models.')).toBeTruthy();
+    const links = screen.getAllByRole('link');
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['#/settings/models', '#/settings/mcp']);
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Check connections' })));
+    expect(settingsCall).toHaveBeenCalledWith('doctor.run', { workspaceId: 'w1', connect: true });
+    expect(await screen.findByText('DeepSeek answered')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Check connections' })).toBeNull();
+  });
+
+  it('writes the report as text for a bug report', () => {
+    const text = reportText(report(false), 'repo');
+    expect(text).toContain('## Model');
+    expect(text).toContain('✗ DeepSeek API key: None set\n  → Paste one in Settings › Models.');
+    expect(text).not.toContain('→ deepseek');
   });
 });
 

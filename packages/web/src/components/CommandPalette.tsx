@@ -38,6 +38,7 @@ import {
   Sparkle,
   Square,
   SquareTerminal,
+  Stethoscope,
   Sun,
 } from 'lucide-react';
 
@@ -339,6 +340,14 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
       keywords: 'settings subagent agent task explore plan new tools model',
       icon: Bot,
       run: go(routeToHash({ kind: 'settings', section: 'agents' })),
+    });
+    items.push({
+      id: 'settings-doctor',
+      group: 'App',
+      label: 'Check the setup (diagnostics)',
+      keywords: 'doctor health check troubleshoot problem key connection mcp broken',
+      icon: Stethoscope,
+      run: go(routeToHash({ kind: 'settings', section: 'doctor' })),
     });
     items.push({
       id: 'settings-memory',

@@ -177,6 +177,7 @@ the server with the same schemas the client is typed from.
 | `agents.save {workspaceId, scope, name, fields, previousName?}` | write a sub-agent from its fields (`description`, `tools` — omitted for all the built-in ones, empty for none — `model`, `effort`, `body`): new, or over `previousName`, renamed when the names differ, keeping what else its frontmatter had; `conflict` for a name taken there, `bad_request` for what wouldn't parse |
 | `agents.write {workspaceId, scope, name, text}` | write a sub-agent's file as it is; it must parse as one named for its file |
 | `agents.delete {workspaceId, scope, name}` | delete a sub-agent's file |
+| `doctor.run {workspaceId, connect?}` | what Marvis makes of the workspace's setup, a check at a time in groups — the model and its key, the settings files, permissions and the command sandbox, MCP servers (a `${VAR}` unset, a command not on the PATH, a sign-in missing), skills, sub-agents and memory that sessions skip, and the machine (Node, git, ripgrep, node-pty, the folder chooser, editors) — each `ok`, `warn`, `error` or `info`, with what to do and the settings section where. Nothing secret: a key by where it comes from, a variable by name. With `connect`, the model's provider is asked for its list of models (no tokens spent: the key taken or refused, the model's name listed or not) and each MCP server started. `marvis doctor [--connect] [--json]` prints the same |
 | `stats.summary {workspaceId?, since?}` | every traced session started since then, in one project or all: each one's figures and the rollup across them — totals, averages, per model |
 | `session.slashCommands {id}` | the session's MCP prompt commands |
 | `session.skills {id}` | the session's skills (`/name [task]` loads one) |
@@ -650,7 +651,12 @@ The token is as powerful as the user's shell — a client can switch a session t
   session's built-in ones), a model (suggested from the workspace's) and an
   effort, and its instructions. On hover a row has Edit (the same form, or
   "Edit the file instead"), its file, and Delete; a built-in one is read, or
-  copied to yours and opened to change. **Tools**: the switch
+  copied to yours and opened to change. **Diagnostics**: `doctor.run` as
+  the page opens — the quick checks, no network — with a line of what needs
+  you ("1 problem · 2 things to look at"), Check again, and Check
+  connections; each check a row with its status icon, what was found, and,
+  when it isn't fine, what to do and a link to its settings section; Copy
+  report puts it on the clipboard as text. **Tools**: the switch
   for background commands in your settings (`settings.setBackgroundProcesses`),
   noting when the project's turn them on regardless; sessions started
   afterwards have them, as the tools a session shows the model are fixed when
