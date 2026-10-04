@@ -47,9 +47,10 @@ describe('bashTool', () => {
 
   it('streams output as it comes, whole characters only, and returns all of it', async () => {
     const chunks: string[] = [];
-    // A three-byte character split across two writes, then stderr.
+    // A three-byte character split across two writes, then stderr. Octal
+    // escapes: dash's printf (Linux /bin/sh) has no `\x`.
     const result = await bashTool.execute(
-      { command: "printf '\\xe4\\xbd'; sleep 0.05; printf '\\xa0 ok\\n'; echo err >&2" },
+      { command: "printf '\\344\\275'; sleep 0.05; printf '\\240 ok\\n'; echo err >&2" },
       { ...ctx, onOutput: (t) => chunks.push(t) },
     );
     expect(result.content).toBe('你 ok\nerr\n');
