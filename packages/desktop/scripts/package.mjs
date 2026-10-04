@@ -62,10 +62,13 @@ async function readVersion() {
   return m[1];
 }
 
-/** `build/icon.svg` → an .icns, through Quick Look (renders SVG), sips and iconutil — all built into macOS. */
+/**
+ * `build/icon.svg` → an .icns, through sips (renders SVG) and iconutil — both built into macOS.
+ * Not Quick Look (`qlmanage -t`): it paints the SVG onto opaque white, so the tile's corners came out white.
+ */
 async function makeIcon(work) {
-  await run('qlmanage', ['-t', '-s', '1024', '-o', work, resolve(desktop, 'build/icon.svg')]);
-  const png = join(work, 'icon.svg.png');
+  const png = join(work, 'icon.png');
+  await run('sips', ['-s', 'format', 'png', resolve(desktop, 'build/icon.svg'), '--out', png]);
   const iconset = join(work, 'icon.iconset');
   await mkdir(iconset);
   for (const size of [16, 32, 128, 256, 512]) {

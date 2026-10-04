@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <!-- The Marvis mark on whole pixels at 32 and at 16. Figma: Learning Project → Logo. -->
+  <rect width="32" height="32" rx="7" fill="#111114"/>
+  <path d="M6 24 L6 12 L10.46 12 L14.39 17.38 L19.99 6 L24 6 L24 24 L20 24 L20 14.13 L15 24.3 L10 17.47 L10 24 Z" fill="#fff"/>
+</svg>

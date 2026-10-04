@@ -59,6 +59,14 @@ IBM Plex, self-hosted via Fontsource (the server CSP is `font-src 'self'`); CJK 
 
 No serif, no uppercase eyebrows.
 
+## Logo
+
+The mark ("Stride") is an M whose left stem is short and right stem tall, so it also reads as a check. It is one colour, solid: ink on light, `#ededf0` in dark, white on ink. Amber and blue stay out of it — both have jobs in the product. Beside the wordmark (Plex Sans Medium, −2%), the mark is cap height, a stem's width away.
+
+- App icon: `packages/desktop/build/icon.svg` — the macOS 1024 grid, an ink 824 tile with continuous corners, the mark 340 tall in white. `pnpm release:desktop` turns it into the .icns.
+- Favicon: `packages/web/public/favicon.svg` (32, stems on whole pixels at 32 and 16), `favicon.ico` (16 + 32) and `apple-touch-icon.png` (180, full bleed).
+- Source: Figma "Learning Project", page Logo — the directions considered and the spec.
+
 ## Layout and regions
 
 - **Shell:** sidebar (248px, white, a hairline on its right) + main (white) + side panel (`min(440px, 42vw)`, `muted` grey, no border). Radius: 4px for controls (`rounded-md`), 6px for blocks (`rounded-lg`).
