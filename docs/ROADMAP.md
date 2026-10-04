@@ -162,6 +162,7 @@
   **通过 5/16**。这 16 个是挑出来的失败任务，重跑本身就会有一些因随机性通过，单次结果只能看方向。被拒的工具调用
   60/610 → 0/574；2 个任务因 bash 超时 bug 卡到 30 分钟（见摩擦表）。花费约 ¥5.2。轨迹在
   `evals/harbor/.jobs/2026-10-04__09-03-02/`（gitignore，只在本机）。
+  这次暴露的 hc 自身改进点整理在 [harness-gaps.md](harness-gaps.md)。
 - **9-23/24 全量**：`deepseek-flash`，Terminal-Bench 2.0 全部 89 个任务各跑 1 次（先跑 18 任务子集，再跑其余
   71 个；第二批多了一个 `grep` 修复，其他版本相同），本地 Docker（Apple M4 + Rosetta，
   `--agent-timeout-multiplier 2`）。**有效 71 个，通过 53 个 = 75%**。另外 18 个不计入：DeepSeek 余额耗尽
