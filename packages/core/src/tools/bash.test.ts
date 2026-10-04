@@ -70,6 +70,49 @@ describe('bashTool', () => {
     expect(result.content).toContain('timed out');
   }, 10_000);
 
+  // A process the shell started; reaped by init once the shell is gone, so poll.
+  const gone = async (pid: number): Promise<boolean> => {
+    for (let i = 0; i < 40; i++) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        return true;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return false;
+  };
+
+  it('on a timeout stops what the shell started too, and returns on time', async () => {
+    for (const command of ['sleep 30 | cat', 'cd . && sleep 30']) {
+      const started = Date.now();
+      const result = await bashTool.execute({ command, timeoutMs: 200 }, ctx);
+      expect(result.content, command).toContain('timed out');
+      expect(Date.now() - started, command).toBeLessThan(5_000);
+    }
+    const result = await bashTool.execute({ command: 'sleep 30 & echo $!; wait', timeoutMs: 200 }, ctx);
+    expect(await gone(Number(result.content.trim().split('\n')[0]))).toBe(true);
+  }, 20_000);
+
+  it('on an abort stops the command and what it started', async () => {
+    const ac = new AbortController();
+    let out = '';
+    const result = await bashTool.execute(
+      { command: 'sleep 30 & echo $!; wait' },
+      {
+        ...ctx,
+        signal: ac.signal,
+        onOutput: (t) => {
+          out += t;
+          if (out.includes('\n')) ac.abort();
+        },
+      },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('aborted');
+    expect(await gone(Number(out.trim()))).toBe(true);
+  }, 10_000);
+
   it('truncates very large output and reports how much was omitted', async () => {
     const result = await bashTool.execute(
       { command: 'node -e "process.stdout.write(\'x\'.repeat(50000))"' },

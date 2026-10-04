@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { relative, resolve } from 'node:path';
 
 import { z } from 'zod';
@@ -7,7 +7,7 @@ import { truncateHeadTail } from '../context/truncate.js';
 import { wrapCommand } from '../permissions/macos-sandbox.js';
 import { PathEscapeError, assertInsideWorkspace } from '../permissions/paths.js';
 import { guardSecretSearch, sandboxedEnv } from '../permissions/sandbox.js';
-import type { BackgroundProcesses } from './background.js';
+import { signalGroup, type BackgroundProcesses } from './background.js';
 import type { ToolContext, ToolResult, ToolSpec } from './types.js';
 import { errorMessage } from './util.js';
 
@@ -38,6 +38,16 @@ const MAX_OUTPUT_CHARS = 30_000;
 const HEAD_CHARS = 20_000;
 const TAIL_CHARS = 8_000;
 const KILL_GRACE_MS = 2_000;
+const ABORTED = 'Could not run command: The operation was aborted';
+
+/**
+ * Commands still running. Each has its own process group, out of reach of a
+ * signal to this process's, so this process takes them along when it exits.
+ */
+const running = new Set<ChildProcess>();
+process.on('exit', () => {
+  for (const child of running) signalGroup(child, 'SIGKILL');
+});
 
 /**
  * No command-line vetting here on purpose — that is the permission engine's
@@ -88,29 +98,50 @@ async function runBash(input: Input, ctx: ToolContext, background: BackgroundPro
   // narrower execution directory — a command run from a subdirectory can still
   // legitimately write to a sibling path within the same workspace.
   const { cmd: spawnCmd, args: spawnArgs } = wrapCommand(['-c', guardSecretSearch(input.command)], ctx.cwd);
+  if (ctx.signal?.aborted) return { content: ABORTED, isError: true };
 
   return new Promise<ToolResult>((resolvePromise) => {
-    const child = spawn(spawnCmd, spawnArgs, {
-      cwd,
-      env: sandboxedEnv(),
-      ...(ctx.signal ? { signal: ctx.signal } : {}),
-    });
+    // Its own process group, so a timeout or an abort stops what the shell
+    // started — a pipeline, `cd x && cmd`, something put in the background —
+    // and not just the shell, whose children would keep the output pipes open
+    // and this promise waiting on them.
+    const child = spawn(spawnCmd, spawnArgs, { cwd, env: sandboxedEnv(), detached: true });
+    running.add(child);
     let output = '';
     let timedOut = false;
     let settled = false;
+    let force: NodeJS.Timeout | undefined;
+
+    const stop = (): void => {
+      signalGroup(child, 'SIGTERM');
+      force = setTimeout(() => {
+        signalGroup(child, 'SIGKILL');
+        // Whatever left the group (setsid) may still hold the pipes: stop waiting on them.
+        setTimeout(() => {
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+        }, KILL_GRACE_MS).unref();
+      }, KILL_GRACE_MS);
+    };
 
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), KILL_GRACE_MS);
+      stop();
     }, timeoutMs);
+
+    const onAbort = (): void => {
+      stop();
+      finish({ content: ABORTED, isError: true });
+    };
 
     const finish = (result: ToolResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      ctx.signal?.removeEventListener('abort', onAbort);
       resolvePromise(result);
     };
+    ctx.signal?.addEventListener('abort', onAbort, { once: true });
 
     // Decoded per stream, so a character split across two chunks stays whole.
     const onData = (text: string): void => {
@@ -121,6 +152,8 @@ async function runBash(input: Input, ctx: ToolContext, background: BackgroundPro
     child.stderr?.setEncoding('utf8').on('data', onData);
 
     child.on('close', (code) => {
+      running.delete(child);
+      clearTimeout(force);
       const truncated = truncateHeadTail(output, {
         maxChars: MAX_OUTPUT_CHARS,
         headChars: HEAD_CHARS,
@@ -139,6 +172,7 @@ async function runBash(input: Input, ctx: ToolContext, background: BackgroundPro
     });
 
     child.on('error', (err) => {
+      running.delete(child);
       finish({ content: `Could not run command: ${err.message}`, isError: true });
     });
   });

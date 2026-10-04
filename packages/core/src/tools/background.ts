@@ -189,7 +189,8 @@ export class BackgroundProcesses {
   }
 }
 
-function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+/** Signal `child`'s process group (it was spawned `detached`), or the process alone when there is none. */
+export function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
   if (child.pid === undefined) return;
   try {
     process.kill(-child.pid, signal);
