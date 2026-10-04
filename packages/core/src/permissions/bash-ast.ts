@@ -43,7 +43,8 @@ export interface InspectOptions {
   /**
    * The workspace root. An absolute path strictly inside it is not a
    * catastrophic `rm -rf` target (the agent cleaning up its own scratch dir);
-   * the root itself still is. Without it every absolute path outside `/tmp` is.
+   * the root itself, and any directory that contains it, still is — even
+   * under `/tmp`. Without it every absolute path outside `/tmp` is.
    */
   workspaceRoot?: string;
 }
@@ -301,9 +302,11 @@ function isCatastrophicRmTarget(arg: string, workspaceRoot?: string): boolean {
   if (arg.startsWith('-')) return false;
   if (workspaceRoot && arg.startsWith('/')) {
     // Strictly inside the workspace is the agent's own business; the root
-    // itself, or a path that `..`s back out, is not.
+    // itself, or a directory that contains it, is not — even under /tmp.
     const root = posix.resolve(workspaceRoot);
-    if (posix.resolve(arg).startsWith(`${root}/`)) return false;
+    const target = posix.resolve(arg);
+    if (target.startsWith(`${root}/`)) return false;
+    if (target === '/' || target === root || root.startsWith(`${target}/`)) return true;
   }
   const home = homedir();
   if (arg === '/' || arg === '/*' || arg === '~' || arg === '$HOME' || arg === home) return true;

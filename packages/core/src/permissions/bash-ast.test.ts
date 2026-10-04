@@ -30,6 +30,15 @@ describe('inspectBash', () => {
     expect(result.segments).toEqual([['rm', '-rf', './build']]);
   });
 
+  it('refuses the workspace root and what contains it, even with the workspace under /tmp', () => {
+    const opts = { workspaceRoot: '/tmp/hc-ws' };
+    for (const target of ['/tmp/hc-ws', '/tmp/hc-ws/', '/tmp/hc-ws/src/../..', '/tmp']) {
+      expect(inspectBash(`rm -rf ${target}`, opts).hardDenyReason, target).toMatch(/recursive delete/i);
+    }
+    expect(inspectBash('rm -rf /tmp/hc-ws/scratch', opts).hardDenyReason).toBeUndefined();
+    expect(inspectBash('rm -rf /tmp/other', opts).hardDenyReason).toBeUndefined();
+  });
+
   it('denies reading and writing ~/.ssh', () => {
     expect(inspectBash('cat ~/.ssh/id_rsa').hardDenyReason).toMatch(/not allowed/i);
     expect(inspectBash('echo hi > ~/.ssh/authorized_keys').hardDenyReason).toMatch(/not allowed/i);
