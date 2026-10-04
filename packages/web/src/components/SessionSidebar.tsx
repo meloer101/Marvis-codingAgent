@@ -318,7 +318,7 @@ function ProjectGroup({
         >
           <span
             className={cn(
-              'truncate text-[11px] font-medium tracking-[0.02em] text-faint transition-colors group-hover/project:text-muted-foreground',
+              'truncate text-[13px] font-medium text-foreground',
               workspace.missing && 'line-through',
             )}
           >
@@ -436,7 +436,7 @@ function SessionRow({
           title={canOpenBeside ? '⌥-click to open beside' : undefined}
           aria-current={active ? 'page' : undefined}
           className={cn(
-            'flex h-7 items-center gap-2 rounded-md px-2 text-[13px] text-muted-foreground transition-colors hover:bg-subtle hover:text-foreground',
+            'flex h-7 items-center gap-2 rounded-md px-2 text-[12px] text-muted-foreground transition-colors hover:bg-subtle hover:text-foreground',
             active && 'bg-muted font-medium text-foreground hover:bg-muted',
             !active && pane !== -1 && 'bg-subtle text-foreground',
             row.archived && 'text-faint',
@@ -509,7 +509,7 @@ function RenameRow({ title, onDone, onCancel }: { title: string; onDone: (title:
         onKeyDown={onKeyDown}
         onBlur={() => onDone(value)}
         onFocus={(e) => e.target.select()}
-        className="h-7 w-full rounded-md bg-background px-2 text-[13px] ring-2 ring-ring/40 outline-none"
+        className="h-7 w-full rounded-md bg-background px-2 text-[12px] ring-2 ring-ring/40 outline-none"
       />
     </li>
   );
