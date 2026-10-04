@@ -70,6 +70,12 @@ describe('bashTool', () => {
     expect(result.content).toContain('timed out');
   }, 10_000);
 
+  it('caps a huge timeout instead of letting the timer overflow and fire at once', async () => {
+    const result = await bashTool.execute({ command: 'sleep 0.3; echo ok', timeoutMs: 3_000_000_000 }, ctx);
+    expect(result.isError).toBeUndefined();
+    expect(result.content.trim()).toBe('ok');
+  });
+
   // A process the shell started; reaped by init once the shell is gone, so poll.
   const gone = async (pid: number): Promise<boolean> => {
     for (let i = 0; i < 40; i++) {

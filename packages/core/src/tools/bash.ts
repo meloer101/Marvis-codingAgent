@@ -34,6 +34,13 @@ const backgroundSchema = schema.extend({
 type Input = z.infer<typeof backgroundSchema>;
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+/**
+ * The longest any command may run, whatever it asks for. Above the longest
+ * command that finished across the Terminal-Bench runs (24 min, a build under
+ * Rosetta) — 10 min would kill real builds — and far below setTimeout's 2^31 ms,
+ * past which the timer fires at once.
+ */
+const MAX_TIMEOUT_MS = 30 * 60_000;
 const MAX_OUTPUT_CHARS = 30_000;
 const HEAD_CHARS = 20_000;
 const TAIL_CHARS = 8_000;
@@ -93,7 +100,7 @@ async function runBash(input: Input, ctx: ToolContext, background: BackgroundPro
       return { content: errorMessage(err), isError: true };
     }
   }
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = Math.min(input.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
   // The writable region is the whole workspace (ctx.cwd), not just the possibly
   // narrower execution directory — a command run from a subdirectory can still
   // legitimately write to a sibling path within the same workspace.
