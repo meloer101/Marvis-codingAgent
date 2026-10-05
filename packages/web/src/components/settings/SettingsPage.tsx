@@ -24,7 +24,7 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
   { id: 'permissions', label: 'Permissions', icon: ShieldCheck },
   { id: 'auto-mode', label: 'Auto mode', icon: Sparkles },
   { id: 'memory', label: 'Memory', icon: BookOpen },
-  { id: 'mcp', label: 'MCP servers', icon: Plug },
+  { id: 'mcp', label: 'Connectors', icon: Plug },
   { id: 'skills', label: 'Skills', icon: Puzzle },
   { id: 'agents', label: 'Sub-agents', icon: Bot },
   { id: 'tools', label: 'Tools', icon: Wrench },

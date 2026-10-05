@@ -200,61 +200,166 @@ describe('MemorySection', () => {
 });
 
 describe('McpSection', () => {
-  const mcp = (signedIn: boolean): McpView => ({
-    servers: [
-      { name: 'linear', scope: 'user', transport: 'http', target: 'https://mcp.linear.app/mcp', auth: 'oauth', signedIn },
-      { name: 'files', scope: 'project', transport: 'stdio', target: 'npx mcp-files', auth: 'none' },
-    ],
+  const view = (servers: McpView['servers']): McpView => ({
+    servers,
     userPath: '/home/me/.agent/.mcp.json',
     projectPath: '/p/.mcp.json',
     problems: [],
   });
+  const linear = (signedIn: boolean): McpView['servers'][number] => ({
+    name: 'linear',
+    scope: 'user',
+    transport: 'http',
+    target: 'https://mcp.linear.app/mcp',
+    auth: 'oauth',
+    signedIn,
+  });
+  const files: McpView['servers'][number] = { name: 'files', scope: 'project', transport: 'stdio', target: 'npx mcp-files', auth: 'none' };
+  const tools = { ok: true, tools: [{ name: 'read_file', description: 'Read a file' }, { name: 'write_file' }] };
+  const openMenu = (label: string) =>
+    fireEvent.pointerDown(screen.getByRole('button', { name: label }), { button: 0, ctrlKey: false, pointerType: 'mouse' });
 
-  it('signs in in a new tab, waits, and reads the list again when the sign-in ends', async () => {
-    let signedIn = false;
-    const open = vi.spyOn(platform, 'openExternal').mockImplementation(() => {});
-    const { sync, settingsCall, push } = syncFor((method) =>
-      method === 'mcp.login' ? { url: 'https://mcp.linear.app/authorize?x=1' } : mcp(signedIn),
-    );
+  const renderSection = (sync: SessionSync) =>
     render(
       <SyncProvider sync={sync}>
         <McpSection workspaceId="w1" projectName="repo" />
       </SyncProvider>,
     );
+
+  it('tries each connector as it opens, and signs in to one that asks, in the browser', async () => {
+    let signedIn = false;
+    const open = vi.spyOn(platform, 'openExternal').mockImplementation(() => {});
+    const { sync, settingsCall, push } = syncFor((method, params) => {
+      if (method === 'mcp.login') return { url: 'https://mcp.linear.app/authorize?x=1' };
+      if (method === 'mcp.test') return params.name === 'linear' && !signedIn ? { ok: false, error: 'needs authorization', needsAuth: true } : tools;
+      return view([linear(signedIn), files]);
+    });
+    renderSection(sync);
+    const yours = await screen.findByRole('region', { name: 'Your connectors' });
+    expect(within(yours).getByText('Linear')).toBeTruthy(); // the catalog's name for its URL
+    expect(settingsCall).toHaveBeenCalledWith('mcp.test', { workspaceId: 'w1', scope: 'user', name: 'linear' });
+    expect(settingsCall).toHaveBeenCalledWith('mcp.test', { workspaceId: 'w1', scope: 'project', name: 'files' });
+    const connected = await screen.findByRole('button', { name: /Connected · 2 tools/ });
+    fireEvent.click(connected);
+    expect(screen.getByText('Read a file')).toBeTruthy();
+
     const signIn = await screen.findByRole('button', { name: 'Sign in' });
     await act(async () => fireEvent.click(signIn));
     expect(settingsCall).toHaveBeenCalledWith('mcp.login', { workspaceId: 'w1', name: 'linear' });
     expect(open).toHaveBeenCalledWith('https://mcp.linear.app/authorize?x=1');
-    expect(screen.getByText('waiting for the browser')).toBeTruthy();
+    expect(screen.getByText('Finish signing in in your browser')).toBeTruthy();
 
     signedIn = true;
     await act(async () => push({ type: 'mcp_login', workspaceId: 'w1', name: 'linear' }));
-    expect(await screen.findByText('signed in')).toBeTruthy();
-    expect(screen.queryByText('waiting for the browser')).toBeNull();
+    expect(await screen.findAllByRole('button', { name: /Connected · 2 tools/ })).toHaveLength(2);
+    expect(screen.queryByText('Finish signing in in your browser')).toBeNull();
   });
 
-  it('says why a sign-in failed', async () => {
+  it('says why a sign-in failed, and offers it again', async () => {
     vi.spyOn(platform, 'openExternal').mockImplementation(() => {});
-    const { sync, push } = syncFor((method) => (method === 'mcp.login' ? { url: 'https://a/authorize' } : mcp(false)));
-    render(
-      <SyncProvider sync={sync}>
-        <McpSection workspaceId="w1" projectName="repo" />
-      </SyncProvider>,
+    const { sync, push } = syncFor((method) =>
+      method === 'mcp.login'
+        ? { url: 'https://a/authorize' }
+        : method === 'mcp.test'
+          ? { ok: false, error: 'needs authorization', needsAuth: true }
+          : view([linear(false)]),
     );
+    renderSection(sync);
     const signIn = await screen.findByRole('button', { name: 'Sign in' });
     await act(async () => fireEvent.click(signIn));
     await act(async () => push({ type: 'mcp_login', workspaceId: 'w1', name: 'linear', error: 'timed out waiting for the OAuth redirect' }));
     expect(await screen.findByText('timed out waiting for the OAuth redirect')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy();
   });
+
+  it('adds a catalog connector in a click: one that signs in opens the browser, one that doesn’t is tried', async () => {
+    const open = vi.spyOn(platform, 'openExternal').mockImplementation(() => {});
+    const servers: McpView['servers'] = [];
+    const { sync, settingsCall } = syncFor((method, params) => {
+      if (method === 'mcp.save') {
+        const server = params.server as McpServerEntry;
+        servers.push({ name: server.name, scope: 'user', transport: server.transport, target: server.url!, auth: 'oauth' });
+      }
+      if (method === 'mcp.login') return { url: 'https://mcp.notion.com/authorize' };
+      if (method === 'mcp.test') return tools;
+      return view([...servers]);
+    });
+    renderSection(sync);
+    const notion = await screen.findByRole('button', { name: 'Add Notion' });
+    await act(async () => fireEvent.click(notion));
+    expect(settingsCall).toHaveBeenCalledWith('mcp.save', {
+      workspaceId: 'w1',
+      scope: 'user',
+      server: { name: 'notion', transport: 'http', url: 'https://mcp.notion.com/mcp', headers: {} },
+    });
+    expect(open).toHaveBeenCalledWith('https://mcp.notion.com/authorize');
+    expect(settingsCall).not.toHaveBeenCalledWith('mcp.test', expect.objectContaining({ name: 'notion' }));
+    expect(screen.queryByRole('button', { name: 'Add Notion' })).toBeNull(); // added
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add Context7' })));
+    expect(settingsCall).toHaveBeenCalledWith('mcp.test', { workspaceId: 'w1', scope: 'user', name: 'context7' });
+    expect(settingsCall).not.toHaveBeenCalledWith('mcp.login', expect.objectContaining({ name: 'context7' }));
+    expect(await screen.findByRole('button', { name: /Connected · 2 tools/ })).toBeTruthy();
+  });
+
+  it('adds one by its URL, named after its host, and signs in at once when it asks', async () => {
+    const open = vi.spyOn(platform, 'openExternal').mockImplementation(() => {});
+    const servers: McpView['servers'] = [];
+    const { sync, settingsCall } = syncFor((method, params) => {
+      if (method === 'mcp.save') {
+        const server = params.server as McpServerEntry;
+        servers.push({ name: server.name, scope: 'user', transport: server.transport, target: server.url!, auth: 'oauth' });
+      }
+      if (method === 'mcp.test') return { ok: false, error: 'needs authorization', needsAuth: true };
+      if (method === 'mcp.login') return { url: 'https://example.com/authorize' };
+      return view([...servers]);
+    });
+    renderSection(sync);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add connector' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /Server URL/ }), { target: { value: 'https://mcp.example.com/sse' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Continue' })));
+    expect(settingsCall).toHaveBeenCalledWith('mcp.save', {
+      workspaceId: 'w1',
+      scope: 'user',
+      server: { name: 'example', transport: 'sse', url: 'https://mcp.example.com/sse', headers: {} },
+    });
+    expect(settingsCall).toHaveBeenCalledWith('mcp.test', { workspaceId: 'w1', scope: 'user', name: 'example' });
+    expect(settingsCall).toHaveBeenCalledWith('mcp.login', { workspaceId: 'w1', name: 'example' });
+    expect(open).toHaveBeenCalledWith('https://example.com/authorize');
+    expect(screen.queryByRole('form', { name: 'Add a connector' })).toBeNull();
+  });
+
+  it('refuses a URL that isn’t one, and a name taken', async () => {
+    const { sync, settingsCall } = syncFor((method) => (method === 'mcp.test' ? tools : view([linear(true)])));
+    renderSection(sync);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add connector' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /Server URL/ }), { target: { value: 'mcp.example.com' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Continue' })));
+    expect(screen.getByText(/https:\/\/…/)).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: /Server URL/ }), { target: { value: 'https://linear.example.com/mcp' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /Name/ }), { target: { value: 'Linear' } });
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Continue' })));
+    expect(screen.getByText('You have a connector named linear already')).toBeTruthy();
+    expect(settingsCall).not.toHaveBeenCalledWith('mcp.save', expect.anything());
+  });
 });
 
-describe('McpSection — adding and changing servers', () => {
+describe('McpSection — a command, headers or JSON', () => {
   const empty: McpView = { servers: [], userPath: '/home/me/.agent/.mcp.json', projectPath: '/p/.mcp.json', problems: [] };
   const listed = (...names: string[]): McpView => ({
     ...empty,
     servers: names.map((name) => ({ name, scope: 'user' as const, transport: 'stdio' as const, target: 'npx x', auth: 'none' as const })),
   });
+  const renderSection = (sync: SessionSync) =>
+    render(
+      <SyncProvider sync={sync}>
+        <McpSection workspaceId="w1" projectName="repo" />
+      </SyncProvider>,
+    );
+  const openAdvanced = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: 'Add connector' }));
+    fireEvent.click(screen.getByRole('button', { name: /A command, headers or JSON/ }));
+  };
 
   it('adds what a pasted JSON names, one save each, and tries each at once', async () => {
     const saved: string[] = [];
@@ -263,12 +368,8 @@ describe('McpSection — adding and changing servers', () => {
       if (method === 'mcp.test') return { ok: true, tools: [{ name: 'read_file', description: 'Read a file' }, { name: 'write_file' }] };
       return listed(...saved);
     });
-    render(
-      <SyncProvider sync={sync}>
-        <McpSection workspaceId="w1" projectName="repo" />
-      </SyncProvider>,
-    );
-    fireEvent.click(await screen.findByRole('button', { name: 'Add server' }));
+    renderSection(sync);
+    await openAdvanced();
     fireEvent.click(screen.getByRole('radio', { name: 'Paste JSON' }));
     fireEvent.change(screen.getByRole('textbox', { name: /JSON/ }), {
       target: { value: JSON.stringify({ mcpServers: { fs: { command: 'npx', args: ['-y', 'fs'] }, time: { command: 'uvx mcp-time' } } }) },
@@ -281,21 +382,14 @@ describe('McpSection — adding and changing servers', () => {
     });
     expect(settingsCall).toHaveBeenCalledWith('mcp.save', expect.objectContaining({ server: { name: 'time', transport: 'stdio', command: 'uvx', args: ['mcp-time'] } }));
     expect(settingsCall).toHaveBeenCalledWith('mcp.test', { workspaceId: 'w1', scope: 'user', name: 'fs' });
-    const connected = await screen.findAllByRole('button', { name: /Connected · 2 tools/ });
-    expect(connected).toHaveLength(2);
-    fireEvent.click(connected[0]!);
-    expect(screen.getByText('Read a file')).toBeTruthy();
+    expect(await screen.findAllByRole('button', { name: /Connected · 2 tools/ })).toHaveLength(2);
     expect(screen.queryByRole('form', { name: 'Add an MCP server' })).toBeNull();
   });
 
   it('fills in a server, and says why one is refused', async () => {
     const { sync, settingsCall } = syncFor((method) => (method === 'mcp.save' ? new Error('/home/me/.agent/.mcp.json has an MCP server named "api" already') : empty));
-    render(
-      <SyncProvider sync={sync}>
-        <McpSection workspaceId="w1" projectName="repo" />
-      </SyncProvider>,
-    );
-    fireEvent.click(await screen.findByRole('button', { name: 'Add server' }));
+    renderSection(sync);
+    await openAdvanced();
     fireEvent.click(screen.getByRole('radio', { name: /This project/ }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'api' } });
     fireEvent.click(screen.getByRole('radio', { name: 'HTTP' }));
@@ -312,15 +406,13 @@ describe('McpSection — adding and changing servers', () => {
     expect(await screen.findByText(/named "api" already/)).toBeTruthy();
   });
 
-  it('edits a server without its hidden values, which stay unless typed over', async () => {
+  it('edits a server from its menu without its hidden values, which stay unless typed over', async () => {
     const entry: McpServerEntry = { name: 'gh', transport: 'stdio', command: 'docker', args: ['run', '-i', 'ghcr.io/github/server'], env: { GITHUB_TOKEN: null, MODE: '${MODE}' } };
     const { sync, settingsCall } = syncFor((method) => (method === 'mcp.get' ? entry : method === 'mcp.test' ? { ok: false, error: 'spawn docker ENOENT' } : listed('gh')));
-    render(
-      <SyncProvider sync={sync}>
-        <McpSection workspaceId="w1" projectName="repo" />
-      </SyncProvider>,
-    );
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit gh' }));
+    renderSection(sync);
+    expect(await screen.findByText('spawn docker ENOENT')).toBeTruthy();
+    fireEvent.pointerDown(await screen.findByRole('button', { name: 'More for gh' }), { button: 0, ctrlKey: false, pointerType: 'mouse' });
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit…' }));
     const command = await screen.findByDisplayValue('docker run -i ghcr.io/github/server');
     fireEvent.change(command, { target: { value: 'docker run -i --rm ghcr.io/github/server' } });
     expect((screen.getByRole('textbox', { name: 'Environment 1 value' }) as HTMLInputElement).placeholder).toMatch(/set — type to replace/);
@@ -331,7 +423,7 @@ describe('McpSection — adding and changing servers', () => {
       previousName: 'gh',
       server: { name: 'gh', transport: 'stdio', command: 'docker', args: ['run', '-i', '--rm', 'ghcr.io/github/server'], env: { GITHUB_TOKEN: null, MODE: '${MODE}' } },
     });
-    expect(await screen.findByText(/Couldn’t connect: spawn docker ENOENT/)).toBeTruthy();
+    expect(settingsCall.mock.calls.filter(([m]) => m === 'mcp.test')).toHaveLength(2); // as it opened, and once saved
   });
 });
 

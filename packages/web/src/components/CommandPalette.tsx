@@ -320,8 +320,8 @@ function usePaletteItems(activeId: string | null, onNewSession: () => void): Pal
     items.push({
       id: 'settings-mcp',
       group: 'App',
-      label: 'MCP servers',
-      keywords: 'settings add server oauth sign in login connect tools',
+      label: 'Connectors',
+      keywords: 'settings mcp servers add oauth sign in login connect tools',
       icon: Plug,
       run: go(routeToHash({ kind: 'settings', section: 'mcp' })),
     });

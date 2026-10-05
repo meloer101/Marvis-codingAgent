@@ -21,6 +21,12 @@ const STARTUP_KINDS: ReadonlySet<Notice['kind']> = new Set([
 ]);
 
 /**
+ * Notices that wait on the user: one that comes among the startup ones joins
+ * their row, so it doesn't split it, but shows outside its fold.
+ */
+export const PINNED_KINDS: ReadonlySet<Notice['kind']> = new Set(['mcp-auth']);
+
+/**
  * State changes the header already shows (the mode and effort pickers) — no
  * transcript row, as in the TUI — and a sub-agent's progress lines, which the
  * `task` card shows as its calls.
@@ -46,7 +52,10 @@ export function transcriptRows(entries: readonly Entry[]): Row[] {
   for (const entry of entries) {
     if (entry.kind === 'notice' && HIDDEN_KINDS.has(entry.notice.kind)) continue;
     const last = rows.at(-1);
-    if (entry.kind === 'notice' && STARTUP_KINDS.has(entry.notice.kind)) {
+    if (
+      entry.kind === 'notice' &&
+      (STARTUP_KINDS.has(entry.notice.kind) || (PINNED_KINDS.has(entry.notice.kind) && last?.kind === 'details'))
+    ) {
       if (last?.kind === 'details') last.notices.push(entry.notice);
       else rows.push({ kind: 'details', key: `details-${entry.id}`, notices: [entry.notice] });
       continue;

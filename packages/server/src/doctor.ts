@@ -372,14 +372,14 @@ async function mcpGroup(place: SettingsPlace, env: DoctorEnvironment, connect: b
         }
       }
       if (s.auth === 'oauth' && !s.signedIn) {
-        return check(id, label, 'warn', `${s.target} — needs signing in`, { fix: 'Sign in from Settings › MCP servers.', section: 'mcp' });
+        return check(id, label, 'warn', `${s.target} — needs signing in`, { fix: 'Sign in from Settings › Connectors.', section: 'mcp' });
       }
       if (!connect) return check(id, label, 'info', `${s.transport} · ${s.target} — not started by this check`, { section: 'mcp' });
       const result = await mcpTest(place, s.scope, s.name, env.mcpConnectTimeoutMs !== undefined ? { connectTimeoutMs: env.mcpConnectTimeoutMs } : {});
       return result.ok
         ? check(id, label, 'ok', `Connected · ${plural(result.tools.length, 'tool')}`, { section: 'mcp' })
         : check(id, label, result.needsAuth ? 'warn' : 'error', result.needsAuth ? 'It needs signing in' : `Couldn't connect: ${result.error}`, {
-            fix: result.needsAuth ? 'Sign in from Settings › MCP servers.' : 'Edit or test it in Settings › MCP servers.',
+            fix: result.needsAuth ? 'Sign in from Settings › Connectors.' : 'Edit or check it again in Settings › Connectors.',
             section: 'mcp',
           });
     }),

@@ -163,7 +163,7 @@ Marvis 面向真实代码库设计，其安全边界如下：
 
 <br>
 
-**MCP** —— Marvis 读取 `.mcp.json`（与 Claude Code 同款格式），支持 stdio/HTTP/SSE 传输及托管服务器的 OAuth 握手（`marvis mcp login <名字>`）。连接惰性且隔离，连不上的服务器只打印一行、不影响整体运行。发现的工具以 `mcp__<服务器>__<工具>` 命名，走同一套权限引擎。`marvis mcp serve` 将 Marvis 自身工具通过 MCP 暴露给其他 Agent。在网页端，**设置 › MCP servers** 里可以直接添加（逐项填写，或粘贴服务器文档给出的 JSON）、编辑、删除服务器，并一键测试连接、列出它提供的工具。已经开着的会话会在下一条消息前自动接上改动（只重连改过的服务器），skills 和子代理同理，手改文件也一样生效。
+**MCP** —— Marvis 读取 `.mcp.json`（与 Claude Code 同款格式），支持 stdio/HTTP/SSE 传输及托管服务器的 OAuth 握手（`marvis mcp login <名字>`）。连接惰性且隔离，连不上的服务器只打印一行、不影响整体运行。发现的工具以 `mcp__<服务器>__<工具>` 命名，走同一套权限引擎。`marvis mcp serve` 将 Marvis 自身工具通过 MCP 暴露给其他 Agent。在网页端和桌面端，**设置 › Connectors** 里：常用服务（Notion、Linear、Sentry、Context7 等）点一下就添加并打开浏览器登录，其他服务填 URL 即可，需要登录时自动接着走登录；命令行服务器、请求头和 JSON 收在「A command, headers or JSON…」里。每个连接器打开页面时就试连，显示工具数或连不上的原因；会话里遇到需要登录的服务器，提示条上直接有 Sign in 按钮。已经开着的会话会在下一条消息前自动接上改动（只重连改过的服务器），skills 和子代理同理，手改文件也一样生效。
 
 **Skills** —— 一个带 `SKILL.md` 的文件夹（[Agent Skills 规范](https://agentskills.io/specification)）。三级渐进披露：启动时只有 `name: 描述` 进系统提示；模型调用 `skill` 工具时载入完整正文；`references/` 仅在指令指过去时读取。放在项目的 `.agent/skills/` 或个人的 `~/.agent/skills/` 下；网页端 **设置 › Skills** 可以从模板新建、就地编辑 `SKILL.md`、删除，或从本机文件夹 / Git 仓库地址（如 GitHub 的 `…/tree/main/skills/pdf`）导入。
 

@@ -1,311 +1,403 @@
-import { useEffect, useRef, useState } from 'react';
-import { Check, ChevronRight, ExternalLink, LoaderCircle, Pencil, Plug, Plus, TriangleAlert, X } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Check, ChevronRight, ExternalLink, LoaderCircle, MoreHorizontal, Plus, TriangleAlert, X } from 'lucide-react';
 
 import type { McpServerEntry, McpServerInfo, McpTestResult, McpView } from '@harness-code/protocol';
 
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { DropdownActions } from '@/components/ui/menu';
+import type { MenuAction } from '@/components/ui/menu';
+import { CATALOG, catalogAt, connectorHint, connectorName, transportOf } from '@/lib/mcpCatalog';
+import type { CatalogConnector } from '@/lib/mcpCatalog';
 import { joinCommandLine, parseMcpJson, splitCommandLine } from '@/lib/mcpEntry';
 import { platform } from '@/platform';
 import { useSync } from '@/lib/syncContext';
 import { cn } from '@/lib/utils';
 
-import { Card, Code, DeleteButton, ErrorLine, FIELD, Field, PathNote, Problems, SectionIntro, Segmented, errorText, useLoaded } from './common';
+import { Card, Code, ErrorLine, FIELD, Field, PathNote, Problems, SectionIntro, Segmented, errorText, useLoaded } from './common';
 
 type Scope = 'user' | 'project';
-type Test = 'running' | McpTestResult;
+
+/** What's known of a connector: being tried, connected, wanting a sign-in (perhaps in the browser now), or not reached. */
+type Status =
+  | { kind: 'checking' }
+  | { kind: 'connected'; tools: Array<{ name: string; description?: string }> }
+  | { kind: 'sign-in'; error?: string }
+  | { kind: 'waiting'; url: string }
+  | { kind: 'failed'; error: string };
+
+type DialogState = { kind: 'add' } | { kind: 'advanced' } | { kind: 'edit'; scope: Scope; name: string };
 
 const keyOf = (scope: Scope, name: string): string => `${scope}:${name}`;
 
 /**
- * The MCP servers sessions here connect to, as their files name them: added
- * — filled in, or pasted as the JSON a server's docs give — changed,
- * removed, and tried (connecting as a session would, listing its tools);
- * and signing in to the ones that use OAuth: the page to authorize at opens
- * in a new tab, and the list follows once it's done.
+ * Connectors — the MCP servers sessions here connect to — as Claude's
+ * settings show them: what's connected, each tried as the page opens; a
+ * catalog that adds one in a click and opens the browser when it signs in;
+ * and any other by its URL, signed in to at once when it asks. A command
+ * to run, headers, JSON from a server's docs or the project's own file are
+ * one step further, in the same dialog.
  */
 export function McpSection({ workspaceId, projectName }: { workspaceId: string; projectName: string }) {
   const sync = useSync();
   const { data, error, set, reload } = useLoaded(() => sync.settingsCall('mcp.list', { workspaceId }), workspaceId);
-  /** Sign-ins waiting on the browser: the server's name → the page to authorize at. */
-  const [waiting, setWaiting] = useState<Record<string, string>>({});
-  const [failed, setFailed] = useState<Record<string, string>>({});
-  /** The form open: adding, or changing the server of this key. */
-  const [form, setForm] = useState<'add' | string | null>(null);
-  const [tests, setTests] = useState<Record<string, Test>>({});
+  const [status, setStatus] = useState<Record<string, Status>>({});
+  const [dialog, setDialog] = useState<DialogState | null>(null);
+  /** Catalog connectors being added (`null`), or why one couldn't be. */
+  const [adding, setAdding] = useState<Record<string, string | null>>({});
+  /** Servers already tried (or being signed in to), so the list coming back doesn't try them again. */
+  const tried = useRef(new Set<string>());
+  const servers = useRef<McpServerInfo[]>([]);
+  servers.current = data?.servers ?? [];
+
+  const put = useCallback((key: string, s: Status | undefined) => {
+    setStatus(({ [key]: _, ...rest }) => (s ? { ...rest, [key]: s } : rest));
+  }, []);
+
+  const check = useCallback(
+    async (scope: Scope, name: string): Promise<McpTestResult> => {
+      const key = keyOf(scope, name);
+      tried.current.add(key);
+      put(key, { kind: 'checking' });
+      let result: McpTestResult;
+      try {
+        result = await sync.settingsCall('mcp.test', { workspaceId, scope, name });
+      } catch (err) {
+        result = { ok: false, error: errorText(err) };
+      }
+      put(
+        key,
+        result.ok
+          ? { kind: 'connected', tools: result.tools }
+          : result.needsAuth
+            ? { kind: 'sign-in' }
+            : { kind: 'failed', error: result.error },
+      );
+      return result;
+    },
+    [sync, workspaceId, put],
+  );
+
+  const signIn = useCallback(
+    async (scope: Scope, name: string): Promise<void> => {
+      const key = keyOf(scope, name);
+      tried.current.add(key);
+      try {
+        const result = await sync.settingsCall('mcp.login', { workspaceId, name });
+        if ('url' in result) {
+          put(key, { kind: 'waiting', url: result.url });
+          platform.openExternal(result.url);
+        } else {
+          reload();
+          void check(scope, name);
+        }
+      } catch (err) {
+        put(key, { kind: 'sign-in', error: errorText(err) });
+      }
+    },
+    [sync, workspaceId, put, reload, check],
+  );
+
+  // Each connector is tried as it first shows up: the list says what's
+  // configured, only connecting says whether it works.
+  useEffect(() => {
+    for (const s of data?.servers ?? []) {
+      if (!s.shadowed && !tried.current.has(keyOf(s.scope, s.name))) void check(s.scope, s.name);
+    }
+  }, [data, check]);
 
   useEffect(
     () =>
       sync.onMcpLogin((event) => {
         if (event.workspaceId !== workspaceId) return;
-        setWaiting(({ [event.name]: _, ...rest }) => rest);
-        setFailed(({ [event.name]: _, ...rest }) => (event.error ? { ...rest, [event.name]: event.error } : rest));
-        // What a test found before signing in is out of date.
-        setTests((t) => Object.fromEntries(Object.entries(t).filter(([k]) => !k.endsWith(`:${event.name}`))));
+        const s = servers.current.find((x) => x.name === event.name && !x.shadowed);
+        if (!s) return reload();
+        if (event.error) return put(keyOf(s.scope, s.name), { kind: 'sign-in', error: event.error });
         reload();
+        void check(s.scope, s.name);
       }),
-    [sync, workspaceId, reload],
+    [sync, workspaceId, reload, check, put],
   );
 
-  if (!data) return error ? <ErrorLine error={error} /> : <p className="text-xs text-muted-foreground">Reading the MCP servers…</p>;
+  if (!data) return error ? <ErrorLine error={error} /> : <p className="text-xs text-muted-foreground">Reading your connectors…</p>;
 
-  const login = async (name: string): Promise<void> => {
-    setFailed(({ [name]: _, ...rest }) => rest);
+  const forget = (scope: Scope, name: string): void => {
+    tried.current.delete(keyOf(scope, name));
+    put(keyOf(scope, name), undefined);
+  };
+
+  const addFromCatalog = async (c: CatalogConnector): Promise<void> => {
+    setAdding((a) => ({ ...a, [c.id]: null }));
     try {
-      const result = await sync.settingsCall('mcp.login', { workspaceId, name });
-      if ('url' in result) {
-        setWaiting((w) => ({ ...w, [name]: result.url }));
-        platform.openExternal(result.url);
-      } else {
-        reload();
-      }
+      const view = await sync.settingsCall('mcp.save', {
+        workspaceId,
+        scope: 'user',
+        server: { name: c.id, transport: c.transport, url: c.url, headers: {} },
+      });
+      // Tried below, not by the list coming back.
+      tried.current.add(keyOf('user', c.id));
+      set(view);
+      setAdding(({ [c.id]: _, ...rest }) => rest);
+      if (c.signIn) await signIn('user', c.id);
+      else await check('user', c.id);
     } catch (err) {
-      setFailed((f) => ({ ...f, [name]: errorText(err) }));
+      setAdding((a) => ({ ...a, [c.id]: errorText(err) }));
     }
   };
-  const logout = async (name: string): Promise<void> => {
-    try {
-      set(await sync.settingsCall('mcp.logout', { workspaceId, name }));
-    } catch (err) {
-      setFailed((f) => ({ ...f, [name]: errorText(err) }));
-    }
-  };
-  const test = async (scope: Scope, name: string): Promise<void> => {
-    const key = keyOf(scope, name);
-    setTests((t) => ({ ...t, [key]: 'running' }));
-    let result: McpTestResult;
-    try {
-      result = await sync.settingsCall('mcp.test', { workspaceId, scope, name });
-    } catch (err) {
-      result = { ok: false, error: errorText(err) };
-    }
-    setTests((t) => ({ ...t, [key]: result }));
-  };
-  const remove = async (scope: Scope, name: string): Promise<void> => {
-    set(await sync.settingsCall('mcp.remove', { workspaceId, scope, name }));
-    setTests(({ [keyOf(scope, name)]: _, ...rest }) => rest);
-  };
-  const saved = (view: McpView, scope: Scope, names: string[], previous?: string): void => {
+
+  /** Saved from the dialog: tried at once, and — added by URL — signed in to straight away when it asks. */
+  const saved = (view: McpView, scope: Scope, names: string[], opts: { previous?: string; signIn?: boolean } = {}): void => {
+    if (opts.previous !== undefined) forget(scope, opts.previous);
+    for (const name of names) tried.current.add(keyOf(scope, name));
     set(view);
-    setForm(null);
-    if (previous !== undefined) setTests(({ [keyOf(scope, previous)]: _, ...rest }) => rest);
-    // Tried at once: a server added is one that should be seen to work.
-    for (const name of names) void test(scope, name);
+    setDialog(null);
+    for (const name of names) {
+      void check(scope, name).then((result) => {
+        if (opts.signIn && !result.ok && result.needsAuth) void signIn(scope, name);
+      });
+    }
   };
+
+  const remove = async (s: McpServerInfo): Promise<void> => {
+    set(await sync.settingsCall('mcp.remove', { workspaceId, scope: s.scope, name: s.name }));
+    forget(s.scope, s.name);
+  };
+  const signOut = async (s: McpServerInfo): Promise<void> => {
+    set(await sync.settingsCall('mcp.logout', { workspaceId, name: s.name }));
+    void check(s.scope, s.name);
+  };
+
+  const added = (c: CatalogConnector): boolean => data.servers.some((s) => catalogAt(s.target)?.id === c.id);
 
   return (
     <div className="flex flex-col gap-4">
-      <SectionIntro title="MCP servers">
-        Tools from outside Marvis: each server runs as a command, or is reached at a URL. They’re kept in your{' '}
-        <Code>~/.agent/.mcp.json</Code> and the project’s <Code>.mcp.json</Code> — the project’s wins when both name one.
-        Open sessions take a change up before their next message, connecting only the servers that changed — and, after a
-        sign-in, those that had failed.
+      <SectionIntro title="Connectors">
+        Let Marvis use the tools you work in — docs, issues, designs. Each connector is an MCP server; open sessions take
+        up a change before their next message.
       </SectionIntro>
       <Problems problems={data.problems} />
       <Card
-        label="MCP servers"
-        title="MCP servers"
+        label="Your connectors"
+        title="Your connectors"
         aside={
-          form !== 'add' && (
-            <Button size="xs" variant="outline" onClick={() => setForm('add')}>
-              <Plus />
-              Add server
-            </Button>
-          )
+          <Button size="xs" variant="outline" onClick={() => setDialog({ kind: 'add' })}>
+            <Plus />
+            Add connector
+          </Button>
         }
       >
-        {form === 'add' && (
-          <div className="mb-3">
+        {data.servers.length === 0 ? (
+          <p className="text-xs text-muted-foreground">None yet — pick one below, or add any MCP server by its URL.</p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {data.servers.map((s) => (
+              <ConnectorRow
+                key={keyOf(s.scope, s.name)}
+                server={s}
+                status={status[keyOf(s.scope, s.name)]}
+                onSignIn={() => void signIn(s.scope, s.name)}
+                onCheck={() => void check(s.scope, s.name)}
+                onSignOut={() => void signOut(s)}
+                onEdit={() => setDialog({ kind: 'edit', scope: s.scope, name: s.name })}
+                onRemove={() => remove(s)}
+              />
+            ))}
+          </ul>
+        )}
+      </Card>
+      <Card label="Discover" title="Discover" aside={<span className="text-[11px] text-faint">added for every project</span>}>
+        <ul className="grid grid-cols-1 gap-1.5 @lg:grid-cols-2">
+          {CATALOG.map((c) => (
+            <CatalogTile
+              key={c.id}
+              connector={c}
+              added={added(c)}
+              adding={adding[c.id] === null}
+              error={adding[c.id] ?? null}
+              onAdd={() => void addFromCatalog(c)}
+            />
+          ))}
+        </ul>
+      </Card>
+      <div className="flex flex-col gap-0.5 px-1">
+        <PathNote path={data.userPath} />
+        <PathNote path={data.projectPath} />
+      </div>
+      <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
+        {dialog?.kind === 'add' && (
+          <AddByUrl
+            workspaceId={workspaceId}
+            taken={data.servers.filter((s) => s.scope === 'user').map((s) => s.name)}
+            onSaved={(view, name) => saved(view, 'user', [name], { signIn: true })}
+            onAdvanced={() => setDialog({ kind: 'advanced' })}
+          />
+        )}
+        {(dialog?.kind === 'advanced' || dialog?.kind === 'edit') && (
+          <DialogContent
+            title={dialog.kind === 'edit' ? `Edit ${dialog.name}` : 'Add a connector'}
+            description={
+              dialog.kind === 'edit'
+                ? undefined
+                : 'A command to run, a URL with headers, or the JSON a server’s docs give.'
+            }
+            className="max-w-xl"
+          >
             <ServerForm
               workspaceId={workspaceId}
               projectName={projectName}
-              onSaved={(view, scope, names) => saved(view, scope, names)}
+              {...(dialog.kind === 'edit' ? { editing: { scope: dialog.scope, name: dialog.name } } : {})}
+              onSaved={(view, scope, names) =>
+                saved(view, scope, names, dialog.kind === 'edit' ? { previous: dialog.name } : {})
+              }
               onProgress={set}
-              onCancel={() => setForm(null)}
+              onCancel={() => setDialog(null)}
             />
-          </div>
+          </DialogContent>
         )}
-        {data.servers.length === 0 ? (
-          form !== 'add' && (
-            <p className="text-xs text-muted-foreground">
-              None yet. Add one — a server’s docs usually give the JSON to paste.
-            </p>
-          )
-        ) : (
-          <ul className="flex flex-col divide-y">
-            {data.servers.map((s) => {
-              const key = keyOf(s.scope, s.name);
-              return (
-                <li key={key} className={cn('flex flex-col gap-1.5 py-2 first:pt-0 last:pb-0')}>
-                  <Server
-                    server={s}
-                    waitingAt={waiting[s.name]}
-                    error={failed[s.name]}
-                    test={tests[key]}
-                    editing={form === key}
-                    onLogin={() => void login(s.name)}
-                    onLogout={() => void logout(s.name)}
-                    onTest={() => void test(s.scope, s.name)}
-                    onEdit={() => setForm(key)}
-                    onDelete={() => remove(s.scope, s.name)}
-                  />
-                  {form === key && (
-                    <ServerForm
-                      workspaceId={workspaceId}
-                      projectName={projectName}
-                      editing={{ scope: s.scope, name: s.name }}
-                      onSaved={(view, scope, names) => saved(view, scope, names, s.name)}
-                      onProgress={set}
-                      onCancel={() => setForm(null)}
-                    />
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        <div className="mt-3 flex flex-col gap-0.5 pt-1">
-          <PathNote path={data.userPath} />
-          <PathNote path={data.projectPath} />
-        </div>
-      </Card>
+      </Dialog>
     </div>
   );
 }
 
-function Server({
+/** A connector's tile: the catalog's colour and initial, or a grey one with the server's. */
+function Tile({ name, color }: { name: string; color?: string | undefined }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'flex size-7 shrink-0 items-center justify-center rounded-md text-[13px] font-semibold',
+        // A dark brand colour (Notion's) would sink into the dark theme's fill.
+        color ? 'text-white dark:ring-1 dark:ring-white/15 dark:ring-inset' : 'bg-muted text-muted-foreground',
+      )}
+      style={color ? { backgroundColor: color } : undefined}
+    >
+      {name.slice(0, 1).toUpperCase()}
+    </span>
+  );
+}
+
+function ConnectorRow({
   server: s,
-  waitingAt,
-  error,
-  test,
-  editing,
-  onLogin,
-  onLogout,
-  onTest,
+  status,
+  onSignIn,
+  onCheck,
+  onSignOut,
   onEdit,
-  onDelete,
+  onRemove,
 }: {
   server: McpServerInfo;
-  waitingAt: string | undefined;
-  error: string | undefined;
-  test: Test | undefined;
-  editing: boolean;
-  onLogin: () => void;
-  onLogout: () => void;
-  onTest: () => void;
+  status: Status | undefined;
+  onSignIn: () => void;
+  onCheck: () => void;
+  onSignOut: () => void;
   onEdit: () => void;
-  onDelete: () => Promise<void>;
+  onRemove: () => Promise<void>;
 }) {
+  const [open, setOpen] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const known = catalogAt(s.target);
+  const hint = connectorHint(s.target);
+  const actions: MenuAction[] = [
+    ...(s.shadowed ? [] : [{ label: 'Check again', onSelect: onCheck }]),
+    ...(s.signedIn ? [{ label: 'Sign out', onSelect: onSignOut }] : []),
+    { label: 'Edit…', onSelect: onEdit },
+    {
+      label: 'Remove',
+      destructive: true,
+      separated: true,
+      onSelect: () => void onRemove().then(() => setRemoveError(null), (err: unknown) => setRemoveError(errorText(err))),
+    },
+  ];
+  const tools = status?.kind === 'connected' ? status.tools : [];
+  const problem = status?.kind === 'failed' ? status.error : status?.kind === 'sign-in' ? status.error : removeError ?? undefined;
+
   return (
-    <div className="group/server flex flex-col gap-1 text-xs">
-      <div className="flex items-center gap-2">
-        <Plug className={cn('size-3.5 shrink-0 text-muted-foreground', s.shadowed && 'opacity-60')} />
-        <span className={cn('shrink-0 font-mono font-medium', s.shadowed && 'opacity-60')}>{s.name}</span>
-        <span className="shrink-0 rounded bg-muted px-1 text-[11px] text-muted-foreground">
-          {s.scope === 'user' ? 'yours' : 'project'} · {s.transport}
-        </span>
-        <span
-          className={cn('min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground', s.shadowed && 'opacity-60')}
-          title={s.target}
-        >
-          {s.target}
-        </span>
-        {!editing && (
-          <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/server:opacity-100 focus-within:opacity-100">
-            {!s.shadowed && (
-              <Button size="xs" variant="ghost" onClick={onTest} disabled={test === 'running'} title="Connect as a session would, and list its tools">
-                Test
-              </Button>
-            )}
-            <Button size="icon-xs" variant="ghost" aria-label={`Edit ${s.name}`} title="Edit" onClick={onEdit}>
-              <Pencil />
-            </Button>
-            <DeleteButton name={s.name} onDelete={onDelete} />
-          </span>
-        )}
-        <span className="flex shrink-0 items-center gap-1.5">
+    <li className={cn('flex flex-col rounded-md bg-background', s.shadowed && 'opacity-60')}>
+      <div className="flex min-h-12 items-center gap-3 px-3 py-2">
+        <Tile name={known?.name ?? s.name} color={known?.color} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className="truncate text-[13px] font-medium">{known?.name ?? s.name}</span>
+            {s.scope === 'project' && <span className="shrink-0 text-[11px] text-faint">this project</span>}
+          </div>
+          <p
+            className={cn('truncate text-xs text-faint', !known && 'font-mono text-[11px]')}
+            title={known ? undefined : s.target}
+          >
+            {known?.description ?? s.target}
+          </p>
+        </div>
+        <span className="flex shrink-0 items-center gap-2 text-xs">
           {s.shadowed ? (
-            <span className="text-[11px] text-muted-foreground">the project’s is used</span>
-          ) : s.auth === 'header' ? (
-            <span className="text-[11px] text-muted-foreground" title="An Authorization header set in .mcp.json">
-              signs in with a header
+            <span className="text-faint">the project’s is used</span>
+          ) : !status || status.kind === 'checking' ? (
+            <span className="flex items-center gap-1.5 text-faint">
+              <LoaderCircle className="size-3 animate-spin" />
+              Checking…
             </span>
-          ) : s.auth === 'oauth' ? (
-            waitingAt ? (
-              <>
-                <LoaderCircle className="size-3 animate-spin text-primary" />
-                <span className="text-[11px] text-muted-foreground">waiting for the browser</span>
-                <a
-                  href={waitingAt}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-0.5 text-[11px] text-primary hover:underline"
-                >
-                  open it again
-                  <ExternalLink className="size-3" />
-                </a>
-              </>
-            ) : s.signedIn ? (
-              <>
-                <span className="flex items-center gap-1 text-[11px] text-success">
-                  <Check className="size-3" />
-                  signed in
-                </span>
-                <Button size="xs" variant="ghost" onClick={onLogout}>
-                  Sign out
-                </Button>
-              </>
-            ) : (
-              <Button size="xs" variant="outline" onClick={onLogin}>
+          ) : status.kind === 'connected' ? (
+            <button
+              type="button"
+              aria-expanded={open}
+              disabled={tools.length === 0}
+              onClick={() => setOpen((o) => !o)}
+              className="flex items-center gap-1 text-success disabled:cursor-default"
+            >
+              <Check className="size-3" />
+              Connected · {tools.length === 0 ? 'no tools' : `${tools.length} tool${tools.length === 1 ? '' : 's'}`}
+              {tools.length > 0 && (
+                <ChevronRight className={cn('size-3 text-faint transition-transform', open && 'rotate-90')} />
+              )}
+            </button>
+          ) : status.kind === 'sign-in' ? (
+            <>
+              <span className="text-warning">Needs sign-in</span>
+              <Button size="xs" onClick={onSignIn}>
                 Sign in
               </Button>
-            )
-          ) : null}
+            </>
+          ) : status.kind === 'waiting' ? (
+            <>
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <LoaderCircle className="size-3 animate-spin text-primary" />
+                Finish signing in in your browser
+              </span>
+              <a
+                href={status.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-0.5 text-primary hover:underline"
+              >
+                Open again
+                <ExternalLink className="size-3" />
+              </a>
+            </>
+          ) : (
+            <span className="flex items-center gap-1 text-destructive">
+              <TriangleAlert className="size-3" />
+              Couldn’t connect
+            </span>
+          )}
+          <DropdownActions
+            label={`More for ${known?.name ?? s.name}`}
+            actions={actions}
+            trigger={
+              <Button size="icon-xs" variant="ghost" className="text-muted-foreground">
+                <MoreHorizontal />
+              </Button>
+            }
+          />
         </span>
       </div>
-      {error && <ErrorLine error={error} />}
-      {test && <TestLine test={test} />}
-    </div>
-  );
-}
-
-/** What trying a server found: its tools, folded; or why it couldn't be reached. */
-function TestLine({ test }: { test: Test }) {
-  const [open, setOpen] = useState(false);
-  if (test === 'running') {
-    return (
-      <p className="flex items-center gap-1.5 pl-[22px] text-[11px] text-muted-foreground">
-        <LoaderCircle className="size-3 animate-spin" />
-        Connecting…
-      </p>
-    );
-  }
-  if (!test.ok) {
-    return (
-      <p className={cn('flex items-start gap-1.5 pl-[22px] text-[11px]', test.needsAuth ? 'text-warning' : 'text-destructive')}>
-        <TriangleAlert className="mt-px size-3 shrink-0" />
-        <span className="min-w-0 break-words">
-          {test.needsAuth ? 'It needs signing in: Sign in, then test it again.' : `Couldn’t connect: ${test.error}`}
-        </span>
-      </p>
-    );
-  }
-  const n = test.tools.length;
-  return (
-    <div className="flex flex-col gap-1 pl-[22px]">
-      <button
-        type="button"
-        aria-expanded={open}
-        disabled={n === 0}
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-fit items-center gap-1 text-[11px] text-success disabled:cursor-default"
-      >
-        <Check className="size-3" />
-        Connected · {n === 0 ? 'no tools' : `${n} tool${n === 1 ? '' : 's'}`}
-        {n > 0 && <ChevronRight className={cn('size-3 text-muted-foreground transition-transform', open && 'rotate-90')} />}
-      </button>
-      {open && (
-        <ul className="flex flex-col gap-0.5 rounded-md bg-background px-2 py-1.5">
-          {test.tools.map((t) => (
+      {problem && (
+        <p className="-mt-1 px-3 pb-2.5 pl-[52px] text-[11px] leading-relaxed break-words text-destructive">
+          {problem}
+          {status?.kind === 'failed' && hint && <span className="block text-muted-foreground">{hint}</span>}
+        </p>
+      )}
+      {open && tools.length > 0 && (
+        <ul className="flex flex-col gap-0.5 px-3 pb-2.5 pl-[52px]">
+          {tools.map((t) => (
             <li key={t.name} className="flex min-w-0 gap-2 text-[11px]">
               <span className="shrink-0 font-mono">{t.name}</span>
               {t.description && (
@@ -317,7 +409,152 @@ function TestLine({ test }: { test: Test }) {
           ))}
         </ul>
       )}
-    </div>
+    </li>
+  );
+}
+
+function CatalogTile({
+  connector: c,
+  added,
+  adding,
+  error,
+  onAdd,
+}: {
+  connector: CatalogConnector;
+  added: boolean;
+  adding: boolean;
+  error: string | null;
+  onAdd: () => void;
+}) {
+  return (
+    <li className="flex flex-col gap-1 rounded-md bg-background px-3 py-2.5">
+      <div className="flex items-start gap-3">
+        <Tile name={c.name} color={c.color} />
+        <div className="min-w-0 flex-1">
+          <span className="text-[13px] font-medium">{c.name}</span>
+          <p className="text-xs leading-snug text-muted-foreground">{c.description}</p>
+        </div>
+        {added ? (
+          <span className="flex h-6 shrink-0 items-center gap-1 text-xs text-success">
+            <Check className="size-3" />
+            Added
+          </span>
+        ) : (
+          <Button
+            size="icon-xs"
+            variant="secondary"
+            aria-label={`Add ${c.name}`}
+            title={c.signIn ? 'Add, then sign in' : 'Add'}
+            disabled={adding}
+            onClick={onAdd}
+          >
+            {adding ? <LoaderCircle className="animate-spin" /> : <Plus />}
+          </Button>
+        )}
+      </div>
+      {error && <p className="pl-10 text-[11px] text-destructive">{error}</p>}
+    </li>
+  );
+}
+
+/**
+ * Add a connector by its URL — all most servers need. Named after what's
+ * typed, or after the URL's host; the sign-in, when it asks for one, follows
+ * on its own.
+ */
+function AddByUrl({
+  workspaceId,
+  taken,
+  onSaved,
+  onAdvanced,
+}: {
+  workspaceId: string;
+  /** Names your file has already. */
+  taken: readonly string[];
+  onSaved: (view: McpView, name: string) => void;
+  onAdvanced: () => void;
+}) {
+  const sync = useSync();
+  const [url, setUrl] = useState('');
+  const [label, setLabel] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const name = connectorName(label, url);
+
+  const submit = async (): Promise<void> => {
+    setError(null);
+    const target = url.trim();
+    if (!/^https?:\/\/\S+$/i.test(target)) return setError('Give the server’s address: https://…');
+    if (!name) return setError('Give it a name');
+    if (taken.includes(name)) return setError(`You have a connector named ${name} already`);
+    setBusy(true);
+    try {
+      const view = await sync.settingsCall('mcp.save', {
+        workspaceId,
+        scope: 'user',
+        server: { name, transport: transportOf(target), url: target, headers: {} },
+      });
+      onSaved(view, name);
+    } catch (err) {
+      setError(errorText(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <DialogContent title="Add a connector" description="Connect any MCP server Marvis can reach at a URL.">
+      <form
+        aria-label="Add a connector"
+        className="flex flex-col gap-3 px-5 pt-4 pb-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <Field label="Server URL" hint="its docs give it">
+          <input
+            autoFocus
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://mcp.example.com/mcp"
+            spellCheck={false}
+            autoComplete="off"
+            disabled={busy}
+            className={cn(FIELD, 'h-8')}
+          />
+        </Field>
+        <Field label="Name" hint="optional">
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder={connectorName('', url) ?? 'example'}
+            spellCheck={false}
+            autoComplete="off"
+            disabled={busy}
+            className={cn(FIELD, 'h-8 font-sans')}
+          />
+        </Field>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          If it asks you to sign in, your browser opens next. Add only servers you trust: their tools run with what you
+          let Marvis do.
+        </p>
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onAdvanced}
+            className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            A command, headers or JSON…
+          </button>
+          <span className="flex-1" />
+          <ErrorLine error={error} />
+          <Button type="submit" size="sm" disabled={busy || url.trim() === ''}>
+            {busy && <LoaderCircle className="animate-spin" />}
+            Continue
+          </Button>
+        </div>
+      </form>
+    </DialogContent>
   );
 }
 
@@ -463,7 +700,7 @@ function ServerForm({
   return (
     <form
       aria-label={editing ? `Edit ${editing.name}` : 'Add an MCP server'}
-      className="flex flex-col gap-3 rounded-md bg-background p-3"
+      className="flex min-h-0 flex-col gap-3 overflow-y-auto px-5 pt-4 pb-5"
       onSubmit={(e) => {
         e.preventDefault();
         void save();

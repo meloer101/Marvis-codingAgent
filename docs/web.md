@@ -667,18 +667,26 @@ The token is as powerful as the user's shell — a client can switch a session t
   go back to them. **Memory**: the instruction files — or the `AGENTS.md` to
   write — and each store's memories, opened in place in a mono field to edit
   (⌘↵ saves, Escape cancels); a memory sessions skip says why; delete arms
-  first. **MCP servers**: each server as its file has it, the project's
-  winning over yours by name; an OAuth one has Sign in — the page to
-  authorize at opens in a new tab, "waiting for the browser" until the
-  `mcp_login` push, then the list again — or Sign out. "Add server" opens a
-  form, yours or the project's: filled in — a name, a command line split as a
-  shell would or a URL, env or header rows, how it signs in — or pasted as the
-  JSON a server's docs give (Claude Code's `mcpServers`, VS Code's `servers`,
-  one server or several; `lib/mcpEntry.ts`). Each saved server is tried at once
-  (`mcp.test`): "Connected · N tools", folding open to the tools, or why it
-  couldn't connect. On hover a row has Test, Edit — the same form, a value the
-  file keeps hidden shown as "set — type to replace it" — and Delete, armed
-  first. **Skills**: one block to add a skill — yours or the project's — from a
+  first. **Connectors** (the MCP servers): yours and
+  the project's, the project's winning by name, each tried as the page opens
+  (`mcp.test`) — "Connected · N tools", folding open to the tools; "Needs
+  sign-in" with Sign in (the page to authorize at opens in a new tab, "Finish
+  signing in in your browser" until the `mcp_login` push, then tried again);
+  or why it couldn't connect, with what to do for the ones known to turn
+  Marvis away (`lib/mcpCatalog.ts`). A row's ⋯ has Check again, Sign out,
+  Edit… and Remove. **Discover** lists connectors checked against Marvis —
+  hosted ones whose sign-in registers clients, ones without a sign-in, Figma's
+  desktop server — and adds one to your `~/.agent/.mcp.json` in a click,
+  opening the browser for one that signs in. "Add connector" asks for a URL and
+  an optional name (else the host's), saves, tries it, and signs in straight
+  away when it asks; "A command, headers or JSON…" opens the full form, yours
+  or the project's: filled in — a name, a command line split as a shell would
+  or a URL, env or header rows, how it signs in — or pasted as the JSON a
+  server's docs give (Claude Code's `mcpServers`, VS Code's `servers`, one
+  server or several; `lib/mcpEntry.ts`); Edit… opens it on a server, a value
+  the file keeps hidden shown as "set — type to replace it". In a session, a
+  connector that needs a sign-in is a notice with its own Sign in button,
+  under the startup line rather than folded into it. **Skills**: one block to add a skill — yours or the project's — from a
   folder (typed, or the system's chooser) or a Git URL, or written new from a
   name and a description (its `SKILL.md` then opens to write); a conflict
   offers Replace. Below, the project's, yours and the built-in skills, each

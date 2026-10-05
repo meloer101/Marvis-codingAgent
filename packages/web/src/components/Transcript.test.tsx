@@ -7,6 +7,9 @@ import { TaskDock } from '@/components/TaskDock';
 import { Transcript } from '@/components/Transcript';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { setPanel } from '@/lib/panel';
+import type { McpLoginPush, SessionSync } from '@/lib/sync';
+import { SyncProvider } from '@/lib/syncContext';
+import { platform } from '@/platform';
 import { setVerbose } from '@/lib/verbose';
 
 afterEach(() => {
@@ -32,6 +35,49 @@ function view(over: Partial<SessionViewState> = {}): SessionViewState {
     ...over,
   };
 }
+
+describe('Transcript connector sign-in', () => {
+  it('offers a Sign in where a terminal says to run marvis mcp login, and says when it is done', async () => {
+    const open = vi.spyOn(platform, 'openExternal').mockImplementation(() => {});
+    const listeners = new Set<(e: McpLoginPush) => void>();
+    const settingsCall = vi.fn(async () => ({ url: 'https://mcp.notion.com/authorize' }));
+    const sync = {
+      settingsCall,
+      onMcpLogin: (fn: (e: McpLoginPush) => void) => {
+        listeners.add(fn);
+        return () => listeners.delete(fn);
+      },
+    } as unknown as SessionSync;
+    render(
+      <SyncProvider sync={sync}>
+        <Transcript
+          view={view({
+            workspaceId: 'w1',
+            entries: [
+              {
+                kind: 'notice',
+                id: 1,
+                notice: {
+                  kind: 'mcp-auth',
+                  level: 'warn',
+                  text: 'MCP server notion needs you to sign in — run: marvis mcp login notion, then start a new session',
+                  data: { server: 'notion' },
+                },
+              },
+            ],
+          })}
+        />
+      </SyncProvider>,
+    );
+    expect(screen.queryByText(/marvis mcp login/)).toBeNull();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Sign in' })));
+    expect(settingsCall).toHaveBeenCalledWith('mcp.login', { workspaceId: 'w1', name: 'notion' });
+    expect(open).toHaveBeenCalledWith('https://mcp.notion.com/authorize');
+    await act(async () => listeners.forEach((fn) => fn({ type: 'mcp_login', workspaceId: 'w1', name: 'notion' })));
+    expect(screen.getByText(/Signed in/)).toBeTruthy();
+    vi.restoreAllMocks();
+  });
+});
 
 describe('Transcript compaction divider', () => {
   it('renders a horizontal rule and token summary for compaction notices', () => {

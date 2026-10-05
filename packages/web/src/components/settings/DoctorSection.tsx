@@ -24,7 +24,7 @@ const SECTION_NAMES: Record<NonNullable<DoctorCheck['section']>, string> = {
   permissions: 'Permissions',
   'auto-mode': 'Auto mode',
   memory: 'Memory',
-  mcp: 'MCP servers',
+  mcp: 'Connectors',
   skills: 'Skills',
   agents: 'Sub-agents',
   tools: 'Tools',

@@ -21,11 +21,13 @@ import type { Entry, ToolItem } from '@harness-code/protocol';
 
 import { CopyButton } from '@/components/CopyButton';
 import { ImageThumbs } from '@/components/ImageThumbs';
+import { McpAuthNotice } from '@/components/McpAuthNotice';
 import { Markdown } from '@/components/Markdown';
 import { toolView } from '@/components/tools/registry';
 import { Button } from '@/components/ui/button';
 import { useStickToBottom } from '@/hooks/useStickToBottom';
 import {
+  PINNED_KINDS,
   briefNotice,
   exploreSummary,
   lastUserMessage,
@@ -53,6 +55,8 @@ export interface MessageActions {
 }
 
 const ActionsContext = createContext<{ actions: MessageActions; running: boolean } | null>(null);
+/** The session's project, for what a notice offers to do there (sign in to a connector). */
+const WorkspaceContext = createContext<string | undefined>(undefined);
 
 /**
  * With `actions`, user messages can be edited (the conversation taken back to
@@ -86,6 +90,7 @@ export function Transcript({ view, actions }: { view: SessionViewState; actions?
 
   return (
     <ActionsContext.Provider value={context}>
+    <WorkspaceContext.Provider value={view.workspaceId}>
     <div className="relative min-h-0 flex-1">
       <div ref={ref} onScroll={onScroll} className="h-full overflow-y-auto">
         <div className="mx-auto flex max-w-[700px] flex-col gap-5 px-5 pt-8 pb-4">
@@ -137,6 +142,7 @@ export function Transcript({ view, actions }: { view: SessionViewState; actions?
         </Button>
       )}
     </div>
+    </WorkspaceContext.Provider>
     </ActionsContext.Provider>
   );
 }
@@ -466,9 +472,12 @@ const ExploreGroup = memo(
  * The startup diagnostics as one quiet line — "skills 2 · memory 1 · mcp 1/1
  * ready" — that opens to the full notices. It starts open, and takes the
  * warning colour, when one of them is a warning or an error (an MCP server
- * that failed to start should not hide behind a disclosure).
+ * that failed to start should not hide behind a disclosure). What waits on
+ * the user — a connector to sign in to — shows under the line, not in it.
  */
-function SessionDetails({ notices }: { notices: Notice[] }) {
+function SessionDetails({ notices: all }: { notices: Notice[] }) {
+  const pinned = all.filter((n) => PINNED_KINDS.has(n.kind));
+  const notices = all.filter((n) => !PINNED_KINDS.has(n.kind));
   const worst = notices.some((n) => n.level === 'error')
     ? 'error'
     : notices.some((n) => n.level === 'warn')
@@ -477,29 +486,41 @@ function SessionDetails({ notices }: { notices: Notice[] }) {
   const brief = notices.map(briefNotice).filter((b): b is string => b !== null);
   const Icon = worst === 'info' ? Info : AlertTriangle;
   return (
-    <details
-      open={worst !== 'info'}
-      className={cn(
-        'group text-xs',
-        worst === 'error' ? 'text-destructive' : worst === 'warn' ? 'text-warning' : 'text-faint',
+    <div className="flex flex-col gap-2">
+      {notices.length > 0 && (
+        <details
+          open={worst !== 'info'}
+          className={cn(
+            'group text-xs',
+            worst === 'error' ? 'text-destructive' : worst === 'warn' ? 'text-warning' : 'text-faint',
+          )}
+        >
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 select-none">
+            <ChevronRight className="size-3 shrink-0 transition-transform group-open:rotate-90" />
+            <Icon className="size-3.5 shrink-0" />
+            <span className="shrink-0">Session details</span>
+            {brief.length > 0 && <span className="truncate font-mono text-[11px] opacity-80">{brief.join(' · ')}</span>}
+          </summary>
+          <div className="mt-2 ml-1.5 flex flex-col gap-1 border-l pl-3">
+            {notices.map((n, i) => (
+              <NoticeRow key={i} notice={n} />
+            ))}
+          </div>
+        </details>
       )}
-    >
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 select-none">
-        <ChevronRight className="size-3 shrink-0 transition-transform group-open:rotate-90" />
-        <Icon className="size-3.5 shrink-0" />
-        <span className="shrink-0">Session details</span>
-        {brief.length > 0 && <span className="truncate font-mono text-[11px] opacity-80">{brief.join(' · ')}</span>}
-      </summary>
-      <div className="mt-2 ml-1.5 flex flex-col gap-1 border-l pl-3">
-        {notices.map((n, i) => (
-          <NoticeRow key={i} notice={n} />
-        ))}
-      </div>
-    </details>
+      {pinned.map((n, i) => (
+        <NoticeRow key={`pinned-${i}`} notice={n} />
+      ))}
+    </div>
   );
 }
 
 function NoticeRow({ notice }: { notice: Notice }) {
+  const workspaceId = useContext(WorkspaceContext);
+  if (notice.kind === 'mcp-auth') {
+    const server = (notice.data as { server?: unknown } | undefined)?.server;
+    if (typeof server === 'string') return <McpAuthNotice server={server} workspaceId={workspaceId} />;
+  }
   if (notice.kind === 'compaction') {
     return (
       <div className="flex items-center gap-3 py-1 text-[11px] font-medium tracking-[0.02em] text-faint">
