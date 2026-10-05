@@ -56,8 +56,6 @@ const rec = (input: unknown): Rec => (input && typeof input === 'object' ? (inpu
 const str = (r: Rec, k: string): string | undefined => (typeof r[k] === 'string' ? (r[k] as string) : undefined);
 const num = (r: Rec, k: string): number | undefined => (typeof r[k] === 'number' ? (r[k] as number) : undefined);
 
-/** Small diffs open by default; big ones stay folded (line-count heuristic, no `diff` import). */
-const OPEN_DIFF_LINES = 40;
 /** Command output this short shows without a click. */
 const OPEN_OUTPUT_LINES = 8;
 
@@ -230,8 +228,8 @@ const renderers: Record<string, Renderer> = {
           <OpenFileBar path={str(input, 'path') ?? ''} line={tool.result?.display?.startLine} />
         </>
       ),
-      defaultOpen:
-        tool.result?.isError === true || roughLineCount(oldString, newString) <= OPEN_DIFF_LINES,
+      // Folded to its line and +/- count, whatever its size: the diff is a click away. A failed one opens.
+      defaultOpen: tool.result?.isError === true,
     };
   },
 
@@ -252,7 +250,7 @@ const renderers: Record<string, Renderer> = {
           <OpenFileBar path={str(input, 'path') ?? ''} />
         </>
       ),
-      defaultOpen: tool.result?.isError === true || roughLineCount(content) <= OPEN_DIFF_LINES,
+      defaultOpen: tool.result?.isError === true,
     };
   },
 

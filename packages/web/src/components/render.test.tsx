@@ -51,7 +51,7 @@ describe('Markdown', () => {
 });
 
 describe('tool renderers', () => {
-  it('edit: summary is the path, body is a diff, small diffs open by default', async () => {
+  it('edit: summary is the path, body is a diff, folded unless the edit failed', async () => {
     const view = toolView({
       id: 't',
       name: 'edit',
@@ -59,7 +59,11 @@ describe('tool renderers', () => {
       running: false,
       result: { content: 'ok' },
     });
-    expect(view.defaultOpen).toBe(true);
+    expect(view.defaultOpen).toBe(false);
+    const write = (isError?: true) =>
+      toolView({ id: 't', name: 'write', input: { path: 'a.json', content: '{}' }, running: false, result: { content: 'x', ...(isError ? { isError } : {}) } });
+    expect(write().defaultOpen).toBe(false);
+    expect(write(true).defaultOpen).toBe(true);
     const { container } = render(
       <>
         {view.summary}
