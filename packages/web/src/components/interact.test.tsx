@@ -11,6 +11,7 @@ import type { SessionViewState } from '@/lib/sessionModel';
 import { useAppStore } from '@/lib/store';
 import type { SessionSync } from '@/lib/sync';
 import { SyncProvider } from '@/lib/syncContext';
+import { composerBox, composerEditor, composerText, pressInComposer, typeInComposer } from '@/test/composer';
 
 afterEach(() => {
   cleanup();
@@ -33,140 +34,228 @@ function renderComposer(overrides: Partial<Parameters<typeof Composer>[0]> = {})
       {...overrides}
     />,
   );
-  return { textarea: screen.getByRole('textbox') as HTMLTextAreaElement, onSend, onAbort };
+  return { box: composerBox(), onSend, onAbort };
 }
 
 describe('Composer images', () => {
   const png = () => new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' });
 
-  it('takes a pasted image as a thumbnail and sends it with the message, even without text', async () => {
-    const { textarea, onSend } = renderComposer();
-    fireEvent.paste(textarea, { clipboardData: { files: [png()], getData: () => '' } });
-    expect(await screen.findByRole('button', { name: 'Image 1' })).toBeTruthy();
-    fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('', [], { steer: false, images: [{ mediaType: 'image/png', data: 'iVBORw==' }] });
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Image 1' })).toBeNull());
+  it('puts a pasted image where the caret is, and sends it numbered in the text', async () => {
+    const { box, onSend } = renderComposer();
+    typeInComposer('before');
+    fireEvent.paste(box, { clipboardData: { files: [png()], getData: () => '' } });
+    expect(await screen.findByRole('button', { name: 'Open Image #1' })).toBeTruthy();
+    pressInComposer({ key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('before\n\n[Image #1]', [], {
+      steer: false,
+      images: [{ mediaType: 'image/png', data: 'iVBORw==' }],
+    });
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Open Image #1' })).toBeNull());
   });
 
   it("won't take images for a model that can't see them", async () => {
-    const { textarea, onSend } = renderComposer({ imagesProblem: "mock/mini can't see images" });
-    expect((screen.getByLabelText('Add images') as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.paste(textarea, { clipboardData: { files: [png()], getData: () => '' } });
+    const { box, onSend } = renderComposer({ imagesProblem: "mock/mini can't see images" });
+    expect((screen.getByLabelText('Attach files') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.paste(box, { clipboardData: { files: [png()], getData: () => '' } });
     expect((await screen.findByRole('alert')).textContent).toBe("mock/mini can't see images");
-    expect(screen.queryByRole('button', { name: 'Image 1' })).toBeNull();
-    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(screen.queryByRole('button', { name: 'Open Image #1' })).toBeNull();
+    pressInComposer({ key: 'Enter' });
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('uploads any other file, shows it while it goes up, and sends its path', async () => {
+    let finish: (f: { path: string; name: string; size: number }) => void = () => {};
+    const onUpload = vi.fn(() => new Promise<{ path: string; name: string; size: number }>((r) => (finish = r)));
+    const { box, onSend } = renderComposer({ onUpload });
+    const pdf = new File(['%PDF-1.4'], 'report.pdf', { type: 'application/pdf' });
+    fireEvent.drop(box, { dataTransfer: { files: [pdf], types: ['Files'] } });
+    expect(await screen.findByLabelText('Uploading')).toBeTruthy();
+    await waitFor(() => expect(onUpload).toHaveBeenCalledWith('report.pdf', 'JVBERi0xLjQ='));
+    pressInComposer({ key: 'Enter' });
+    expect(onSend).not.toHaveBeenCalled(); // still uploading
+    await act(async () => finish({ path: '/tmp/hc-uploads/x/report.pdf', name: 'report.pdf', size: 8 }));
+    expect(screen.getByLabelText('Attached files').textContent).toContain('report.pdf');
+    pressInComposer({ key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('', ['/tmp/hc-uploads/x/report.pdf'], { steer: false, images: [] });
+  });
+
+  it('says why an upload failed, and drops its chip', async () => {
+    const onUpload = vi.fn(async () => {
+      throw new Error('too big');
+    });
+    const { box } = renderComposer({ onUpload });
+    fireEvent.drop(box, { dataTransfer: { files: [new File(['x'], 'a.bin')], types: ['Files'] } });
+    expect((await screen.findByRole('alert')).textContent).toBe("Couldn't attach a.bin: too big");
+    expect(screen.queryByLabelText('Attached files')).toBeNull();
   });
 });
 
 describe('Composer', () => {
-  it('sends on Enter and keeps Shift+Enter as a newline', () => {
-    const { textarea, onSend } = renderComposer();
-    fireEvent.change(textarea, { target: { value: 'hello' } });
-    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
+  it('sends Markdown on Enter; Shift+Enter starts a new paragraph, or item in a list', () => {
+    const { onSend } = renderComposer();
+    typeInComposer('hello');
+    pressInComposer({ key: 'Enter', shiftKey: true });
     expect(onSend).not.toHaveBeenCalled();
-    fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('hello', [], { steer: false, images: [] });
+    act(() => {
+      composerEditor().chain().insertContent('steps').toggleBulletList().run();
+    });
+    pressInComposer({ key: 'Enter', shiftKey: true });
+    act(() => {
+      composerEditor().commands.insertContent('next');
+    });
+    pressInComposer({ key: 'Enter', shiftKey: true });
+    pressInComposer({ key: 'Enter', shiftKey: true }); // an empty item: out of the list
+    act(() => {
+      composerEditor().commands.insertContent('done');
+    });
+    pressInComposer({ key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('hello\n\n- steps\n- next\n\ndone', [], { steer: false, images: [] });
   });
 
   it('does not send on the Enter that confirms an IME candidate', () => {
-    const { textarea, onSend } = renderComposer();
-    fireEvent.change(textarea, { target: { value: '你好' } });
-    fireEvent.keyDown(textarea, { key: 'Enter', isComposing: true });
+    const { onSend } = renderComposer();
+    typeInComposer('你好');
+    pressInComposer({ key: 'Enter', isComposing: true });
+    pressInComposer({ key: 'Enter', keyCode: 229 });
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('opens the / menu, filters it, and completes with Enter', () => {
-    const { textarea, onSend } = renderComposer();
-    fireEvent.change(textarea, { target: { value: '/' } });
+  it('opens the / menu with commands and blocks at the start, filters it, and completes with Enter', () => {
+    const { onSend } = renderComposer();
+    typeInComposer('/');
     expect(screen.getByText('/help')).toBeTruthy();
     expect(screen.getByText('/review')).toBeTruthy();
+    expect(screen.getByText('Bulleted list')).toBeTruthy();
 
-    fireEvent.change(textarea, { target: { value: '/comp' } });
+    typeInComposer('/comp');
     expect(screen.queryByText('/help')).toBeNull();
-    fireEvent.keyDown(textarea, { key: 'Enter' });
+    pressInComposer({ key: 'Enter' });
     expect(onSend).not.toHaveBeenCalled(); // completed, not sent
-    expect(textarea.value).toBe('/compact ');
+    expect(composerText()).toBe('/compact');
+  });
+
+  it('offers only blocks for a / after the start, and turns the line into the one picked', () => {
+    renderComposer();
+    typeInComposer('steps /num');
+    expect(screen.queryByText('/help')).toBeNull();
+    expect(screen.queryByText('Commands')).toBeNull();
+    pressInComposer({ key: 'Enter' });
+    expect(composerText()).toBe('1. steps');
   });
 
   it('Enter on a command typed out in full sends it; on a partial one it completes', () => {
-    const { textarea, onSend } = renderComposer();
-    fireEvent.change(textarea, { target: { value: '/help' } });
-    fireEvent.keyDown(textarea, { key: 'Enter' });
+    const { onSend } = renderComposer();
+    typeInComposer('/help');
+    pressInComposer({ key: 'Enter' });
     expect(onSend).toHaveBeenCalledWith('/help', [], { steer: false, images: [] });
   });
 
   it('Escape closes the menu without reaching the window (which would abort)', () => {
     const onWindowEsc = vi.fn();
     window.addEventListener('keydown', onWindowEsc);
-    const { textarea } = renderComposer();
-    fireEvent.change(textarea, { target: { value: '/' } });
-    fireEvent.keyDown(textarea, { key: 'Escape' });
+    renderComposer();
+    typeInComposer('/');
+    pressInComposer({ key: 'Escape' });
     expect(screen.queryByText('/help')).toBeNull();
     expect(onWindowEsc).not.toHaveBeenCalled();
     window.removeEventListener('keydown', onWindowEsc);
   });
 
   it('shows Stop while running; Enter steers what is sent meanwhile, ⌥Enter and Queue wait for the turn', async () => {
-    const { textarea, onSend, onAbort } = renderComposer({ running: true });
+    const { onSend, onAbort } = renderComposer({ running: true });
     expect(screen.queryByLabelText('Queue')).toBeNull(); // nothing typed yet
     expect(screen.queryByLabelText('Send now')).toBeNull();
     fireEvent.click(screen.getByLabelText('Stop'));
     expect(onAbort).toHaveBeenCalled();
-    fireEvent.change(textarea, { target: { value: 'next' } });
+    typeInComposer('next');
     fireEvent.click(screen.getByLabelText('Queue'));
     expect(onSend).toHaveBeenLastCalledWith('next', [], { steer: false, images: [] });
-    await waitFor(() => expect(textarea.value).toBe(''));
-    fireEvent.change(textarea, { target: { value: 'use tabs' } });
-    fireEvent.keyDown(textarea, { key: 'Enter' });
+    await waitFor(() => expect(composerText()).toBe(''));
+    typeInComposer('use tabs');
+    pressInComposer({ key: 'Enter' });
     expect(onSend).toHaveBeenLastCalledWith('use tabs', [], { steer: true, images: [] });
-    await waitFor(() => expect(textarea.value).toBe(''));
-    fireEvent.change(textarea, { target: { value: 'afterwards' } });
-    fireEvent.keyDown(textarea, { key: 'Enter', altKey: true });
+    await waitFor(() => expect(composerText()).toBe(''));
+    typeInComposer('afterwards');
+    pressInComposer({ key: 'Enter', altKey: true });
     expect(onSend).toHaveBeenLastCalledWith('afterwards', [], { steer: false, images: [] });
   });
 
-  it('puts restored text in front of the draft, once', () => {
+  it('puts what comes back in front of the draft, once: Markdown, mentions and images where they were', () => {
     const onRestored = vi.fn();
-    const { textarea } = renderComposer({ restored: { text: 'queued @a.ts', attachments: ['a.ts'] }, onRestored });
-    expect(textarea.value).toBe('queued @a.ts');
-    expect(screen.getByLabelText('Attached files').textContent).toBe('a.ts');
+    const image = { mediaType: 'image/png' as const, data: 'iVBORw==' };
+    const { onSend } = renderComposer({
+      restored: { text: '- queued @a.ts\n\n[Image #1]', attachments: ['a.ts', '/tmp/hc-uploads/x/notes.md'], images: [image] },
+      onRestored,
+    });
+    expect(composerText()).toBe('- queued @a.ts\n\n[Image #1]');
+    expect(screen.getByRole('button', { name: 'Open Image #1' })).toBeTruthy();
+    expect(screen.getByLabelText('Attached files').textContent).toContain('notes.md'); // an upload: a chip
     expect(onRestored).toHaveBeenCalledTimes(1);
+    pressInComposer({ key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('- queued @a.ts\n\n[Image #1]', ['a.ts', '/tmp/hc-uploads/x/notes.md'], {
+      steer: false,
+      images: [image],
+    });
   });
 
-  it('@ opens the file menu; a picked file is attached while its @path stays in the text', async () => {
+  it('@ opens the file menu; a picked file is attached while its mention stays in the text', async () => {
     const onSearchFiles = vi.fn(async (q: string) =>
       [{ path: 'src/Composer.tsx' }, { path: 'src/lib/sync.ts' }].filter((f) => f.path.toLowerCase().includes(q)),
     );
-    const { textarea, onSend } = renderComposer({ onSearchFiles });
-    fireEvent.change(textarea, { target: { value: 'look at @comp', selectionStart: 13 } });
+    const { onSend } = renderComposer({ onSearchFiles });
+    typeInComposer('look at @comp');
     const option = await screen.findByRole('option');
     expect(option.textContent).toContain('Composer.tsx');
     expect(onSearchFiles).toHaveBeenLastCalledWith('comp');
-    fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(textarea.value).toBe('look at @src/Composer.tsx ');
-    expect(screen.getByLabelText('Attached files').textContent).toBe('src/Composer.tsx');
+    pressInComposer({ key: 'Enter' });
+    expect(composerText()).toBe('look at @src/Composer.tsx');
     expect(onSend).not.toHaveBeenCalled(); // Enter picked the file
 
-    fireEvent.keyDown(textarea, { key: 'Enter' });
-    expect(onSend).toHaveBeenCalledWith('look at @src/Composer.tsx ', ['src/Composer.tsx'], { steer: false, images: [] });
+    pressInComposer({ key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('look at @src/Composer.tsx', ['src/Composer.tsx'], { steer: false, images: [] });
   });
 
-  it('detaching a file takes its @path out of the text', async () => {
-    const { textarea } = renderComposer({
-      onSearchFiles: async () => [{ path: 'a.ts' }],
-      restored: { text: 'fix @a.ts please', attachments: ['a.ts'] },
-    });
-    fireEvent.click(screen.getByLabelText('Detach a.ts'));
-    expect(textarea.value).toBe('fix please');
-    expect(screen.queryByLabelText('Attached files')).toBeNull();
+  it('keeps the draft — text, mentions and uploads — across a remount', async () => {
+    const onUpload = vi.fn(async () => ({ path: '/tmp/hc-uploads/y/a.csv', name: 'a.csv', size: 3 }));
+    const first = renderComposer({ onUpload, restored: { text: 'fix @a.ts **now**', attachments: ['a.ts'] } });
+    fireEvent.drop(first.box, { dataTransfer: { files: [new File(['a,b'], 'a.csv')], types: ['Files'] } });
+    await screen.findByText('a.csv');
+    await waitFor(() => expect(screen.queryByLabelText('Uploading')).toBeNull());
+    cleanup();
+    const { onSend } = renderComposer({ onUpload });
+    expect(composerText()).toBe('fix @a.ts **now**');
+    expect(screen.getByLabelText('Attached files').textContent).toContain('a.csv');
+    pressInComposer({ key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('fix @a.ts **now**', ['a.ts', '/tmp/hc-uploads/y/a.csv'], { steer: false, images: [] });
   });
 
-  it('Shift+Tab cycles the mode instead of moving focus', () => {
+  it('reads a draft kept from before the editor: its text, and its @ files as mentions', () => {
+    localStorage.setItem('hc.draft.s1', 'look at @a.ts\nthen ship');
+    localStorage.setItem('hc.draftFiles.s1', '["a.ts"]');
+    const { onSend } = renderComposer();
+    pressInComposer({ key: 'Enter' });
+    expect(onSend).toHaveBeenCalledWith('look at @a.ts\nthen ship', ['a.ts'], { steer: false, images: [] });
+    expect(localStorage.getItem('hc.draftFiles.s1')).toBeNull();
+  });
+
+  it('Shift+Tab cycles the mode instead of moving focus; in a nested list it takes the item out a level', () => {
     const onCycleMode = vi.fn();
-    const { textarea } = renderComposer({ onCycleMode });
-    fireEvent.keyDown(textarea, { key: 'Tab', shiftKey: true });
+    renderComposer({ onCycleMode });
+    pressInComposer({ key: 'Tab', shiftKey: true });
     expect(onCycleMode).toHaveBeenCalledTimes(1);
+    act(() => {
+      const editor = composerEditor();
+      editor.commands.setContent('<ul><li><p>a</p><ul><li><p>b</p></li></ul></li></ul>');
+      // The caret after "b" (not in the empty paragraph that trails the list).
+      let end = 0;
+      editor.state.doc.descendants((node, pos) => {
+        if (node.isText && node.text === 'b') end = pos + 1;
+      });
+      editor.chain().focus().setTextSelection(end).run();
+    });
+    pressInComposer({ key: 'Tab', shiftKey: true });
+    expect(onCycleMode).toHaveBeenCalledTimes(1);
+    expect(composerText()).toBe('- a\n- b');
   });
 });
 
@@ -341,13 +430,22 @@ describe('PendingDock', () => {
     expect(document.activeElement).toBe(idle.dock);
     cleanup();
 
-    const composer = document.createElement('textarea');
-    document.body.append(composer);
-    composer.value = 'yes and also';
-    composer.focus();
-    renderDock(dockView());
-    expect(document.activeElement).toBe(composer);
-    composer.remove();
+    for (const typed of [false, true]) {
+      // A plain text box, and the composer's editor (a contenteditable).
+      const box = document.createElement(typed ? 'div' : 'textarea');
+      if (box instanceof HTMLTextAreaElement) box.value = 'yes and also';
+      else {
+        box.setAttribute('contenteditable', 'true');
+        box.tabIndex = 0;
+        box.textContent = 'yes and also';
+      }
+      document.body.append(box);
+      box.focus();
+      renderDock(dockView());
+      expect(document.activeElement).toBe(box);
+      cleanup();
+      box.remove();
+    }
   });
 
   it('asks about a call with allow once / always allow / deny only — never a switch to auto mode', () => {
@@ -501,12 +599,13 @@ describe('global shortcuts', () => {
     expect(screen.queryByText('/deploy')).toBeNull();
   });
 
-  it('hands focus back to the composer once a prompt is answered', () => {
+  it('hands focus back to the composer once a prompt is answered', async () => {
     const view = dockView();
     renderApp(view);
     expect(document.activeElement?.getAttribute('tabindex')).toBe('-1'); // the dock
     act(() => useAppStore.setState({ views: { s1: { ...view, pendingAsk: null, askId: null } } }));
-    expect(document.activeElement).toBe(screen.getByPlaceholderText(/Running…/));
+    // The editor takes focus on the next frame.
+    await waitFor(() => expect(document.activeElement).toBe(composerBox()));
   });
 });
 

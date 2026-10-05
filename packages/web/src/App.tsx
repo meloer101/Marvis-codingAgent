@@ -64,6 +64,20 @@ export function App() {
     window.location.hash = routeToHash(workspaceId ? { kind: 'new', workspaceId } : { kind: 'home' });
   };
 
+  // A file dropped beside the composer would make the browser open it in place
+  // of the app: what isn't dropped on the composer goes nowhere.
+  useEffect(() => {
+    const guard = (e: DragEvent): void => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+    };
+    window.addEventListener('dragover', guard);
+    window.addEventListener('drop', guard);
+    return () => {
+      window.removeEventListener('dragover', guard);
+      window.removeEventListener('drop', guard);
+    };
+  }, []);
+
   // Global keys: the command palette, a new session, the side panel, the
   // terminal (Ctrl+`) and the verbose transcript (Ctrl+O, as in the TUI — Ctrl
   // on a Mac too) anywhere, Esc stops the active run. The composer's menus and the pending dock swallow their

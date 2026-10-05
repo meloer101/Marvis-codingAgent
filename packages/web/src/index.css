@@ -256,6 +256,76 @@
   .md input[type='checkbox'] {
     @apply mr-1 align-middle accent-ink;
   }
+  /* A GFM to-do list: its checkboxes are the markers. */
+  .md ul.contains-task-list {
+    @apply list-none pl-0.5;
+  }
+  .md li.task-list-item > input[type='checkbox'] {
+    @apply mr-1.5 -mt-0.5;
+  }
+
+  /* The composer's editor: the `.md` prose, packed as tight as typing wants it. */
+  .composer-doc {
+    @apply min-h-11 px-3 pt-[11px] pb-3 outline-none;
+    white-space: pre-wrap;
+  }
+  .composer-doc p {
+    @apply my-0;
+  }
+  .composer-doc > * + *,
+  .composer-doc li > * + * {
+    @apply mt-1;
+  }
+  .composer-doc ul,
+  .composer-doc ol,
+  .composer-doc blockquote {
+    @apply my-1;
+  }
+  .composer-doc h1,
+  .composer-doc h2,
+  .composer-doc h3 {
+    @apply mt-2 mb-1;
+  }
+  .composer-doc pre {
+    @apply my-1.5 overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-[12.5px] leading-normal;
+  }
+  .composer-doc pre code {
+    @apply bg-transparent p-0 text-inherit;
+  }
+  .composer-doc hr {
+    @apply my-2.5 border-border-strong;
+  }
+  .composer-doc hr.ProseMirror-selectednode {
+    @apply border-faint;
+  }
+  .composer-doc ul[data-type='taskList'] {
+    @apply list-none pl-0.5;
+  }
+  .composer-doc ul[data-type='taskList'] li {
+    @apply flex items-start gap-2;
+  }
+  .composer-doc ul[data-type='taskList'] li > label {
+    @apply mt-[3px] flex shrink-0 select-none;
+  }
+  .composer-doc ul[data-type='taskList'] li > div {
+    @apply min-w-0 flex-1;
+  }
+  .composer-doc ul[data-type='taskList'] li[data-checked='true'] > div {
+    @apply text-muted-foreground line-through;
+  }
+  .composer-doc input[type='checkbox'] {
+    @apply m-0 size-3.5 cursor-pointer accent-ink;
+  }
+  .composer-doc p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    @apply pointer-events-none float-left h-0 text-faint;
+  }
+  .composer-mention {
+    @apply rounded-sm bg-muted px-1 py-px font-mono text-[12px] text-primary;
+  }
+  .composer-image img {
+    @apply max-h-40;
+  }
 
   /* Blinking caret after the last streamed block. */
   .md-streaming .md > :last-child::after {

@@ -5,10 +5,12 @@ import type { SlashCommand } from '@/lib/slash';
 
 const SHORTCUTS: Array<[string, string]> = [
   ['Enter', 'Send message'],
-  ['Shift+Enter', 'New line'],
-  ['/', 'Command menu'],
-  ['@', 'Attach a file'],
-  ['Shift+Tab', 'Switch permission mode'],
+  ['Shift+Enter', 'New paragraph, or list item (out of the list on an empty one)'],
+  ['/', 'Commands (at the start) and blocks to insert'],
+  ['@', 'Mention a file'],
+  ['- / 1. / [] / > / ```', 'Start a list, to-do, quote or code block'],
+  ['⌘B / ⌘I / ⌘E', 'Bold / italic / code'],
+  ['Shift+Tab', 'Switch permission mode (in a nested list: outdent)'],
   ['⌘K / Ctrl+K', 'Command palette'],
   ['⇧⌘O / Ctrl+Shift+O', 'New session'],
   ['⇧-click / ⌘-click', 'Sidebar: select a run of sessions / one more'],

@@ -37,6 +37,7 @@ import {
   userMessageData,
   withLive,
 } from '@/lib/rows';
+import { placeImages } from '@/lib/composerDoc';
 import type { Part, Step, UserMessageData } from '@/lib/rows';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { cn } from '@/lib/utils';
@@ -302,10 +303,17 @@ export function UserMessage({
   /** More buttons for its top-right corner (edit, fork), shown on hover with copy. */
   actions?: ReactNode;
 }) {
+  // Images have their places in the text (`[Image #N]`); those without one go on top.
+  const shown = useMemo(() => placeImages(text, images?.length ?? 0), [text, images]);
+  const unplaced = images?.filter((_, i) => !shown.placed.has(i)) ?? [];
   return (
     <div className="group/user relative flex flex-col gap-2 rounded-lg bg-muted px-3.5 py-2.5 text-sm leading-[1.57]">
-      {images && images.length > 0 && <ImageThumbs images={images} />}
-      {text && <div className="pr-16 whitespace-pre-wrap">{text}</div>}
+      {unplaced.length > 0 && <ImageThumbs images={unplaced} />}
+      {text && (
+        <div className="pr-16">
+          <Markdown text={shown.text} breaks {...(images?.length ? { images } : {})} />
+        </div>
+      )}
       <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover/user:opacity-100 focus-within:opacity-100">
         {actions}
         {text && <CopyButton text={text} label="Copy message" />}
@@ -326,7 +334,8 @@ export function AttachmentChips({ paths, onRemove }: { paths: readonly string[];
           className="flex max-w-72 items-center gap-1 rounded-md bg-background/70 py-0.5 pr-1.5 pl-1.5 font-mono text-[11px] text-muted-foreground"
         >
           <FileText className="size-3 shrink-0" />
-          <span className="truncate">{p}</span>
+          {/* An upload's path is the server's temp folder: its name is what says what it is. */}
+          <span className="truncate">{/^(\/|[A-Za-z]:[\\/])/.test(p) ? (p.split(/[\\/]/).pop() ?? p) : p}</span>
           {onRemove && (
             <button
               type="button"

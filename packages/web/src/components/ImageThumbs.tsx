@@ -51,3 +51,33 @@ export function ImageThumbs({ images, onRemove }: { images: readonly ImageInput[
     </>
   );
 }
+
+/** An image where it sits in a message: a bounded preview, whole in a dialog. */
+export function InlineImage({ image, label }: { image: ImageInput; label: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={label}
+        className="relative my-1 block overflow-hidden rounded-md border bg-subtle transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+      >
+        <img src={imageSrc(image)} alt="" className="block max-h-48 max-w-[min(100%,24rem)] object-contain" />
+        {/* What the message calls it, as the composer showed it. */}
+        <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-background/85 px-1 font-mono text-[10px] leading-4 text-muted-foreground">
+          {label}
+        </span>
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        {open && (
+          <DialogContent title={label} className="max-w-[min(90vw,64rem)]">
+            <div className="flex min-h-0 justify-center overflow-auto px-5 pt-3 pb-5">
+              <img src={imageSrc(image)} alt="" className="max-h-[70vh] max-w-full rounded-md border object-contain" />
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
+    </>
+  );
+}

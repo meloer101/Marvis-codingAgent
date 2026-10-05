@@ -22,6 +22,7 @@
  */
 
 import type { ImageInput, PermissionMode, ReasoningEffort } from '@harness-code/core';
+import { joinMessages } from '@harness-code/core/browser';
 import type {
   AskDecision,
   DirEntry,
@@ -40,6 +41,7 @@ import type {
   SessionTrace,
   StatsSummary,
   TerminalInfo,
+  UploadedFile,
   WireEvent,
   Workspace,
   WorkspaceInspection,
@@ -419,7 +421,11 @@ export class SessionSync {
           ...s.restored,
           [id]: {
             ...(before
-              ? { text: `${before.text}\n\n${message.text}`, attachments: [...before.attachments, ...attachments] }
+              ? {
+                  // Its `[Image #N]`s follow the images already handed back.
+                  text: joinMessages([before, message]),
+                  attachments: [...before.attachments, ...attachments],
+                }
               : { text: message.text, attachments }),
             ...(images.length > 0 ? { images } : {}),
           },
@@ -591,6 +597,11 @@ export class SessionSync {
     } catch {
       return null;
     }
+  }
+
+  /** Save a file the user attached (base64) where a session can read it; throws, for the composer to say why. */
+  uploadFile(name: string, data: string): Promise<UploadedFile> {
+    return this.rpc.call('files.upload', { name, data });
   }
 
   /** Files matching an `@` query; empty when it can't be asked. Never an error banner: it runs as you type. */

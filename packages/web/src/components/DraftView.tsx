@@ -177,6 +177,7 @@ export function DraftView({ workspaceId }: { workspaceId?: string }) {
           onAbort={() => {}}
           imagesProblem={modelInfo && !modelInfo.vision ? `${modelInfo.ref} can't see images` : undefined}
           {...(workspace ? { onSearchFiles: (query: string) => sync.searchFiles({ workspaceId: workspace.id }, query) } : {})}
+          onUpload={(name, data) => sync.uploadFile(name, data)}
           onCycleMode={() => choose({ mode: nextPermissionMode(mode, { includeAuto: modes.includes('auto') }) })}
           {...(workspace ? { trailing: <ContextButton modelRef={modelRef} {...(modelInfo ? { model: modelInfo } : {})} /> } : {})}
           controls={

@@ -6,6 +6,7 @@ import { nextPermissionMode } from '@harness-code/core/browser';
 import type { ImageInput, PermissionMode } from '@harness-code/core';
 
 import { Composer } from '@/components/Composer';
+import type { ComposerHandle } from '@/components/Composer';
 import { EffortPicker, ModeChip, ModelPicker, WhereChip } from '@/components/ComposerControls';
 import { PendingDock } from '@/components/PendingDock';
 import { QueuedMessages } from '@/components/QueuedMessages';
@@ -51,7 +52,7 @@ export function SessionView({ id, onNewSession, pane }: { id: string; onNewSessi
   const commands = useMemo(() => allCommands(mcp ?? [], skills ?? []), [mcp, skills]);
   const modes = useSessionModes(view);
   const checkout = useSessionCheckout({ id, workspaceId: view?.workspaceId, worktree: view?.worktree });
-  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<ComposerHandle>(null);
   const requestId = view ? (view.askId ?? view.planId) : null;
   const hadRequest = useRef(false);
   /** The picker or dialog a command opened (`/model`, `/skills`, …). */
@@ -240,7 +241,7 @@ function SessionComposer({
   autoFocus: boolean;
   modes: readonly PermissionMode[];
   onSend: (text: string, attachments: string[], opts?: { steer?: boolean; images?: ImageInput[] }) => Promise<boolean>;
-  inputRef: RefObject<HTMLTextAreaElement | null>;
+  inputRef: RefObject<ComposerHandle | null>;
   commands: SlashCommand[];
   connected: boolean;
   surface: CommandSurface | null;
@@ -279,6 +280,7 @@ function SessionComposer({
       onAbort={() => void sync.abort(id)}
       onCommandMenu={() => void sync.prepareCommands(id)}
       {...(checkout ? { onSearchFiles: (query: string) => sync.searchFiles(checkout, query) } : {})}
+      onUpload={(name, data) => sync.uploadFile(name, data)}
       onCycleMode={() => setMode(nextPermissionMode(view.mode, { includeAuto: modes.includes('auto') }))}
       inputRef={inputRef}
       {...(restored !== undefined ? { restored } : {})}

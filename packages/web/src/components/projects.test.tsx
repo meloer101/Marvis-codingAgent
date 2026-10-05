@@ -8,6 +8,7 @@ import { DraftView } from './DraftView';
 import { useAppStore } from '@/lib/store';
 import type { SessionSync } from '@/lib/sync';
 import { SyncProvider } from '@/lib/syncContext';
+import { composerText, pressInComposer, typeInComposer } from '@/test/composer';
 
 afterEach(() => {
   cleanup();
@@ -72,9 +73,8 @@ describe('DraftView', () => {
     expect(await screen.findByText('Edits your checkout directly — on main')).toBeTruthy();
     fireEvent.click(await screen.findByText('feature/login'));
     expect(screen.getByLabelText('Where it works').textContent).toBe('Worktreefeature/login');
-    const box = screen.getByRole('textbox');
-    fireEvent.change(box, { target: { value: 'fix it' } });
-    fireEvent.keyDown(box, { key: 'Enter' });
+    typeInComposer('fix it');
+    pressInComposer({ key: 'Enter' });
     await waitFor(() =>
       expect(sync.startSession).toHaveBeenCalledWith('fix it', {
         workspaceId: 'aaa',
@@ -125,9 +125,8 @@ describe('DraftView', () => {
     fireEvent.click(await screen.findByText('Plan'));
     openMenu('Reasoning effort');
     fireEvent.click(await screen.findByText('Max'));
-    const box = screen.getByRole('textbox');
-    fireEvent.change(box, { target: { value: 'hello' } });
-    fireEvent.keyDown(box, { key: 'Enter' });
+    typeInComposer('hello');
+    pressInComposer({ key: 'Enter' });
     await waitFor(() =>
       expect(sync.startSession).toHaveBeenCalledWith('hello', { workspaceId: 'aaa', mode: 'plan', effort: 'max' }),
     );
@@ -154,9 +153,8 @@ describe('DraftView', () => {
     expect(sync.loadModels).toHaveBeenCalledWith('aaa');
     fireEvent.click(await screen.findByText('moonshot/kimi-k2'));
     expect(screen.queryByLabelText('Reasoning effort')).toBeNull(); // kimi has no reasoning
-    const box = screen.getByRole('textbox');
-    fireEvent.change(box, { target: { value: 'hi' } });
-    fireEvent.keyDown(box, { key: 'Enter' });
+    typeInComposer('hi');
+    pressInComposer({ key: 'Enter' });
     await waitFor(() =>
       expect(sync.startSession).toHaveBeenCalledWith('hi', { workspaceId: 'aaa', mode: 'ask', model: 'moonshot/kimi-k2' }),
     );
@@ -170,19 +168,19 @@ describe('DraftView', () => {
         <DraftView workspaceId="aaa" />
       </SyncProvider>,
     );
-    const box = screen.getByRole('textbox') as HTMLTextAreaElement;
     for (const line of ['/mode plan', '/effort max']) {
-      fireEvent.change(box, { target: { value: line } });
-      fireEvent.keyDown(box, { key: 'Enter' });
-      await waitFor(() => expect(box.value).toBe(''));
+      typeInComposer(line);
+      pressInComposer({ key: 'Enter' });
+      await waitFor(() => expect(composerText()).toBe(''));
     }
     expect(screen.getByLabelText('Permission mode').textContent).toBe('Plan');
-    fireEvent.change(box, { target: { value: '/cost' } });
-    fireEvent.keyDown(box, { key: 'Enter' });
+    typeInComposer('/cost');
+    // `/cost` typed out in full: Enter sends it, it isn't completed.
+    pressInComposer({ key: 'Enter' });
     await waitFor(() => expect(sync.showError).toHaveBeenCalled());
-    expect(box.value).toBe('/cost'); // kept, as it wasn't done
-    fireEvent.change(box, { target: { value: 'go' } });
-    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(composerText()).toBe('/cost'); // kept, as it wasn't done
+    typeInComposer('go');
+    pressInComposer({ key: 'Enter' });
     await waitFor(() =>
       expect(sync.startSession).toHaveBeenCalledWith('go', { workspaceId: 'aaa', mode: 'plan', effort: 'max' }),
     );

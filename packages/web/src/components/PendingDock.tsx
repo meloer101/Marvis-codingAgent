@@ -87,10 +87,14 @@ export function PendingDock({ view }: { view: SessionViewState }) {
     setNoting(false);
     if (!requestId) return;
     const active = document.activeElement;
-    const typing =
-      (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) &&
-      active.value.trim() !== '' &&
-      !ref.current?.contains(active);
+    const typed =
+      active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement
+        ? active.value.trim() !== ''
+        : // The composer's editor: a contenteditable.
+          active instanceof HTMLElement &&
+          active.getAttribute('contenteditable') === 'true' &&
+          (active.textContent ?? '').trim() !== '';
+    const typing = typed && !ref.current?.contains(active);
     if (!typing) ref.current?.focus();
   }, [requestId]);
 

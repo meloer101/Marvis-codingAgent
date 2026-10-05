@@ -4,9 +4,13 @@ import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkCjkFriendly from 'remark-cjk-friendly/parseOnly';
 import remarkCjkFriendlyGfmStrikethrough from 'remark-cjk-friendly-gfm-strikethrough/parseOnly';
+import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 
+import type { ImageInput } from '@harness-code/core';
+
 import { CodeBlock } from '@/components/CodeBlock';
+import { InlineImage } from '@/components/ImageThumbs';
 import { closeOpenFences } from '@/lib/markdown';
 import { cn } from '@/lib/utils';
 import { platform } from '@/platform';
@@ -60,22 +64,46 @@ function makeComponents(streaming: boolean): Components {
  * plugins relax that rule next to CJK text, for `**`, `*` and GFM's `~~`.
  */
 const remarkPlugins = [remarkGfm, remarkCjkFriendly, remarkCjkFriendlyGfmStrikethrough];
+/** What the user wrote: a line break they typed is one, as it was in the composer. */
+const typedPlugins = [...remarkPlugins, remarkBreaks];
 
 const settledComponents = makeComponents(false);
 const streamingComponents = makeComponents(true);
 
+/** `![Image #N](#image-N)` (see `placeImages`) drawn as the message's image N. */
+function withImages(base: Components, images: readonly ImageInput[]): Components {
+  return {
+    ...base,
+    img({ src, alt }) {
+      const n = /^#image-(\d+)$/.exec(typeof src === 'string' ? src : '');
+      const image = n ? images[Number(n[1]) - 1] : undefined;
+      return image ? <InlineImage image={image} label={alt || `Image ${n![1]}`} /> : null;
+    },
+  };
+}
+
 export const MarkdownBody = memo(function MarkdownBody({
   text,
   streaming = false,
+  breaks = false,
+  images,
   className,
 }: {
   text: string;
   streaming?: boolean;
+  /** Single line breaks are breaks (a user's message), not spaces. */
+  breaks?: boolean;
+  /** The message's images, for its `#image-N` images (a user's message). */
+  images?: readonly ImageInput[];
   className?: string;
 }) {
+  const base = streaming ? streamingComponents : settledComponents;
   return (
     <div className={cn('md', className)}>
-      <ReactMarkdown remarkPlugins={remarkPlugins} components={streaming ? streamingComponents : settledComponents}>
+      <ReactMarkdown
+        remarkPlugins={breaks ? typedPlugins : remarkPlugins}
+        components={images?.length ? withImages(base, images) : base}
+      >
         {streaming ? closeOpenFences(text) : text}
       </ReactMarkdown>
     </div>

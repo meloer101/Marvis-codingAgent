@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Entry, ToolItem } from '@harness-code/protocol';
 
 import { TaskDock } from '@/components/TaskDock';
-import { Transcript } from '@/components/Transcript';
+import { Transcript, UserMessage } from '@/components/Transcript';
 import type { SessionViewState } from '@/lib/sessionModel';
 import { setPanel } from '@/lib/panel';
 import type { McpLoginPush, SessionSync } from '@/lib/sync';
@@ -339,5 +339,27 @@ describe('copy and retry', () => {
     rerender(<Transcript view={view({ entries, running: true })} actions={a} />);
     expect(screen.queryByRole('button', { name: 'Edit message' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Regenerate/ })).toBeNull();
+  });
+});
+
+describe('a user message', () => {
+  const image = (data: string) => ({ mediaType: 'image/png' as const, data });
+
+  it('reads as Markdown, each image where its marker sits; images without one go on top', async () => {
+    render(
+      <UserMessage
+        text={'Fix these:\n\n- margins\n- font\n\n[Image #1]\n\nfirst line\nsecond line'}
+        images={[image('AAAA'), image('BBBB')]}
+        attachments={['src/a.ts', '/tmp/hc-uploads/x/report.pdf']}
+      />,
+    );
+    // The Markdown renderer loads on demand.
+    expect((await screen.findByText('margins')).tagName).toBe('LI');
+    expect(screen.getByRole('button', { name: 'Image #1' })).toBeTruthy(); // in the text
+    expect(screen.getByRole('button', { name: 'Image 1' })).toBeTruthy(); // image 2, unplaced: a thumbnail
+    // A typed line break stays one.
+    expect(document.querySelector('.md br')).toBeTruthy();
+    // An upload shows its name, not the server's temp path.
+    expect(screen.getByLabelText('Attached files').textContent).toBe('src/a.tsreport.pdf');
   });
 });

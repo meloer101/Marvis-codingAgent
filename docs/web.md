@@ -173,6 +173,7 @@ the server with the same schemas the client is typed from.
 | `git.createPr {workspaceId, sessionId?, title, body?, draft?}` | `gh pr create` for the branch — into a worktree's base, when that is a local branch → `{url}` |
 | `git.branches {workspaceId}` | the repository's local branches, the checked-out one first, for a worktree to start from (`{repo: false}` outside one) |
 | `fs.search {workspaceId, sessionId?, query, limit?}` | a workspace's files matching an `@` query, best first; no ignored files, no secrets |
+| `files.upload {name, data}` | save a file the user attached (base64, 25 MB at most) where a session reads it → `{path, name, size}`, for a message's `attachments` |
 | `session.list` | every workspace's sessions (on disk plus live), newest first |
 | `session.start {text, attachments?, images?, workspaceId?, model?, mode?, effort?, worktree?}` | create a session and send its first message (how a draft becomes a session); a bad attachment or image creates nothing. `worktree {base}`: in a git worktree of its own, on a new branch off `base` |
 | `session.create {workspaceId?, model?, mode?, effort?}` | create an empty live session |
@@ -338,24 +339,45 @@ processes. The two are managed separately.
   meter is re-read against the new window. The auto-mode classifier keeps the
   model it started with. The metadata records the new model, so a resume uses
   it.
-- **Attachments.** `@path` files a message carries are read with the `read`
-  tool into blocks ahead of its text (`<attached_file path="…">`, line numbers
-  and all) — the model sees them as it would a read, they enter the
-  read-before-write ledger, and a recorded read call makes a resumed session
-  remember them. Anything the session may not read is refused before a word is
-  sent: outside the workspace, a secret or a denied path, not a regular file,
-  binary, or over 256 KB (for those, mention the path and let the agent read
-  what it needs). Titles and what a compaction keeps of the user's messages
-  leave the file bodies out.
+- **Attachments.** Files a message carries — `@path` workspace files, and
+  uploads (`files.upload`: a file dropped, pasted or picked in the composer,
+  from anywhere on the user's machine, 25 MB at most, saved under
+  `$TMPDIR/hc-uploads/<uuid>/<name>` and attached by that path) — go in blocks
+  ahead of its text (`<attached_file path="…">`). Text up to 256 KB and PDFs
+  are read with the `read` tool (line numbers and all; a PDF's first pages as
+  text, unless that comes to over 40K characters) — the model sees them as it
+  would a read, they enter the read-before-write ledger, and a recorded read
+  call makes a resumed session remember them. Anything else — binary, bigger
+  text, a long PDF — goes as its path and a note on how to read it (`read`
+  with `offset`/`pages`, or bash: `textutil` for .docx, `unzip -l`), for the
+  agent to read what it needs. Refused before a word is sent: outside the
+  workspace (an upload aside), a secret or a denied path, not a regular file.
+  The file tools read uploads in every permission mode — attaching one was the
+  asking; they're temp files, kept as long as the system keeps them (macOS
+  clears what's untouched for days), while what the message inlined stays in
+  the log. Titles and what a compaction keeps of the user's messages leave the
+  file bodies out.
+- **PDFs** (`core/tools/pdf.ts`): `read` gives a PDF's text page by page
+  (`--- Page N ---`), the first 10 pages unless `pages` says which (`"3"`,
+  `"1-5"`, `"12-"`; 20 at most a call), with where to go on from and a note
+  when the pages have no text layer (a scan). pdf.js (unpdf's serverless build)
+  loads only when a PDF is read. Other binary files are refused with what to
+  use instead.
 - **Images** (`images: [{mediaType, data}]`, base64 PNG, JPEG, GIF or WebP):
   up to eight a message, 5 MB each, for a model whose capabilities say it sees
-  them (`vision`: GPT-4o, o-series, GPT-5, Claude via OpenRouter, the `-vl` /
-  `-4v` / llava kinds) — refused as `bad_request` before anything is sent
-  otherwise. They go in the message between attached files and the text, as
-  `image_url` parts on the wire; a model switched to later that can't see them
-  gets `[image]`. The log keeps them inline, so a transcript (and `run_start`,
-  a queued message, `user_input`) carries them; the context estimate counts
-  1.6K tokens each.
+  them (`vision`: DeepSeek V4.1-Flash, GPT-4o, o-series, GPT-5, Claude via
+  OpenRouter, the `-vl` / `-4v` / llava kinds; not deepseek-v4-pro) — refused
+  as `bad_request` before anything is sent otherwise. They go in the message
+  between attached files and the text, as `image_url` parts on the wire; a
+  model switched to later that can't see them gets `[image]`. The web
+  composer's text says where each sits (`[Image #N]`, numbered in order); when
+  it does, each part goes labelled (`[Image #N]` just before it), and messages
+  joined into one (steering, a restored queue) are renumbered so each marker
+  names its own image. Every request re-sends the history's images: a model
+  with `maxRequestImageBytes` (DeepSeek's 48 MiB request cap) leaves out the
+  oldest past it, a note in their place. The log keeps them inline, so a
+  transcript (and `run_start`, a queued message, `user_input`) carries them;
+  the context estimate counts 1.6K tokens each.
 - **Rewind and fork.** A `rewind` event in the log keeps only the first N
   messages in force (`liveEvents`, which every replay of the log goes
   through): the model's history, the read ledger, a resume and the transcript
@@ -466,7 +488,10 @@ The token is as powerful as the user's shell — a client can switch a session t
 11. **Attachments go through the permission engine.** `fs.search` lists a
    workspace's files without the ones the engine treats as secrets (`.env`,
    keys, credentials), and an attachment is checked as a `read` of that path
-   would be: a deny rule or the sensitive-file stance refuses it.
+   would be: a deny rule or the sensitive-file stance refuses it. An upload is
+   saved under a fresh folder of the temp directory, its name stripped of
+   folders and control characters, readable by the owner only; only files in
+   that folder (and the workspace) can be attached.
 12. **Worktrees live in the home directory, and copy only what they're told.**
    A session's worktree is under `~/.agent/worktrees/`; removing one deletes
    only a directory git registers as a worktree, or one under that directory.
@@ -504,16 +529,31 @@ The token is as powerful as the user's shell — a client can switch a session t
   the project folder. Archiving one with uncommitted changes asks first
   (`components/ArchiveConflictDialog.tsx`), wherever it was asked for; the
   delete dialog says the worktree goes too.
-- **Composer** (`components/Composer.tsx`): Enter sends, Shift+Enter is a new
-  line, an IME's Enter only confirms. `/` at the start opens the command menu,
-  `@` at the start of a word the file menu (`fs.search`); a picked file is
-  attached while its `@path` stays in the text, shown as a chip, and kept with
-  the draft across reloads. Images are pasted, dropped on the composer or picked
-  with its image button (`lib/images.ts`: one bigger than 2048 px on its long
-  edge, over 5 MB or in another format is redrawn as PNG or JPEG first), shown
-  as thumbnails until sent and not kept across reloads; a model that can't see
-  images (`model.list`'s `vision`) disables the button and says why. A message's
-  images show as thumbnails that open whole. Its footer holds the mode chip (Shift+Tab cycles
+- **Composer** (`components/Composer.tsx`, `components/editor/`): a rich-text
+  editor (Tiptap) whose message is Markdown, as written — nothing escaped
+  (`lib/composerDoc.ts`). Markdown typed turns into what it means (`- `, `1. `,
+  `[] `, `> `, ``` ``` ```, `#`, `**bold**`); a selection gets a format bar
+  (bold, italic, strike, code; lists, to-do, quote, code block). Enter sends,
+  Shift+Enter is Enter in a document (a new paragraph or list item; on an
+  empty item, out of the list; a new line in code), an IME's Enter only
+  confirms; Tab and Shift+Tab in a nested list indent and outdent. `/` opens
+  one menu (`lib/composerMenu.ts`): at the start of an empty message, commands
+  first and then blocks to insert; anywhere else, after a space or at a line's
+  start, only the blocks. `@` at the start of a word opens the file menu
+  (`fs.search`); a picked file is an inline mention, attached while it stays
+  in the text. Pasted text keeps its lines and is never read as Markdown.
+  Images — pasted, dropped or picked with the paperclip — go where the caret
+  is (`lib/images.ts`: one bigger than 2048 px on its long edge, over 5 MB or in
+  another format is redrawn as PNG or JPEG first), labelled with the number
+  the message gives them; a model that can't see images (`model.list`'s
+  `vision`) refuses them and says why. Any other file is uploaded
+  (`files.upload`) and shown as a chip — a spinner while it goes up, sending
+  waits for it. The draft (text, mentions, uploads; not images) is kept per
+  session across reloads; a draft from before the editor is read as plain
+  text. A user message in the transcript reads as Markdown (a typed line break
+  stays one), each image where its marker sits; images without one (older
+  messages) show as thumbnails on top, and an upload's chip shows its name.
+  The footer holds the mode chip (Shift+Tab cycles
   ask → acceptEdits → plan → auto), the model menu (each model's window, price
   and key status; `model.list` loads as it opens), the effort menu and, before
   the send button, the context ring that opens the breakdown and usage. While a
@@ -521,12 +561,14 @@ The token is as powerful as the user's shell — a client can switch a session t
   at its next step — and ⌥Enter (or Queue) waits for the turn to end; Stop sits
   beside them. Both kinds dock above the composer, steering ones first, each to
   edit or remove until it goes; a steered message appears in the transcript
-  where the agent read it.
+  where the agent read it. A file dropped beside the composer is ignored, not
+  opened in place of the app.
 - **Commands** (`lib/slash.ts`): `/help`, `/clear`, `/model`, `/effort`,
   `/mode`, `/cost` and `/skills` stay in the page — given an argument they set
   it (`/effort max`, `/mode accept-edits`), without one they open their picker;
-  `/compact`, `/plan`, MCP prompts and skills go to the server. Enter on a
-  command typed out in full runs it; Tab completes.
+  `/compact`, `/plan`, MCP prompts and skills go to the server. A command is
+  a whole message: the menu offers them only for a `/` at its start. Enter on
+  a command typed out in full runs it; Tab completes.
 - **Header**: the project, the title (click to rename) and the session's
   spend, which opens the same usage breakdown as the ring.
 - **Command palette** (⌘K, `components/CommandPalette.tsx`): start a session

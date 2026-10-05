@@ -31,6 +31,8 @@ export default defineConfig({
           name: 'web',
           include: ['packages/web/src/**/*.test.{ts,tsx}'],
           environment: 'jsdom',
+          // What ProseMirror (the composer) measures with that jsdom lacks.
+          setupFiles: ['./packages/web/src/test/setup.ts'],
           testTimeout: 20_000,
         },
       },
