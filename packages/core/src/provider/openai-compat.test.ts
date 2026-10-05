@@ -427,6 +427,38 @@ describe('message translation', () => {
     ]);
   });
 
+  it('labels each image when the text says where they sit ([Image #N])', () => {
+    const messages: Message[] = [
+      {
+        role: 'user',
+        content: [
+          { type: 'image', mediaType: 'image/png', data: 'AAAA' },
+          { type: 'image', mediaType: 'image/jpeg', data: 'BBBB' },
+          { type: 'text', text: 'before\n\n[Image #1]\n\nafter\n\n[Image #2]' },
+        ],
+      },
+    ];
+    expect(toOpenAIMessages(undefined, messages, { ...DEFAULT_CAPABILITIES, vision: true })[0]!.content).toEqual([
+      { type: 'text', text: '[Image #1]' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+      { type: 'text', text: '[Image #2]' },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,BBBB' } },
+      { type: 'text', text: 'before\n\n[Image #1]\n\nafter\n\n[Image #2]' },
+    ]);
+  });
+
+  it('leaves out the oldest images when they would make the request too big', () => {
+    const image = (data: string) => ({ type: 'image' as const, mediaType: 'image/png' as const, data });
+    const messages: Message[] = [
+      { role: 'user', content: [image('a'.repeat(30)), { type: 'text', text: 'first' }] },
+      { role: 'assistant', content: [{ type: 'text', text: 'ok' }] },
+      { role: 'user', content: [image('b'.repeat(30)), image('c'.repeat(30)), { type: 'text', text: 'second' }] },
+    ];
+    const out = toOpenAIMessages(undefined, messages, { ...DEFAULT_CAPABILITIES, vision: true, maxRequestImageBytes: 70 });
+    expect(out[0]).toEqual({ role: 'user', content: '[image omitted: the request would be too large with it]\nfirst' });
+    expect((out[2]!.content as { type: string }[]).filter((p) => p.type === 'image_url')).toHaveLength(2);
+  });
+
   it('emits tool results before any new user text', async () => {
     const messages: Message[] = [
       { role: 'user', content: [{ type: 'text', text: 'read a.ts' }] },

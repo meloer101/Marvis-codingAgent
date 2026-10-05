@@ -203,6 +203,15 @@ export interface SkillInfo {
   description: string;
 }
 
+/** A file the user uploaded (`files.upload`), saved where the session can read it. */
+export interface UploadedFile {
+  /** Absolute, on the server's machine: what a message attaches. */
+  path: string;
+  name: string;
+  /** Bytes. */
+  size: number;
+}
+
 /** A file matching an `@` query (`fs.search`). */
 export interface FileMatch {
   /** Relative to the workspace root, `/`-separated. */
@@ -688,8 +697,10 @@ const gitPathsSchema = z.object({
   sessionId: sessionIdSchema.optional(),
   paths: z.array(pathSchema).min(1).max(1000),
 });
-/** Files attached to a message (`@path`): workspace-relative paths. */
+/** Files attached to a message: workspace-relative paths (`@path`), or where `files.upload` saved one. */
 const attachmentsSchema = z.array(pathSchema).max(20);
+/** 25 MB decoded (`MAX_UPLOAD_BYTES`), as base64. */
+const MAX_UPLOAD_BASE64 = Math.ceil((25 * 1024 * 1024) / 3) * 4;
 /**
  * Images in a message: base64 (5 MB decoded at most, checked again against the
  * model and the count by the session), PNG, JPEG, GIF or WebP.
@@ -794,6 +805,17 @@ export const methods = {
       sessionId: sessionIdSchema.optional(),
       query: z.string().max(512),
       limit: z.number().int().min(1).max(200).optional(),
+    }),
+  ),
+  /**
+   * Save a file the user dropped, pasted or picked (from anywhere on their
+   * machine) where a session can read it, for a message to attach by the path
+   * this answers. 25 MB at most.
+   */
+  'files.upload': method<{ name: string; data: string }, UploadedFile>(
+    z.object({
+      name: z.string().min(1).max(255),
+      data: z.string().max(MAX_UPLOAD_BASE64).regex(/^[A-Za-z0-9+/]*={0,2}$/, 'not base64'),
     }),
   ),
   /** The terminals open in a workspace, oldest first. */
@@ -986,8 +1008,9 @@ export const methods = {
    * session's queue (every client sees the queue, as `queue` events) and is
    * sent when the run ends; with `steer`, the agent reads it at the run's next
    * step instead (a `user_input` event marks where). A `/command` always waits
-   * for the run to end. `attachments` are workspace files read into it; one
-   * the session may not read is `bad_request`, before anything is sent.
+   * for the run to end. `attachments` are workspace files and uploads read into
+   * it (text and PDFs whole, anything else as its path); one the session may
+   * not read is `bad_request`, before anything is sent.
    */
   'session.send': method<
     { id: string; text: string; attachments?: string[]; images?: ImageInput[]; steer?: boolean },

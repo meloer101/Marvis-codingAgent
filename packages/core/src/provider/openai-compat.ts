@@ -793,6 +793,22 @@ export interface ToOpenAIMessagesOptions {
   emptyReasoningFallback?: boolean;
 }
 
+const IMAGE_MARKER = /\[Image #\d+\]/;
+
+/** The oldest images to leave out so the rest come to at most `budget` (base64 characters). */
+function imagesOverBudget(messages: readonly Message[], budget: number | undefined): Set<ImageBlock> {
+  const omitted = new Set<ImageBlock>();
+  if (budget === undefined) return omitted;
+  const images = messages.flatMap((m) => m.content.filter((b): b is ImageBlock => b.type === 'image'));
+  let total = images.reduce((sum, img) => sum + img.data.length, 0);
+  for (const img of images) {
+    if (total <= budget) break;
+    omitted.add(img);
+    total -= img.data.length;
+  }
+  return omitted;
+}
+
 export function toOpenAIMessages(
   system: readonly SystemSegment[] | undefined,
   messages: readonly Message[],
@@ -818,6 +834,10 @@ export function toOpenAIMessages(
   const updateBefore =
     updateText === '' || endsOnToolResults || messages.length === 0 ? -1 : messages.length - 1;
 
+  // Every request carries the whole history, images and all: past the
+  // endpoint's cap the oldest images go, leaving a note where each was.
+  const omitted = imagesOverBudget(messages, caps.maxRequestImageBytes);
+
   messages.forEach((msg, i) => {
     if (i === updateBefore) {
       out.push({ role: caps.developerRole ? 'developer' : 'system', content: updateText });
@@ -834,18 +854,31 @@ export function toOpenAIMessages(
         });
       }
       const text = msg.content
-        .flatMap((b) => (b.type === 'text' ? [b.text] : b.type === 'image' && !caps.vision ? ['[image]'] : []))
+        .flatMap((b) =>
+          b.type === 'text'
+            ? [b.text]
+            : b.type === 'image' && !caps.vision
+              ? ['[image]']
+              : b.type === 'image' && omitted.has(b)
+                ? ['[image omitted: the request would be too large with it]']
+                : [],
+        )
         .join('\n');
-      const images = caps.vision ? msg.content.filter((b): b is ImageBlock => b.type === 'image') : [];
+      const images = caps.vision
+        ? msg.content.filter((b): b is ImageBlock => b.type === 'image' && !omitted.has(b))
+        : [];
       if (images.length > 0) {
+        // The text says where each image sits (`[Image #2]`, from the web
+        // composer): label each, so which is which isn't left to their order.
+        const labelled = IMAGE_MARKER.test(text);
         // Images first, as the user put them ahead of what they wrote about them.
         out.push({
           role: 'user',
           content: [
-            ...images.map((img) => ({
-              type: 'image_url' as const,
-              image_url: { url: `data:${img.mediaType};base64,${img.data}` },
-            })),
+            ...images.flatMap((img, n) => [
+              ...(labelled ? [{ type: 'text' as const, text: `[Image #${n + 1}]` }] : []),
+              { type: 'image_url' as const, image_url: { url: `data:${img.mediaType};base64,${img.data}` } },
+            ]),
             ...(text !== '' ? [{ type: 'text' as const, text }] : []),
           ],
         });

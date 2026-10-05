@@ -318,6 +318,28 @@ describe('ws transport', () => {
     }
   });
 
+  it('saves an upload where a message can attach it', async () => {
+    const server = await boot([{ text: 'read it' }]);
+    const client = await Client.open(wsUrl(server), `http://127.0.0.1:${server.port}`);
+    await client.call('auth', { token: server.token });
+
+    const up = await client.call('files.upload', { name: '../notes.md', data: Buffer.from('ship it\n').toString('base64') });
+    expect(up).toMatchObject({ t: 'res', ok: true, result: { name: 'notes.md', size: 8 } });
+    const { path } = (up as { result: { path: string } }).result;
+    expect(await readFile(path, 'utf8')).toBe('ship it\n');
+
+    const created = (await client.call('session.create', {})) as { result: { id: string } };
+    const sent = await client.call('session.send', { id: created.result.id, text: 'look', attachments: [path] });
+    expect(sent).toMatchObject({ t: 'res', ok: true });
+
+    expect(await client.call('files.upload', { name: 'x', data: 'not base64!' })).toMatchObject({
+      t: 'res',
+      ok: false,
+      error: { code: 'bad_request' },
+    });
+    client.close();
+  });
+
   it('serves server.info once authed', async () => {
     const server = await boot();
     const client = await Client.open(wsUrl(server), `http://127.0.0.1:${server.port}`);

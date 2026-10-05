@@ -494,9 +494,23 @@ export interface SessionSummary {
 export const UNTITLED_SESSION = '(untitled)';
 const TITLE_MAX_LENGTH = 80;
 
-/** A list title from a user message: whitespace collapsed, truncated to 80 characters. */
+/**
+ * A list title from a user message: its Markdown's line markers (`#`, `- `,
+ * `1. `, `- [ ] `, `> `), fences and image markers (`[Image #1]`) dropped,
+ * whitespace collapsed, truncated to 80 characters.
+ */
 export function sessionTitleFrom(text: string): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
+  const flat = text
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/^\s*(?:>\s*)*(?:#{1,6}\s+|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+[.)]\s+)?/, '')
+        .replace(/^\s*(?:`{3,}|~{3,}).*$/, '')
+        .replace(/\[Image #\d+\]/g, ''),
+    )
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   return flat.length > TITLE_MAX_LENGTH ? `${flat.slice(0, TITLE_MAX_LENGTH - 1)}…` : flat;
 }
 

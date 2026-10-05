@@ -27,6 +27,7 @@ import type {
   ServerFrame,
   ServerInfo,
 } from '@harness-code/protocol';
+import { saveUpload } from '@harness-code/core';
 import { methods } from '@harness-code/protocol';
 import { WebSocket, WebSocketServer } from 'ws';
 
@@ -243,6 +244,12 @@ class Connection {
         return hub.remove((params as MethodParams<'workspace.remove'>).id);
       case 'model.list':
         return hub.models((params as MethodParams<'model.list'>).workspaceId);
+      case 'files.upload': {
+        const { name, data } = params as MethodParams<'files.upload'>;
+        return saveUpload(name, Buffer.from(data, 'base64')).catch((err: unknown) => {
+          throw new InvalidRequestError(err instanceof Error ? err.message : String(err));
+        });
+      }
       case 'fs.search': {
         const { workspaceId, sessionId, query, limit } = params as MethodParams<'fs.search'>;
         return hub.searchFiles(workspaceId, query, limit, sessionId);

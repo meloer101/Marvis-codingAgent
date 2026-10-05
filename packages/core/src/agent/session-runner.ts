@@ -16,7 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { open, stat } from 'node:fs/promises';
+import { open, realpath, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
@@ -35,7 +35,7 @@ import { createCompactor } from '../context/compactor.js';
 import { loadProjectMemory } from '../context/memory.js';
 import type { ProjectMemory } from '../context/memory.js';
 import { estimateRequestTokens } from '../context/tokenizer.js';
-import { fmtBreakdown, fmtTokens } from '../util/format.js';
+import { fmtBreakdown, fmtBytes, fmtTokens } from '../util/format.js';
 import {
   AutoModeClassifier,
   AutoModeState,
@@ -60,8 +60,9 @@ import type {
 } from '../permissions/index.js';
 import { BackgroundProcesses, builtinTools, createBackgroundTools, createBashTool, exitPlanModeTool, readTool } from '../tools/index.js';
 import type { BackgroundProcessEvent, BackgroundProcessInfo } from '../tools/index.js';
-import { PathEscapeError, assertInsideWorkspace } from '../permissions/paths.js';
-import { attachedFileBlock } from './attachments.js';
+import { isPdf } from '../tools/pdf.js';
+import { PathEscapeError, assertInsideWorkspace, isInUploads } from '../permissions/paths.js';
+import { attachedFileBlock, joinMessages } from './attachments.js';
 import { ToolRegistry } from '../tools/registry.js';
 import type { AnyToolSpec } from '../tools/types.js';
 import { SkillCatalog, createSkillTool, createListSkillsTool, discoverSkills } from '../skills/index.js';
@@ -1176,30 +1177,36 @@ export class AgentSession {
   }
 
   /**
-   * Refuse attachments the session may not read: outside the workspace, not a
-   * regular file, binary or too big to attach, or denied by a rule or the
-   * sensitive-file stance. Throws `AttachmentError` naming the first one.
+   * Refuse attachments the session may not read: outside the workspace (and
+   * not an upload), not a regular file, or denied by a rule or the
+   * sensitive-file stance. Throws `AttachmentError` naming the first one. A
+   * binary or big file passes: it goes as its path, for the agent to read.
    */
   async checkAttachments(paths: readonly string[]): Promise<void> {
-    for (const path of paths) {
-      const refuse = (why: string): never => {
-        throw new AttachmentError(`Can't attach ${path}: ${why}`);
-      };
-      const verdict = await this.#engine.evaluate({ toolName: 'read', input: { path }, readOnly: true });
-      // An `ask` would be answered yes: attaching the file is the asking.
-      if (verdict.decision === 'deny') refuse(verdict.reason ?? 'denied');
-      let abs = '';
-      try {
-        abs = await assertInsideWorkspace(this.#cwd, path);
-      } catch (err) {
-        refuse(err instanceof PathEscapeError ? 'it is outside the workspace' : String(err));
-      }
-      const info = await stat(abs).catch(() => null);
-      if (!info) refuse('no such file');
-      if (!info!.isFile()) refuse('not a file');
-      if (info!.size > MAX_ATTACHMENT_BYTES) refuse(`it is ${Math.round(info!.size / 1024)} KB; mention it instead and let the agent read what it needs`);
-      if (await looksBinary(abs)) refuse('it is a binary file');
+    for (const path of paths) await this.#checkAttachment(path);
+  }
+
+  /** One attachment's resolved path and size, or an `AttachmentError` saying why not. */
+  async #checkAttachment(path: string): Promise<{ abs: string; size: number }> {
+    const refuse = (why: string): never => {
+      throw new AttachmentError(`Can't attach ${path}: ${why}`);
+    };
+    const verdict = await this.#engine.evaluate({ toolName: 'read', input: { path }, readOnly: true });
+    // An `ask` would be answered yes: attaching the file is the asking.
+    if (verdict.decision === 'deny') refuse(verdict.reason ?? 'denied');
+    let abs = '';
+    try {
+      abs = await assertInsideWorkspace(this.#cwd, path);
+    } catch (err) {
+      // A file the user uploaded lives outside the workspace, where `read` reaches.
+      const upload = isAbsolute(path) && (await isInUploads(path)) ? await realpath(path).catch(() => null) : null;
+      if (upload !== null) abs = upload;
+      else refuse(err instanceof PathEscapeError ? 'it is outside the workspace' : String(err));
     }
+    const info = await stat(abs).catch(() => null);
+    if (!info) refuse('no such file');
+    if (!info!.isFile()) refuse('not a file');
+    return { abs, size: info!.size };
   }
 
   /**
@@ -1226,22 +1233,40 @@ export class AgentSession {
   /**
    * Read the files attached to a message with the `read` tool — they enter the
    * read ledger like any read, recorded so a resumed session remembers them —
-   * and return one block per file for the front of the message.
+   * and return one block per file for the front of the message. Text that
+   * fits and PDFs (their first pages) go whole; anything else goes as its
+   * path and what it is, for the agent to read as it needs.
    */
   async #readAttachments(paths: readonly string[]): Promise<string[]> {
-    await this.checkAttachments(paths);
+    const checked = [];
+    for (const path of paths) checked.push({ path, ...(await this.#checkAttachment(path)) });
     const blocks: string[] = [];
-    for (const path of paths) {
-      const result = await readTool.execute({ path }, { cwd: this.#cwd, session: this.#session });
-      if (result.isError) throw new AttachmentError(`Can't attach ${path}: ${result.content}`);
-      // The content rides in the message; the record is for the ledger.
-      await this.#recorder?.recordToolCall({
-        id: `attach-${randomUUID()}`,
-        name: 'read',
-        input: { path },
-        result: { content: '(attached to the user message)' },
-      });
-      blocks.push(attachedFileBlock(path, result.content));
+    for (const { path, abs, size } of checked) {
+      const kind = await sniffAttachment(abs, size);
+      let unread: string | undefined;
+      if (kind === 'text' || kind === 'pdf') {
+        const result = await readTool.execute({ path }, { cwd: this.#cwd, session: this.#session });
+        // A long PDF's first pages would crowd the message: it goes as its path.
+        const tooLong = kind === 'pdf' && !result.isError && result.content.length > MAX_INLINE_PDF_CHARS;
+        if (!result.isError && !tooLong) {
+          // The content rides in the message; the record is for the ledger.
+          await this.#recorder?.recordToolCall({
+            id: `attach-${randomUUID()}`,
+            name: 'read',
+            input: { path },
+            result: { content: '(attached to the user message)' },
+          });
+          blocks.push(attachedFileBlock(path, result.content));
+          continue;
+        }
+        if (kind === 'text') throw new AttachmentError(`Can't attach ${path}: ${result.content}`);
+        if (tooLong) {
+          blocks.push(attachedFileBlock(path, pdfReference(size, result.content)));
+          continue;
+        }
+        unread = result.content;
+      }
+      blocks.push(attachedFileBlock(path, attachmentReference(kind, size, unread)));
     }
     return blocks;
   }
@@ -1367,7 +1392,8 @@ export class AgentSession {
         attached = [`[${err instanceof Error ? err.message : String(err)}]`];
       }
     }
-    const text = items.map((i) => i.text).join('\n\n');
+    // Each item's `[Image #N]` still names its own image once they're one message.
+    const text = joinMessages(items);
     // Checked when sent; a model switched since that can't see them gets `[image]`.
     const images = items.flatMap((i) => i.images ?? []);
     this.#onEvent({
@@ -1753,15 +1779,47 @@ export class AgentSession {
   }
 }
 
-/** A NUL in the first 8 KB: not text, whatever the extension says. */
-async function looksBinary(path: string): Promise<boolean> {
+type AttachmentKind = 'text' | 'pdf' | 'big-text' | 'binary';
+
+/** What an attached file is, by its first 8 KB: a NUL means not text, whatever the extension says. */
+async function sniffAttachment(path: string, size: number): Promise<AttachmentKind> {
   const handle = await open(path, 'r');
   try {
     const buf = Buffer.alloc(8192);
     const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
-    return buf.subarray(0, bytesRead).includes(0);
+    const head = buf.subarray(0, bytesRead);
+    if (isPdf(head)) return 'pdf';
+    if (head.includes(0)) return 'binary';
+    return size > MAX_ATTACHMENT_BYTES ? 'big-text' : 'text';
   } finally {
     await handle.close();
+  }
+}
+
+/** A PDF's text up to this goes in the message; longer, it goes as its path. */
+const MAX_INLINE_PDF_CHARS = 40_000;
+
+/** The body of a PDF too long to inline: how many pages, and how to read them. */
+function pdfReference(size: number, read: string): string {
+  const pages = /^PDF, (\d+) pages?\./.exec(read)?.[1];
+  return (
+    `(Not inlined: a PDF of ${fmtBytes(size)}${pages ? `, ${pages} pages` : ''}, too long to put in the message. ` +
+    'Read it with the read tool, a range of `pages` at a time.)'
+  );
+}
+
+/** The body of an attached file that goes as its path: what it is, and how to read it. */
+function attachmentReference(kind: AttachmentKind, size: number, unread?: string): string {
+  switch (kind) {
+    case 'big-text':
+      return `(Not inlined: ${fmtBytes(size)} of text. Read it with the read tool, a part at a time with offset/limit.)`;
+    case 'pdf':
+      return `(Not inlined: a PDF of ${fmtBytes(size)} that read could not open${unread ? ` — ${unread}` : ''}. Try bash, e.g. \`pdftotext\`.)`;
+    default:
+      return (
+        `(Not inlined: a binary file of ${fmtBytes(size)}. Inspect it with bash — e.g. \`file\`, \`unzip -l\`, ` +
+        'or on macOS `textutil -convert txt -stdout` for .docx/.rtf.)'
+      );
   }
 }
 

@@ -37,6 +37,22 @@ export function scratchRoots(): Promise<string[]> {
   return scratchRootsPromise;
 }
 
+/**
+ * Where files the user uploads with a message are saved (`agent/uploads.ts`):
+ * a folder of the system temp directory, symlinks resolved. Inside scratch, so
+ * the file tools reach it; the permission engine lets them read it in any mode.
+ */
+export async function uploadsRoot(): Promise<string> {
+  const base = await realpath(tmpdir()).catch(() => tmpdir());
+  return join(base, 'hc-uploads');
+}
+
+/** Whether `target` (absolute, or relative to `cwd`) resolves to an uploaded file. */
+export async function isInUploads(target: string, cwd = process.cwd()): Promise<boolean> {
+  const resolved = await realpathExistingOrJoin(isAbsolute(target) ? resolve(target) : resolve(cwd, target));
+  return isInsideWorkspace(await uploadsRoot(), resolved);
+}
+
 /** Whether `target` (absolute, or relative to `cwd`) resolves inside a scratch root. */
 export async function isInScratch(target: string, cwd = process.cwd()): Promise<boolean> {
   const resolved = await realpathExistingOrJoin(isAbsolute(target) ? resolve(target) : resolve(cwd, target));

@@ -15,6 +15,8 @@ import type { AgentEvent } from './loop.js';
 import { findSessionDir, forkSession, liveEvents, loadSession, loadTranscript, readSessionSummary } from './session.js';
 import { resolveStateDir } from '../config/settings.js';
 import { AgentSession, AttachmentError, skillInvocation } from './session-runner.js';
+import { saveUpload } from './uploads.js';
+import { makePdf } from '../../test/make-pdf.js';
 import type { AgentSessionConfig, Notice } from './session-runner.js';
 
 const ECHO_SERVER = fileURLToPath(new URL('../mcp/__fixtures__/echo-server.mjs', import.meta.url));
@@ -692,10 +694,42 @@ describe('AgentSession', () => {
     await expect(session.checkAttachments(['../outside.txt'])).rejects.toThrow(/outside the workspace|Blocked|escape/i);
     await expect(session.checkAttachments(['missing.txt'])).rejects.toThrow('no such file');
     await expect(session.checkAttachments(['dir'])).rejects.toThrow('not a file');
-    await expect(session.checkAttachments(['blob.bin'])).rejects.toThrow('binary');
-    await expect(session.checkAttachments(['big.txt'])).rejects.toThrow('300 KB');
+    await expect(session.checkAttachments(['/etc/hosts'])).rejects.toThrow(/outside the workspace|escapes/);
+    // What can't go whole goes as its path.
+    await expect(session.checkAttachments(['blob.bin', 'big.txt'])).resolves.toBeUndefined();
     await expect(session.runTurn('x', { attachments: ['.env'] })).rejects.toThrow(AttachmentError);
     expect(provider.requests).toHaveLength(0);
+  });
+
+  it('reads an attached PDF into the message, unless it is long', async () => {
+    const cwd = await tempDir();
+    await writeFile(join(cwd, 'short.pdf'), makePdf(['Quarterly revenue grew']));
+    const long = Array.from({ length: 10 }, () => Array.from({ length: 60 }, (_, i) => `line ${i} of the page text`.padEnd(80, '.')).join('\n'));
+    await writeFile(join(cwd, 'long.pdf'), makePdf(long));
+    const provider = new ScriptedProvider([{ text: 'ok' }]);
+    const { session } = await createSession({ cwd, model: sessionModel(provider) });
+
+    await session.runTurn('summarise', { attachments: ['short.pdf', 'long.pdf'] });
+
+    const [short, longBlock] = provider.requests[0]!.messages[0]!.content as { text: string }[];
+    expect(short!.text).toContain('--- Page 1 ---\nQuarterly revenue grew');
+    expect(longBlock!.text).toMatch(/\(Not inlined: a PDF of .*, 10 pages, too long to put in the message\./);
+  });
+
+  it('sends a binary or big attachment as its path, and an upload from outside the workspace', async () => {
+    const cwd = await tempDir();
+    await writeFile(join(cwd, 'blob.bin'), Buffer.from([1, 0, 2]));
+    await writeFile(join(cwd, 'big.txt'), 'x'.repeat(300 * 1024), 'utf8');
+    const upload = await saveUpload('notes.md', Buffer.from('# Notes\nship it\n'));
+    const provider = new ScriptedProvider([{ text: 'ok' }]);
+    const { session } = await createSession({ cwd, model: sessionModel(provider) });
+
+    await session.runTurn('look', { attachments: ['blob.bin', 'big.txt', upload.path] });
+
+    const [blob, big, notes] = provider.requests[0]!.messages[0]!.content as { text: string }[];
+    expect(blob!.text).toMatch(/^<attached_file path="blob.bin">\n\(Not inlined: a binary file of 3 B\./);
+    expect(big!.text).toMatch(/\(Not inlined: 300 KB of text\. Read it with the read tool/);
+    expect(notes!.text).toBe(`<attached_file path="${upload.path}">\n     1\t# Notes\n     2\tship it\n     3\t\n</attached_file>`);
   });
 
   it('abort() aborts an in-flight turn', async () => {

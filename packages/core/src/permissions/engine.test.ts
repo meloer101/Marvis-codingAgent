@@ -449,6 +449,14 @@ describe('PermissionEngine', () => {
       const v = await write(engine({ mode: 'yolo' }), join(tmpdir(), 'hc-scratch-test', '.env'));
       expect(v.decision).toBe('deny');
     });
+
+    it("are read without asking when the user uploaded them; written to, they're scratch", async () => {
+      const upload = join(tmpdir(), 'hc-uploads', 'abc', 'report.pdf');
+      const read = (e: PermissionEngine, path: string) => e.evaluate({ toolName: 'read', input: { path }, readOnly: true });
+      expect((await read(engine({ mode: 'ask' }), upload)).decision).toBe('allow');
+      expect((await read(engine({ mode: 'ask' }), scratchFile())).decision).toBe('ask');
+      expect((await write(engine({ mode: 'ask' }), upload)).decision).toBe('ask');
+    });
   });
 
   describe('MCP tools', () => {

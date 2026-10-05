@@ -183,6 +183,12 @@ export interface ModelCapabilities {
   fixedTemperature?: boolean;
   /** Model takes images in user messages (OpenAI `image_url` content parts). */
   vision?: boolean;
+  /**
+   * What the images in one request may come to, in base64 characters, when the
+   * endpoint caps a request's size: the history re-sends every image, so past
+   * this the oldest are left out (a note in their place).
+   */
+  maxRequestImageBytes?: number;
   /** Use `developer` instead of `system` for the system message. */
   developerRole?: boolean;
   /**
@@ -252,6 +258,10 @@ const RULES: CapabilityRule[] = [
       maxOutputTokens: 384_000,
       promptCache: 'implicit',
       jsonMode: true,
+      // V4.1-Flash reads images natively (user messages only); Pro does not.
+      // A request is 48 MiB at most: images get 40 of it, the rest is text.
+      vision: true,
+      maxRequestImageBytes: 40 * 1024 * 1024,
       pricing: {
         inputPerMTok: 0.3,
         outputPerMTok: 1.2,

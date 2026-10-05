@@ -11,6 +11,7 @@ export * from './background.js';
 export * from './todo.js';
 export * from './webfetch.js';
 export * from './exit-plan-mode.js';
+export { PDF_DEFAULT_PAGES, PDF_MAX_PAGES } from './pdf.js';
 
 import { bashTool } from './bash.js';
 import { editTool } from './edit.js';

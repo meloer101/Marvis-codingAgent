@@ -9,6 +9,7 @@ import { parseRule } from './parse.js';
 import {
   PathEscapeError,
   isInScratch,
+  isInUploads,
   isProtectedPath,
   isSensitivePath,
   sensitiveBashArgs,
@@ -432,11 +433,14 @@ export class PermissionEngine {
    * does, and otherwise the mode decides exactly as for a workspace path —
    * `ask` asks, `plan` and `readOnly` refuse writes, `yolo` allows.
    */
-  private evaluateScratchPath(tool: string, target: string, req: EvaluateRequest): PermissionVerdict {
+  private async evaluateScratchPath(tool: string, target: string, req: EvaluateRequest): Promise<PermissionVerdict> {
     if (isSensitivePath(target)) {
       return { decision: 'deny', reason: `Refusing to access sensitive file ${target}` };
     }
-    return this.modeDefault(tool, req.readOnly || READ_ONLY_TOOLS.has(tool));
+    const readOnly = req.readOnly || READ_ONLY_TOOLS.has(tool);
+    // A file the user uploaded with a message: attaching it was the asking.
+    if (readOnly && (await isInUploads(target, this.workspaceRoot))) return { decision: 'allow' };
+    return this.modeDefault(tool, readOnly);
   }
 
   private effectiveAllow(): PermissionRule[] {

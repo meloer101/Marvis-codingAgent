@@ -30,6 +30,13 @@ describe('describeModel', () => {
     expect(info.problem).toBeUndefined();
   });
 
+  it('says which DeepSeek model sees images: flash does, pro does not', () => {
+    const registry = new ProviderRegistry({ env: { DEEPSEEK_API_KEY: 'k' } });
+    expect(describeModel('deepseek/deepseek-flash', {}, registry).vision).toBe(true);
+    expect(describeModel('deepseek/deepseek-v4-flash', {}, registry).vision).toBe(true);
+    expect(describeModel('deepseek/deepseek-v4-pro', {}, registry).vision).toBeUndefined();
+  });
+
   it('says why a model cannot run, without failing', () => {
     const registry = new ProviderRegistry({ env: {} });
     expect(describeModel('deepseek/deepseek-flash', {}, registry).problem).toMatch(/DEEPSEEK_API_KEY/);

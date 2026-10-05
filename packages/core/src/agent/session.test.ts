@@ -21,8 +21,19 @@ import {
   rebuildSessionState,
   sessionArtifactsDir,
   sessionMetaPath,
+  sessionTitleFrom,
   updateSessionMeta,
 } from './session.js';
+
+describe('sessionTitleFrom', () => {
+  it("reads a Markdown message's words, not its markers", () => {
+    expect(sessionTitleFrom('## Fix the layout\n\n- [ ] margins\n- [x] font\n\n[Image #1]\n\n1. then ship')).toBe(
+      'Fix the layout margins font then ship',
+    );
+    expect(sessionTitleFrom('> quoted\n\n```ts\nconst a = 1;\n```')).toBe('quoted const a = 1;');
+    expect(sessionTitleFrom('a'.repeat(100))).toHaveLength(80);
+  });
+});
 
 describe('sessionArtifactsDir', () => {
   it('is a sibling directory of the jsonl, named by session id', () => {

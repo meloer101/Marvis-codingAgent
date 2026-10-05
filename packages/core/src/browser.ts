@@ -14,7 +14,7 @@
 export { describeToolInput } from './tools/util.js';
 export { nextPermissionMode, permissionModeCycle, planApprovalLabel } from './permissions/cycle.js';
 export { fmtTokens, fmtUSD } from './util/format.js';
-export { attachedFileBlock, attachedFilePath, typedText } from './agent/attachments.js';
+export { attachedFileBlock, attachedFilePath, joinMessages, shiftImageMarkers, typedText } from './agent/attachments.js';
 
 export type { TranscriptItem } from './agent/session.js';
 export type { PermissionMode } from './permissions/types.js';
