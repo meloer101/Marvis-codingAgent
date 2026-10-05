@@ -69,7 +69,8 @@ describe('doctorReport', () => {
           gh: { command: process.execPath, args: [ECHO_SERVER], env: { TOKEN: '${GITHUB_TOKEN}' } },
           gone: { command: 'no-such-command-anywhere' },
           echo: { command: process.execPath, args: [ECHO_SERVER] },
-          linear: { url: 'https://mcp.linear.app/mcp' },
+          // Nothing listens there: a test mustn't reach out.
+          remote: { url: 'http://127.0.0.1:9/mcp' },
         },
       }),
     );
@@ -77,10 +78,12 @@ describe('doctorReport', () => {
     expect(find(quick, 'mcp.project.gh')).toMatchObject({ status: 'warn', detail: expect.stringContaining('${GITHUB_TOKEN}') });
     expect(find(quick, 'mcp.project.gone')).toMatchObject({ status: 'error', detail: expect.stringContaining('on the PATH') });
     expect(find(quick, 'mcp.project.echo')).toMatchObject({ status: 'info', detail: expect.stringContaining('not started') });
-    expect(find(quick, 'mcp.project.linear')).toMatchObject({ status: 'warn', detail: expect.stringContaining('needs signing in') });
+    // Whether a URL wants a sign-in only connecting tells (DeepWiki's wants none).
+    expect(find(quick, 'mcp.project.remote')).toMatchObject({ status: 'info', detail: expect.stringContaining('not started') });
 
     const connected = await doctorReport(place, { fetchImpl: answering(401, {}) }, { connect: true });
     expect(find(connected, 'mcp.project.echo')).toMatchObject({ status: 'ok', detail: 'Connected · 1 tool' });
+    expect(find(connected, 'mcp.project.remote')).toMatchObject({ status: 'error', fix: 'Edit it in the project’s .mcp.json.' });
   });
 
   it('says which skills, sub-agents and memories are skipped, and an instruction file too big to give whole', async () => {
@@ -90,7 +93,9 @@ describe('doctorReport', () => {
     await writeFile(join(home, '.agent', 'agents', 'scout.md'), '---\nname: scout\ndescription: d\nmodel: nowhere/x\n---\n\nLook.\n');
     await writeFile(join(place.root, 'AGENTS.md'), 'x'.repeat(50 * 1024));
     const report = await doctorReport(place);
-    expect(find(report, 'skills.project.Bad')).toMatchObject({ status: 'warn', section: 'skills' });
+    // The project's own: fixed in its file, not in Settings (which keeps to yours).
+    expect(find(report, 'skills.project.Bad')).toMatchObject({ status: 'warn', fix: expect.stringMatching(/Bad\/SKILL\.md/) });
+    expect(find(report, 'skills.project.Bad')?.section).toBeUndefined();
     expect(find(report, 'agents.model.scout')).toMatchObject({ status: 'error', detail: expect.stringContaining('no provider') });
     expect(find(report, 'memory.large.project.AGENTS.md')).toMatchObject({ status: 'warn', detail: expect.stringContaining('50 KB') });
   });

@@ -354,12 +354,17 @@ async function mcpGroup(place: SettingsPlace, env: DoctorEnvironment, connect: b
     servers.map(async (s): Promise<DoctorCheck> => {
       const id = `mcp.${s.scope}.${s.name}`;
       const label = `${s.name} (${s.scope === 'user' ? 'yours' : "the project's"})`;
+      // Settings › Connectors shows yours; a project's server is its .mcp.json's, signed in to from a session.
+      const ours = s.scope === 'user';
+      const signIn = ours ? 'Sign in from Settings › Connectors.' : 'Sign in from the notice in one of the project’s sessions.';
+      const edit = ours ? 'Edit or check it again in Settings › Connectors.' : 'Edit it in the project’s .mcp.json.';
+      const where = ours ? { section: 'mcp' as const } : {};
       const entry = raw[s.scope][s.name] as { command?: unknown; env?: Record<string, unknown> } | undefined;
       const unset = variablesIn(entry).filter((v) => !place.env[v]);
       if (unset.length > 0) {
         return check(id, label, 'warn', `Uses ${unset.map((v) => `\${${v}}`).join(', ')}, ${unset.length === 1 ? "which isn't" : "which aren't"} set`, {
           fix: "Set it in the project's .env or your ~/.agent/.env — it expands to nothing until then.",
-          section: 'mcp',
+          ...where,
         });
       }
       if (s.transport === 'stdio' && typeof entry?.command === 'string') {
@@ -367,20 +372,19 @@ async function mcpGroup(place: SettingsPlace, env: DoctorEnvironment, connect: b
         if (!(await runnable(entry.command, pathVar))) {
           return check(id, label, 'error', `Runs “${entry.command}”, which isn't ${entry.command.includes('/') ? 'an executable file' : 'on the PATH'}`, {
             fix: 'Install it, or give its full path in the server’s command.',
-            section: 'mcp',
+            ...where,
           });
         }
       }
-      if (s.auth === 'oauth' && !s.signedIn) {
-        return check(id, label, 'warn', `${s.target} — needs signing in`, { fix: 'Sign in from Settings › Connectors.', section: 'mcp' });
-      }
-      if (!connect) return check(id, label, 'info', `${s.transport} · ${s.target} — not started by this check`, { section: 'mcp' });
+      // A URL without a header may want an OAuth sign-in — or none (DeepWiki, Context7):
+      // only connecting tells, so the quick check says nothing about it.
+      if (!connect) return check(id, label, 'info', `${s.transport} · ${s.target} — not started by this check`, where);
       const result = await mcpTest(place, s.scope, s.name, env.mcpConnectTimeoutMs !== undefined ? { connectTimeoutMs: env.mcpConnectTimeoutMs } : {});
       return result.ok
-        ? check(id, label, 'ok', `Connected · ${plural(result.tools.length, 'tool')}`, { section: 'mcp' })
+        ? check(id, label, 'ok', `Connected · ${plural(result.tools.length, 'tool')}`, where)
         : check(id, label, result.needsAuth ? 'warn' : 'error', result.needsAuth ? 'It needs signing in' : `Couldn't connect: ${result.error}`, {
-            fix: result.needsAuth ? 'Sign in from Settings › Connectors.' : 'Edit or check it again in Settings › Connectors.',
-            section: 'mcp',
+            fix: result.needsAuth ? signIn : edit,
+            ...where,
           });
     }),
   );
@@ -397,7 +401,12 @@ async function extensionsGroup(place: SettingsPlace, settings: Settings, tilde: 
   const by = (scope: string): number => usable.filter((s) => s.scope === scope).length;
   checks.push(check('skills.count', 'Skills', 'ok', `${plural(usable.length, 'skill')}: ${by('project')} the project's, ${by('user')} yours, ${by('builtin')} built in`, { section: 'skills' }));
   for (const s of skills.skills.filter((x) => x.problem)) {
-    checks.push(check(`skills.${s.scope}.${s.name}`, `Skill ${s.name}`, 'warn', `Skipped: ${s.problem}`, { fix: 'Edit or delete it in Settings › Skills.', section: 'skills' }));
+    checks.push(
+      check(`skills.${s.scope}.${s.name}`, `Skill ${s.name}`, 'warn', `Skipped: ${s.problem}`,
+        s.scope === 'project'
+          ? { fix: `Fix or delete ${tilde(s.dir)}/SKILL.md — the project's own, not in Settings.` }
+          : { fix: 'Edit or delete it in Settings › Skills.', section: 'skills' }),
+    );
   }
   // The model is told only as many as fit the list's cap; the rest it finds by asking.
   const { skills: found } = await discoverSkills(place.root, { homeDir: place.home });
@@ -414,7 +423,12 @@ async function extensionsGroup(place: SettingsPlace, settings: Settings, tilde: 
   const agentsUsable = agents.agents.filter((a) => !a.problem && !a.shadowed);
   checks.push(check('agents.count', 'Sub-agents', 'ok', `${plural(agentsUsable.length, 'sub-agent')}: ${agentsUsable.map((a) => a.name).join(', ') || 'none'}`, { section: 'agents' }));
   for (const a of agents.agents.filter((x) => x.problem)) {
-    checks.push(check(`agents.${a.scope}.${a.name}`, `Sub-agent ${a.name}`, 'warn', `Skipped: ${a.problem}`, { fix: 'Edit or delete it in Settings › Sub-agents.', section: 'agents' }));
+    checks.push(
+      check(`agents.${a.scope}.${a.name}`, `Sub-agent ${a.name}`, 'warn', `Skipped: ${a.problem}`,
+        a.scope === 'project'
+          ? { fix: `Fix or delete ${tilde(a.path)} — the project's own, not in Settings.` }
+          : { fix: 'Edit or delete it in Settings › Sub-agents.', section: 'agents' }),
+    );
   }
   for (const a of agentsUsable.filter((x) => x.model)) {
     const c = await auxiliaryModel(`agents.model.${a.name}`, `Sub-agent ${a.name}'s model`, a.model!, settings, providers);
@@ -435,12 +449,17 @@ async function extensionsGroup(place: SettingsPlace, settings: Settings, tilde: 
     checks.push(
       check(`memory.large.${f.scope}.${f.name}`, `${f.name} (${f.scope === 'user' ? 'yours' : "the project's"})`, 'warn', `${Math.ceil(f.bytes! / 1024)} KB, given whole to every session`, {
         fix: 'Move what only some tasks need into memories or a skill: those are read when they matter.',
-        section: 'memory',
+        ...(f.scope === 'user' ? { section: 'memory' as const } : {}),
       }),
     );
   }
   for (const m of memory.memories.filter((x) => x.problem)) {
-    checks.push(check(`memory.${m.scope}.${m.path}`, `Memory ${m.name}`, 'warn', `Skipped: ${m.problem}`, { fix: 'Edit or delete it in Settings › Memory.', section: 'memory' }));
+    checks.push(
+      check(`memory.${m.scope}.${m.path}`, `Memory ${m.name}`, 'warn', `Skipped: ${m.problem}`,
+        m.scope === 'global'
+          ? { fix: 'Edit or delete it in Settings › Memory.', section: 'memory' }
+          : { fix: `Fix or delete ${m.path} in the project's memory — not in Settings, which keeps to yours.` }),
+    );
   }
   return { id: 'extensions', title: 'Skills, sub-agents and memory', checks };
 }
