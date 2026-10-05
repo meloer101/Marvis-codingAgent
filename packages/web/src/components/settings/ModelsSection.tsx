@@ -18,7 +18,7 @@ function keyNote(p: ProviderInfo): string {
     case 'environment':
       return `key from the environment · ${p.keySourceVar}`;
     case 'project':
-      return `key in this project’s .env · ${p.keySourceVar}`;
+      return `key in a project’s .env · ${p.keySourceVar}`;
     case 'settings':
       return 'key in settings.json';
     default:
@@ -135,7 +135,7 @@ function DefaultModel({
         <p className="text-xs leading-relaxed text-muted-foreground">
           What a new session starts on; each session can be given another.{' '}
           {view.modelSource === 'project'
-            ? 'This project’s settings name it, whatever yours say.'
+            ? 'Named by the settings of the project you used last, whatever yours say.'
             : view.modelSource === 'user'
               ? 'From your settings, for every project.'
               : 'The built-in default.'}

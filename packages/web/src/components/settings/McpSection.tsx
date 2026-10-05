@@ -38,7 +38,7 @@ const keyOf = (scope: Scope, name: string): string => `${scope}:${name}`;
  * to run, headers, JSON from a server's docs or the project's own file are
  * one step further, in the same dialog.
  */
-export function McpSection({ workspaceId, projectName }: { workspaceId: string; projectName: string }) {
+export function McpSection({ workspaceId }: { workspaceId: string }) {
   const sync = useSync();
   const { data, error, set, reload } = useLoaded(() => sync.settingsCall('mcp.list', { workspaceId }), workspaceId);
   const [status, setStatus] = useState<Record<string, Status>>({});
@@ -47,8 +47,10 @@ export function McpSection({ workspaceId, projectName }: { workspaceId: string; 
   const [adding, setAdding] = useState<Record<string, string | null>>({});
   /** Servers already tried (or being signed in to), so the list coming back doesn't try them again. */
   const tried = useRef(new Set<string>());
+  // Yours only: a project's own servers are its `.mcp.json`, as in Claude Code.
+  const yours = (data?.servers ?? []).filter((s) => s.scope === 'user');
   const servers = useRef<McpServerInfo[]>([]);
-  servers.current = data?.servers ?? [];
+  servers.current = yours;
 
   const put = useCallback((key: string, s: Status | undefined) => {
     setStatus(({ [key]: _, ...rest }) => (s ? { ...rest, [key]: s } : rest));
@@ -101,8 +103,8 @@ export function McpSection({ workspaceId, projectName }: { workspaceId: string; 
   // Each connector is tried as it first shows up: the list says what's
   // configured, only connecting says whether it works.
   useEffect(() => {
-    for (const s of data?.servers ?? []) {
-      if (!s.shadowed && !tried.current.has(keyOf(s.scope, s.name))) void check(s.scope, s.name);
+    for (const s of servers.current) {
+      if (!tried.current.has(keyOf(s.scope, s.name))) void check(s.scope, s.name);
     }
   }, [data, check]);
 
@@ -110,7 +112,7 @@ export function McpSection({ workspaceId, projectName }: { workspaceId: string; 
     () =>
       sync.onMcpLogin((event) => {
         if (event.workspaceId !== workspaceId) return;
-        const s = servers.current.find((x) => x.name === event.name && !x.shadowed);
+        const s = servers.current.find((x) => x.name === event.name);
         if (!s) return reload();
         if (event.error) return put(keyOf(s.scope, s.name), { kind: 'sign-in', error: event.error });
         reload();
@@ -167,13 +169,14 @@ export function McpSection({ workspaceId, projectName }: { workspaceId: string; 
     void check(s.scope, s.name);
   };
 
-  const added = (c: CatalogConnector): boolean => data.servers.some((s) => catalogAt(s.target)?.id === c.id);
+  const added = (c: CatalogConnector): boolean => yours.some((s) => catalogAt(s.target)?.id === c.id);
 
   return (
     <div className="flex flex-col gap-4">
       <SectionIntro title="Connectors">
-        Let Marvis use the tools you work in — docs, issues, designs. Each connector is an MCP server; open sessions take
-        up a change before their next message.
+        Let Marvis use the tools you work in — docs, issues, designs. Each connector is an MCP server, yours for every
+        project; a project’s own are in its <Code>.mcp.json</Code>. Open sessions take up a change before their next
+        message.
       </SectionIntro>
       <Problems problems={data.problems} />
       <Card
@@ -186,11 +189,11 @@ export function McpSection({ workspaceId, projectName }: { workspaceId: string; 
           </Button>
         }
       >
-        {data.servers.length === 0 ? (
+        {yours.length === 0 ? (
           <p className="text-xs text-muted-foreground">None yet — pick one below, or add any MCP server by its URL.</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
-            {data.servers.map((s) => (
+            {yours.map((s) => (
               <ConnectorRow
                 key={keyOf(s.scope, s.name)}
                 server={s}
@@ -205,7 +208,7 @@ export function McpSection({ workspaceId, projectName }: { workspaceId: string; 
           </ul>
         )}
       </Card>
-      <Card label="Discover" title="Discover" aside={<span className="text-[11px] text-faint">added for every project</span>}>
+      <Card label="Discover" title="Discover">
         <ul className="grid grid-cols-1 gap-1.5 @lg:grid-cols-2">
           {CATALOG.map((c) => (
             <CatalogTile
@@ -219,15 +222,14 @@ export function McpSection({ workspaceId, projectName }: { workspaceId: string; 
           ))}
         </ul>
       </Card>
-      <div className="flex flex-col gap-0.5 px-1">
+      <div className="flex px-1">
         <PathNote path={data.userPath} />
-        <PathNote path={data.projectPath} />
       </div>
       <Dialog open={dialog !== null} onOpenChange={(open) => !open && setDialog(null)}>
         {dialog?.kind === 'add' && (
           <AddByUrl
             workspaceId={workspaceId}
-            taken={data.servers.filter((s) => s.scope === 'user').map((s) => s.name)}
+            taken={yours.map((s) => s.name)}
             onSaved={(view, name) => saved(view, 'user', [name], { signIn: true })}
             onAdvanced={() => setDialog({ kind: 'advanced' })}
           />
@@ -244,7 +246,6 @@ export function McpSection({ workspaceId, projectName }: { workspaceId: string; 
           >
             <ServerForm
               workspaceId={workspaceId}
-              projectName={projectName}
               {...(dialog.kind === 'edit' ? { editing: { scope: dialog.scope, name: dialog.name } } : {})}
               onSaved={(view, scope, names) =>
                 saved(view, scope, names, dialog.kind === 'edit' ? { previous: dialog.name } : {})
@@ -298,7 +299,7 @@ function ConnectorRow({
   const known = catalogAt(s.target);
   const hint = connectorHint(s.target);
   const actions: MenuAction[] = [
-    ...(s.shadowed ? [] : [{ label: 'Check again', onSelect: onCheck }]),
+    { label: 'Check again', onSelect: onCheck },
     ...(s.signedIn ? [{ label: 'Sign out', onSelect: onSignOut }] : []),
     { label: 'Edit…', onSelect: onEdit },
     {
@@ -312,14 +313,11 @@ function ConnectorRow({
   const problem = status?.kind === 'failed' ? status.error : status?.kind === 'sign-in' ? status.error : removeError ?? undefined;
 
   return (
-    <li className={cn('flex flex-col rounded-md bg-background', s.shadowed && 'opacity-60')}>
+    <li className="flex flex-col rounded-md bg-background">
       <div className="flex min-h-12 items-center gap-3 px-3 py-2">
         <Tile name={known?.name ?? s.name} color={known?.color} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-1.5">
-            <span className="truncate text-[13px] font-medium">{known?.name ?? s.name}</span>
-            {s.scope === 'project' && <span className="shrink-0 text-[11px] text-faint">this project</span>}
-          </div>
+          <span className="block truncate text-[13px] font-medium">{known?.name ?? s.name}</span>
           <p
             className={cn('truncate text-xs text-faint', !known && 'font-mono text-[11px]')}
             title={known ? undefined : s.target}
@@ -328,9 +326,7 @@ function ConnectorRow({
           </p>
         </div>
         <span className="flex shrink-0 items-center gap-2 text-xs">
-          {s.shadowed ? (
-            <span className="text-faint">the project’s is used</span>
-          ) : !status || status.kind === 'checking' ? (
+          {!status || status.kind === 'checking' ? (
             <span className="flex items-center gap-1.5 text-faint">
               <LoaderCircle className="size-3 animate-spin" />
               Checking…
@@ -599,14 +595,12 @@ const PASTE_EXAMPLE = `{
  */
 function ServerForm({
   workspaceId,
-  projectName,
   editing,
   onSaved,
   onProgress,
   onCancel,
 }: {
   workspaceId: string;
-  projectName: string;
   /** The server changed, when not adding one. */
   editing?: { scope: Scope; name: string };
   onSaved: (view: McpView, scope: Scope, names: string[]) => void;
@@ -617,7 +611,7 @@ function ServerForm({
   const sync = useSync();
   const [loaded, setLoaded] = useState(!editing);
   const [how, setHow] = useState<'form' | 'json'>('form');
-  const [scope, setScope] = useState<Scope>(editing?.scope ?? 'user');
+  const scope: Scope = editing?.scope ?? 'user';
   const [name, setName] = useState(editing?.name ?? '');
   const [transport, setTransport] = useState<McpServerEntry['transport']>('stdio');
   const [commandLine, setCommandLine] = useState('');
@@ -713,36 +707,18 @@ function ServerForm({
         }
       }}
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        {!editing && (
-          <Segmented
-            label="How"
-            value={how}
-            onChange={setHow}
-            disabled={busy}
-            options={[
-              { id: 'form', label: 'Fill in' },
-              { id: 'json', label: 'Paste JSON' },
-            ]}
-          />
-        )}
-        {editing ? (
-          <span className="text-[11px] text-muted-foreground">
-            In {scope === 'user' ? 'your' : 'the project’s'} <Code>.mcp.json</Code>
-          </span>
-        ) : (
-          <Segmented
-            label="Where"
-            value={scope}
-            onChange={setScope}
-            disabled={busy}
-            options={[
-              { id: 'user', label: 'Yours · every project' },
-              { id: 'project', label: `This project · ${projectName}` },
-            ]}
-          />
-        )}
-      </div>
+      {!editing && (
+        <Segmented
+          label="How"
+          value={how}
+          onChange={setHow}
+          disabled={busy}
+          options={[
+            { id: 'form', label: 'Fill in' },
+            { id: 'json', label: 'Paste JSON' },
+          ]}
+        />
+      )}
 
       {how === 'json' ? (
         <Field label="JSON" hint="as a server’s docs give it for Claude Code, Cursor or VS Code — one server or several">
@@ -833,13 +809,6 @@ function ServerForm({
             </>
           )}
         </>
-      )}
-
-      {scope === 'project' && (
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          The project’s <Code>.mcp.json</Code> is usually committed: keep a secret out of it as <Code>{'${VAR}'}</Code>, set in the
-          project’s <Code>.env</Code> or your <Code>~/.agent/.env</Code>.
-        </p>
       )}
 
       <div className="flex items-center gap-2">

@@ -8,18 +8,19 @@ import { Button } from '@/components/ui/button';
 import { fmtBytes } from '@/lib/trace';
 import { useSync } from '@/lib/syncContext';
 
-import { Card, DeleteButton, ErrorLine, FileEditor, PathNote, SectionIntro, useLoaded } from './common';
+import { Card, Code, DeleteButton, ErrorLine, FileEditor, PathNote, SectionIntro, useLoaded } from './common';
 
 function keyOf(target: MemoryTarget): string {
   return target.kind === 'instructions' ? `i:${target.scope}:${target.name}` : `m:${target.scope}:${target.path}`;
 }
 
 /**
- * What sessions start with: the instruction files they're given whole, and
- * the memories they can look up — each opened in place to edit, a memory
- * deleted once confirmed.
+ * What sessions start with, from your side: your instruction file, given to
+ * the model whole, and your memories, looked up when they matter — each
+ * opened in place to edit, a memory deleted once confirmed. A project's
+ * `AGENTS.md` and memories are its own files, as in Claude Code.
  */
-export function MemorySection({ workspaceId, projectName }: { workspaceId: string; projectName: string }) {
+export function MemorySection({ workspaceId }: { workspaceId: string }) {
   const sync = useSync();
   const { data, error, set } = useLoaded(() => sync.settingsCall('memory.list', { workspaceId }), workspaceId);
   const [editing, setEditing] = useState<string | null>(null);
@@ -37,25 +38,22 @@ export function MemorySection({ workspaceId, projectName }: { workspaceId: strin
       <Editor workspaceId={workspaceId} target={target} onSave={(text) => write(target, text)} onCancel={() => setEditing(null)} />
     ) : null;
 
-  const scopeName = { user: 'Yours', global: 'Yours', project: 'This project' } as const;
   return (
     <div className="flex flex-col gap-4">
       <SectionIntro title="Memory">
         Sessions read these as they start. Instruction files are given to the model whole; memories are listed by name
-        and description, and read when they matter — the agent writes them as it learns.
+        and description, and read when they matter — the agent writes them as it learns. These are yours, for every
+        project; a project’s own are its <Code>AGENTS.md</Code> and the memories in its <Code>.agent/memory/</Code>.
       </SectionIntro>
-      <Card label="Instructions" title="Instructions">
+      <Card label="Your instructions" title="Your instructions">
         <ul className="flex flex-col divide-y">
-          {data.instructions.map((file) => {
+          {data.instructions.filter((file) => file.scope === 'user').map((file) => {
             const target: MemoryTarget = { kind: 'instructions', scope: file.scope, name: file.name };
             return (
               <li key={keyOf(target)} className="flex flex-col gap-2 py-2 first:pt-0 last:pb-0">
                 <div className="flex items-center gap-2 text-xs">
                   <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="shrink-0 font-medium">
-                    {scopeName[file.scope]}{' '}
-                    <span className="font-normal text-muted-foreground">· {file.scope === 'user' ? 'every project' : projectName}</span>
-                  </span>
+                  <span className="shrink-0 font-medium">{file.name}</span>
                   <PathNote path={file.path} />
                   <span className="flex-1" />
                   <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
@@ -74,24 +72,19 @@ export function MemorySection({ workspaceId, projectName }: { workspaceId: strin
           })}
         </ul>
       </Card>
-      {(['project', 'global'] as const).map((scope) => (
-        <Memories
-          key={scope}
-          title={scope === 'project' ? `This project · ${projectName}` : 'Yours · every project'}
-          dir={data.dirs[scope]}
-          memories={data.memories.filter((m) => m.scope === scope)}
-          editingKey={editing}
-          onEdit={(m) => setEditing(keyOf({ kind: 'memory', scope: m.scope, path: m.path }))}
-          onDelete={(m) => remove({ kind: 'memory', scope: m.scope, path: m.path })}
-          editor={editor}
-        />
-      ))}
+      <Memories
+        dir={data.dirs.global}
+        memories={data.memories.filter((m) => m.scope === 'global')}
+        editingKey={editing}
+        onEdit={(m) => setEditing(keyOf({ kind: 'memory', scope: m.scope, path: m.path }))}
+        onDelete={(m) => remove({ kind: 'memory', scope: m.scope, path: m.path })}
+        editor={editor}
+      />
     </div>
   );
 }
 
 function Memories({
-  title,
   dir,
   memories,
   editingKey,
@@ -99,7 +92,6 @@ function Memories({
   onDelete,
   editor,
 }: {
-  title: string;
   dir: string;
   memories: MemoryFileInfo[];
   editingKey: string | null;
@@ -108,15 +100,7 @@ function Memories({
   editor: (target: MemoryTarget) => ReactNode;
 }) {
   return (
-    <Card
-      label={title}
-      title={
-        <>
-          Memories <span className="font-normal text-muted-foreground">· {title}</span>
-        </>
-      }
-      path={dir}
-    >
+    <Card label="Your memories" title="Your memories" path={dir}>
       {memories.length === 0 ? (
         <p className="text-xs text-muted-foreground">None yet.</p>
       ) : (

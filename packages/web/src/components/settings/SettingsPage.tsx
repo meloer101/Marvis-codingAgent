@@ -33,8 +33,11 @@ const SECTIONS: Array<{ id: SettingsSection; label: string; icon: LucideIcon }> 
 
 /**
  * Settings (`#/settings/<section>`): models and their keys, permission rules,
- * auto mode and what it refused, memory, MCP servers, skills, sub-agents, and a diagnosis of it all — for one project at a time, what's yours
- * (every project's) beside what's the project's.
+ * auto mode and what it refused, memory, connectors, skills, sub-agents —
+ * yours, for every project, as in Claude Code: a project's own are files in
+ * it. The calls still go through a workspace (the one used last), which
+ * settles where home is and what the environment holds. Diagnostics is the
+ * one section about a project, chosen there.
  */
 export function SettingsPage({ section }: { section: SettingsSection }) {
   const workspaces = useAppStore((s) => s.workspaces);
@@ -42,8 +45,9 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
     () => workspaces.filter((w) => !w.missing).sort((a, b) => b.lastUsedAt - a.lastUsedAt),
     [workspaces],
   );
-  const [chosen, setChosen] = useState<string | null>(null);
-  const workspace = present.find((w) => w.id === chosen) ?? present[0];
+  const workspace = present[0];
+  const [diagnosed, setDiagnosed] = useState<string | null>(null);
+  const doctorOf = present.find((w) => w.id === diagnosed) ?? workspace;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -51,16 +55,6 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
         <SidebarOpener />
         <Settings className="size-[15px] shrink-0 text-muted-foreground" />
         <span className="text-sm font-semibold">Settings</span>
-        <span className="flex-1" />
-        {workspace && (
-          <SelectChip label="Project" value={workspace.id} onChange={setChosen}>
-            {present.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </SelectChip>
-        )}
       </MainHeader>
       {/* Sections beside the page once the column has room for both; tabs above it until then. */}
       <div className="@container min-h-0 flex-1 overflow-y-auto">
@@ -86,23 +80,36 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
           </nav>
           <div className="min-w-0 flex-1">
             {!workspace ? (
-              <p className="text-xs text-muted-foreground">Add a project to see its settings.</p>
+              <p className="text-xs text-muted-foreground">Add a project to start: settings are read through one.</p>
             ) : section === 'models' ? (
               <ModelsSection key={workspace.id} workspaceId={workspace.id} />
             ) : section === 'permissions' ? (
-              <PermissionsSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
+              <PermissionsSection key={workspace.id} workspaceId={workspace.id} />
             ) : section === 'auto-mode' ? (
               <AutoModeSection key={workspace.id} workspaceId={workspace.id} />
             ) : section === 'memory' ? (
-              <MemorySection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
+              <MemorySection key={workspace.id} workspaceId={workspace.id} />
             ) : section === 'mcp' ? (
-              <McpSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
+              <McpSection key={workspace.id} workspaceId={workspace.id} />
             ) : section === 'skills' ? (
               <SkillsSection key={workspace.id} workspaceId={workspace.id} />
             ) : section === 'agents' ? (
-              <AgentsSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
+              <AgentsSection key={workspace.id} workspaceId={workspace.id} />
             ) : section === 'doctor' ? (
-              <DoctorSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
+              <DoctorSection
+                key={doctorOf!.id}
+                workspaceId={doctorOf!.id}
+                projectName={doctorOf!.name}
+                picker={
+                  <SelectChip label="Project" value={doctorOf!.id} onChange={setDiagnosed}>
+                    {present.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </SelectChip>
+                }
+              />
             ) : (
               <ToolsSection key={workspace.id} workspaceId={workspace.id} />
             )}

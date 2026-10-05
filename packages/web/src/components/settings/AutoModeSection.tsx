@@ -45,10 +45,10 @@ export function AutoModeSection({ workspaceId }: { workspaceId: string }) {
         project — a repository can’t set them. Open sessions take a change up at once.
       </SectionIntro>
       {data.autoMode.unavailable && (
-        <Problems problems={[`Auto mode isn’t available in this project: ${data.autoMode.unavailable}.`]} />
+        <Problems problems={[`Auto mode isn’t available: ${data.autoMode.unavailable}.`]} />
       )}
       <Problems problems={data.problems} />
-      <Denials workspaceId={workspaceId} />
+      <Denials />
       <Card label="Classifier rules" title="Classifier rules" path={data.user.path}>
         <div className="flex flex-col divide-y">
           {GROUPS.map((g) => (
@@ -146,14 +146,11 @@ function BuiltinRules({ rules }: { rules: readonly string[] }) {
   );
 }
 
-/** What auto mode refused in the open sessions of this project, newest first. */
-function Denials({ workspaceId }: { workspaceId: string }) {
+/** What auto mode refused in the open sessions, every project's, newest first. */
+function Denials() {
   const sync = useSync();
   const titles = useAppStore((s) => s.sessions);
-  const { data, error, set, reload } = useLoaded(
-    () => sync.settingsCall('autoMode.denials', { workspaceId }),
-    workspaceId,
-  );
+  const { data, error, set, reload } = useLoaded(() => sync.settingsCall('autoMode.denials', {}), 'all');
   const [failed, setFailed] = useState<string | null>(null);
   const retry = async (session: SessionDenials, denialId: string): Promise<void> => {
     try {

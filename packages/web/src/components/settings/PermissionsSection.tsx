@@ -15,67 +15,44 @@ const LISTS: Array<{ list: PermissionRuleList; title: string; hint: string }> = 
 ];
 
 /**
- * The permission rules in the user's settings and the project's: three lists
- * each, edited a rule at a time. A change reaches the open sessions at once.
+ * The permission rules in your settings, every project's: three lists edited
+ * a rule at a time. A project's own rules are in its `.agent/settings.json`,
+ * as in Claude Code. A change reaches the open sessions at once.
  */
-export function PermissionsSection({ workspaceId, projectName }: { workspaceId: string; projectName: string }) {
+export function PermissionsSection({ workspaceId }: { workspaceId: string }) {
   const sync = useSync();
   const { data, error, set } = useLoaded(() => sync.settingsCall('settings.get', { workspaceId }), workspaceId);
   if (!data) return error ? <ErrorLine error={error} /> : <p className="text-xs text-muted-foreground">Reading the settings…</p>;
 
-  const save = (scope: 'user' | 'project', list: PermissionRuleList) => async (rules: string[]) => {
-    set(await sync.settingsCall('settings.setRules', { workspaceId, scope, list, rules }));
+  const save = (list: PermissionRuleList) => async (rules: string[]) => {
+    set(await sync.settingsCall('settings.setRules', { workspaceId, scope: 'user', list, rules }));
   };
   return (
     <div className="flex flex-col gap-4">
       <SectionIntro title="Permissions">
         What sessions may do without asking you. A rule names a tool — <Code>Bash</Code> — or a tool and what it covers
         — <Code>Bash(npm test:*)</Code>, <Code>Edit(src/**)</Code>, <Code>WebFetch(domain:docs.rs)</Code>. Deny wins
-        over ask, ask over allow. Open sessions take a change up at once.
+        over ask, ask over allow. These are yours, for every project; a project’s own rules are in its{' '}
+        <Code>.agent/settings.json</Code>. Open sessions take a change up at once.
       </SectionIntro>
       <Problems problems={data.problems} />
-      <Layer
-        title="Yours"
-        note="every project"
-        path={data.user.path}
-        rules={data.user.rules}
-        onChange={(list) => save('user', list)}
-      />
-      <Layer
-        title="This project"
-        note={projectName}
-        path={data.project.path}
-        rules={data.project.rules}
-        onChange={(list) => save('project', list)}
-      />
+      <Rules path={data.user.path} rules={data.user.rules} onChange={save} />
       <Builtin rules={data.builtinAllow} />
     </div>
   );
 }
 
-function Layer({
-  title,
-  note,
+function Rules({
   path,
   rules,
   onChange,
 }: {
-  title: string;
-  note: string;
   path: string;
   rules: SettingsView['user']['rules'];
   onChange: (list: PermissionRuleList) => (rules: string[]) => Promise<void>;
 }) {
   return (
-    <Card
-      label={title}
-      title={
-        <>
-          {title} <span className="font-normal text-muted-foreground">· {note}</span>
-        </>
-      }
-      path={path}
-    >
+    <Card label="Your rules" title="Your rules" path={path}>
       <div className="grid gap-4 @xl:grid-cols-3">
         {LISTS.map(({ list, title: listTitle, hint }) => (
           <div key={list} className="flex min-w-0 flex-col gap-1">
@@ -86,7 +63,7 @@ function Layer({
               </span>
             </h3>
             <RuleList
-              label={`${title}: ${listTitle}`}
+              label={listTitle}
               rules={rules[list]}
               placeholder="Add a rule"
               onChange={onChange(list)}

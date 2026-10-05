@@ -61,7 +61,7 @@ const typeRule = (field: HTMLElement, text: string) => {
 };
 
 describe('PermissionsSection', () => {
-  it("shows each layer's lists and writes a whole list when a rule is added or removed", async () => {
+  it('shows your lists, not the project’s, and writes a whole list when a rule is added', async () => {
     const { sync, settingsCall } = syncFor((method, params) => {
       if (method === 'settings.setRules' && (params.rules as string[]).includes('Bash(rm')) {
         return new Error('Invalid permission rule "Bash(rm": missing closing parenthesis');
@@ -70,13 +70,14 @@ describe('PermissionsSection', () => {
     });
     render(
       <SyncProvider sync={sync}>
-        <PermissionsSection workspaceId="w1" projectName="proj" />
+        <PermissionsSection workspaceId="w1" />
       </SyncProvider>,
     );
-    const yours = await screen.findByRole('region', { name: 'Yours' });
-    expect(within(yours).getByRole('list', { name: 'Yours: Allow' }).textContent).toBe('Bash(npm test:*)');
+    const yours = await screen.findByRole('region', { name: 'Your rules' });
+    expect(within(yours).getByRole('list', { name: 'Allow' }).textContent).toBe('Bash(npm test:*)');
+    expect(screen.queryByText('Write(dist/**)')).toBeNull(); // the project's rules are its file's, not this page's
 
-    typeRule(within(yours).getByRole('textbox', { name: 'Add to Yours: Deny' }), 'Bash(git push:*)');
+    typeRule(within(yours).getByRole('textbox', { name: 'Add to Deny' }), 'Bash(git push:*)');
     expect(settingsCall).toHaveBeenLastCalledWith('settings.setRules', {
       workspaceId: 'w1',
       scope: 'user',
@@ -84,13 +85,9 @@ describe('PermissionsSection', () => {
       rules: ['Bash(git push:*)'],
     });
 
-    const project = screen.getByRole('region', { name: 'This project' });
-    fireEvent.click(within(project).getByRole('button', { name: 'Remove Write(dist/**)' }));
-    expect(settingsCall).toHaveBeenLastCalledWith('settings.setRules', { workspaceId: 'w1', scope: 'project', list: 'deny', rules: [] });
-
-    typeRule(within(project).getByRole('textbox', { name: 'Add to This project: Allow' }), 'Bash(rm');
-    expect(await within(project).findByText(/missing closing parenthesis/)).toBeTruthy();
-    expect((within(project).getByRole('textbox', { name: 'Add to This project: Allow' }) as HTMLInputElement).value).toBe('Bash(rm');
+    typeRule(within(yours).getByRole('textbox', { name: 'Add to Allow' }), 'Bash(rm');
+    expect(await within(yours).findByText(/missing closing parenthesis/)).toBeTruthy();
+    expect((within(yours).getByRole('textbox', { name: 'Add to Allow' }) as HTMLInputElement).value).toBe('Bash(rm');
   });
 });
 
@@ -144,7 +141,8 @@ describe('AutoModeSection', () => {
     const refused = await screen.findByRole('region', { name: 'Refused' });
     expect(await within(refused).findByText('ship it')).toBeTruthy();
     expect(within(refused).getByText('paused')).toBeTruthy();
-    expect(screen.getByText(/isn’t available in this project: no classifier/)).toBeTruthy();
+    expect(screen.getByText(/isn’t available: no classifier/)).toBeTruthy();
+    expect(settingsCall).toHaveBeenCalledWith('autoMode.denials', {}); // every project's open sessions
     await act(async () => fireEvent.click(within(refused).getByRole('button', { name: 'Allow a retry' })));
     expect(settingsCall).toHaveBeenCalledWith('session.retryDenied', { id: 's1', denialId: 'd1' });
     expect(within(refused).getByText('Retry allowed')).toBeTruthy();
@@ -164,37 +162,39 @@ describe('MemorySection', () => {
     dirs: { global: '/home/me/.agent/memory', project: '/p/.agent/memory' },
   };
 
-  it('opens a file to edit in place, and deletes a memory on the second click', async () => {
+  it('shows your file and memories, not the project’s; opens one to edit in place, and deletes on the second click', async () => {
     const { sync, settingsCall } = syncFor((method) => (method === 'memory.read' ? { text: '# rules\n' } : memory));
     render(
       <SyncProvider sync={sync}>
-        <MemorySection workspaceId="w1" projectName="proj" />
+        <MemorySection workspaceId="w1" />
       </SyncProvider>,
     );
-    const instructions = await screen.findByRole('region', { name: 'Instructions' });
+    const instructions = await screen.findByRole('region', { name: 'Your instructions' });
     expect(within(instructions).getByText('not written yet')).toBeTruthy();
-    fireEvent.click(within(instructions).getByRole('button', { name: /Edit/ }));
+    expect(screen.queryByText('CLAUDE.md')).toBeNull(); // the project's file
+    expect(screen.queryByText('no mocks')).toBeNull(); // the project's memory
+    fireEvent.click(within(instructions).getByRole('button', { name: /Write/ }));
     const field = (await screen.findByDisplayValue('# rules')) as HTMLTextAreaElement;
     expect(settingsCall).toHaveBeenCalledWith('memory.read', {
       workspaceId: 'w1',
-      target: { kind: 'instructions', scope: 'project', name: 'CLAUDE.md' },
+      target: { kind: 'instructions', scope: 'user', name: 'AGENTS.md' },
     });
     fireEvent.change(field, { target: { value: '# rules\nBe brief.\n' } });
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save' })));
     expect(settingsCall).toHaveBeenCalledWith('memory.write', {
       workspaceId: 'w1',
-      target: { kind: 'instructions', scope: 'project', name: 'CLAUDE.md' },
+      target: { kind: 'instructions', scope: 'user', name: 'AGENTS.md' },
       text: '# rules\nBe brief.\n',
     });
     expect(screen.queryByRole('textbox', { name: 'File text' })).toBeNull();
 
     expect(screen.getByText(/Sessions skip it: missing description/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete no mocks' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete broken' }));
     expect(settingsCall).not.toHaveBeenCalledWith('memory.delete', expect.anything());
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Confirm deleting no mocks' })));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Confirm deleting broken' })));
     expect(settingsCall).toHaveBeenCalledWith('memory.delete', {
       workspaceId: 'w1',
-      target: { kind: 'memory', scope: 'project', path: 'feedback/no-mocks.md' },
+      target: { kind: 'memory', scope: 'global', path: 'reference/broken.md' },
     });
   });
 });
@@ -222,11 +222,11 @@ describe('McpSection', () => {
   const renderSection = (sync: SessionSync) =>
     render(
       <SyncProvider sync={sync}>
-        <McpSection workspaceId="w1" projectName="repo" />
+        <McpSection workspaceId="w1" />
       </SyncProvider>,
     );
 
-  it('tries each connector as it opens, and signs in to one that asks, in the browser', async () => {
+  it('tries each of yours as it opens — not the project’s — and signs in to one that asks, in the browser', async () => {
     let signedIn = false;
     const open = vi.spyOn(platform, 'openExternal').mockImplementation(() => {});
     const { sync, settingsCall, push } = syncFor((method, params) => {
@@ -238,10 +238,8 @@ describe('McpSection', () => {
     const yours = await screen.findByRole('region', { name: 'Your connectors' });
     expect(within(yours).getByText('Linear')).toBeTruthy(); // the catalog's name for its URL
     expect(settingsCall).toHaveBeenCalledWith('mcp.test', { workspaceId: 'w1', scope: 'user', name: 'linear' });
-    expect(settingsCall).toHaveBeenCalledWith('mcp.test', { workspaceId: 'w1', scope: 'project', name: 'files' });
-    const connected = await screen.findByRole('button', { name: /Connected · 2 tools/ });
-    fireEvent.click(connected);
-    expect(screen.getByText('Read a file')).toBeTruthy();
+    expect(settingsCall).not.toHaveBeenCalledWith('mcp.test', expect.objectContaining({ name: 'files' }));
+    expect(screen.queryByText('files')).toBeNull();
 
     const signIn = await screen.findByRole('button', { name: 'Sign in' });
     await act(async () => fireEvent.click(signIn));
@@ -251,7 +249,8 @@ describe('McpSection', () => {
 
     signedIn = true;
     await act(async () => push({ type: 'mcp_login', workspaceId: 'w1', name: 'linear' }));
-    expect(await screen.findAllByRole('button', { name: /Connected · 2 tools/ })).toHaveLength(2);
+    fireEvent.click(await screen.findByRole('button', { name: /Connected · 2 tools/ }));
+    expect(screen.getByText('Read a file')).toBeTruthy();
     expect(screen.queryByText('Finish signing in in your browser')).toBeNull();
   });
 
@@ -353,7 +352,7 @@ describe('McpSection — a command, headers or JSON', () => {
   const renderSection = (sync: SessionSync) =>
     render(
       <SyncProvider sync={sync}>
-        <McpSection workspaceId="w1" projectName="repo" />
+        <McpSection workspaceId="w1" />
       </SyncProvider>,
     );
   const openAdvanced = async () => {
@@ -390,7 +389,7 @@ describe('McpSection — a command, headers or JSON', () => {
     const { sync, settingsCall } = syncFor((method) => (method === 'mcp.save' ? new Error('/home/me/.agent/.mcp.json has an MCP server named "api" already') : empty));
     renderSection(sync);
     await openAdvanced();
-    fireEvent.click(screen.getByRole('radio', { name: /This project/ }));
+    expect(screen.queryByRole('radio', { name: /This project/ })).toBeNull(); // yours only
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'api' } });
     fireEvent.click(screen.getByRole('radio', { name: 'HTTP' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'URL' }), { target: { value: 'https://api.example.com/mcp' } });
@@ -400,7 +399,7 @@ describe('McpSection — a command, headers or JSON', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Add' })));
     expect(settingsCall).toHaveBeenCalledWith('mcp.save', {
       workspaceId: 'w1',
-      scope: 'project',
+      scope: 'user',
       server: { name: 'api', transport: 'http', url: 'https://api.example.com/mcp', headers: { Authorization: 'Bearer ${API_TOKEN}' } },
     });
     expect(await screen.findByText(/named "api" already/)).toBeTruthy();
@@ -511,7 +510,8 @@ describe('AgentsSection', () => {
   ];
   const agents = (over: Partial<AgentsView> = {}): AgentsView => ({
     agents: [
-      { name: 'test-runner', scope: 'project', path: '/p/.agent/agents/test-runner.md', description: 'Runs tests', tools: ['read', 'bash'], model: 'deepseek/deepseek-chat', effort: 'low' },
+      { name: 'test-runner', scope: 'user', path: '/home/me/.agent/agents/test-runner.md', description: 'Runs tests', tools: ['read', 'bash'], model: 'deepseek/deepseek-chat', effort: 'low' },
+      { name: 'deployer', scope: 'project', path: '/p/.agent/agents/deployer.md', description: 'Deploys' },
       { name: 'broken', scope: 'user', path: '/home/me/.agent/agents/broken.md', description: '', problem: 'the body (role instructions) is empty' },
       { name: 'explore', scope: 'builtin', path: '/marvis/agents/explore.md', description: 'Read-only search', tools: ['read', 'glob', 'grep'] },
     ],
@@ -523,14 +523,15 @@ describe('AgentsSection', () => {
   const show = (sync: SessionSync) =>
     render(
       <SyncProvider sync={sync}>
-        <AgentsSection workspaceId="w1" projectName="repo" />
+        <AgentsSection workspaceId="w1" />
       </SyncProvider>,
     );
 
-  it('lists each scope with what each one is given, and why one is skipped', async () => {
+  it('lists yours and the built-in ones — not the project’s — with what each is given, and why one is skipped', async () => {
     const { sync } = syncFor(() => agents());
     show(sync);
     expect(await screen.findByText('test-runner')).toBeTruthy();
+    expect(screen.queryByText('deployer')).toBeNull();
     expect(screen.getByText('read · bash')).toBeTruthy();
     expect(screen.getByText('deepseek/deepseek-chat')).toBeTruthy();
     expect(screen.getByText('effort low')).toBeTruthy();
@@ -545,8 +546,7 @@ describe('AgentsSection', () => {
   it('writes a new one from the form: the read-only tools picked to start with', async () => {
     const { sync, settingsCall } = syncFor(() => agents());
     show(sync);
-    const cards = await screen.findAllByRole('button', { name: 'New sub-agent' });
-    fireEvent.click(cards[1]!); // yours
+    fireEvent.click(await screen.findByRole('button', { name: 'New sub-agent' }));
     fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), { target: { value: 'scout' } });
     fireEvent.change(screen.getByRole('textbox', { name: /^Description/ }), { target: { value: 'Finds things' } });
     const group = screen.getByRole('group', { name: 'Its tools' });
@@ -576,7 +576,7 @@ describe('AgentsSection', () => {
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save' })));
     expect(settingsCall).toHaveBeenCalledWith('agents.save', {
       workspaceId: 'w1',
-      scope: 'project',
+      scope: 'user',
       name: 'tester',
       previousName: 'test-runner',
       fields: { description: 'Runs tests', effort: 'low', body: 'Run them.' },

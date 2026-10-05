@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Check, ChevronRight, CircleCheck, CircleX, Copy, Info, LoaderCircle, PlugZap, RotateCw, TriangleAlert } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -49,7 +50,16 @@ export function reportText(report: DoctorReport, projectName: string): string {
  * model's provider, each MCP server) on asking — each that isn't fine with
  * what to do and a way to the settings it's fixed in.
  */
-export function DoctorSection({ workspaceId, projectName }: { workspaceId: string; projectName: string }) {
+export function DoctorSection({
+  workspaceId,
+  projectName,
+  picker,
+}: {
+  workspaceId: string;
+  projectName: string;
+  /** Which project to diagnose, chosen beside the buttons: the rest of Settings is every project's. */
+  picker?: ReactNode;
+}) {
   const sync = useSync();
   const [report, setReport] = useState<DoctorReport | null>(null);
   const [running, setRunning] = useState<'quick' | 'connect' | null>('quick');
@@ -90,12 +100,13 @@ export function DoctorSection({ workspaceId, projectName }: { workspaceId: strin
   return (
     <div className="flex flex-col gap-4">
       <SectionIntro title="Diagnostics">
-        What Marvis makes of this project’s setup: the model and its key, the settings files, permissions, MCP servers,
+        What Marvis makes of a project’s setup: the model and its key, the settings files, permissions, MCP servers,
         skills, sub-agents and memory, and the tools around them. The quick checks read files and spend nothing; checking
         the connections asks the model’s provider for its list of models — no tokens — and starts each MCP server.
       </SectionIntro>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {picker}
         <p aria-live="polite" className="min-w-0 flex-1 text-[13px]">
           {!report ? (
             running ? (

@@ -40,13 +40,14 @@ function toolsSummary(tools: readonly string[] | undefined): string {
 }
 
 /**
- * The sub-agents sessions here can send with the task tool — the project's,
- * yours and the built-in ones, the first of a name used: each written and
+ * The sub-agents sessions can send with the task tool — yours and the
+ * built-in ones, yours used over a built-in one of its name: each written and
  * changed with a form (its tools picked from the built-in ones, a model and
  * an effort of its own, its instructions) or as its file, and deleted once
- * confirmed; a built-in one read, or copied to yours to change.
+ * confirmed; a built-in one read, or copied to yours to change. A project's
+ * own are files in its `.agent/agents/`, as in Claude Code.
  */
-export function AgentsSection({ workspaceId, projectName }: { workspaceId: string; projectName: string }) {
+export function AgentsSection({ workspaceId }: { workspaceId: string }) {
   const sync = useSync();
   const { data, error, set } = useLoaded(() => sync.settingsCall('agents.list', { workspaceId }), workspaceId);
   const [open, setOpen] = useState<Open | null>(null);
@@ -77,31 +78,29 @@ export function AgentsSection({ workspaceId, projectName }: { workspaceId: strin
   };
 
   const groups: Array<{ scope: AgentScope; title: string }> = [
-    { scope: 'project', title: `This project · ${projectName}` },
-    { scope: 'user', title: 'Yours · every project' },
-    { scope: 'builtin', title: 'Built in · ship with Marvis' },
+    { scope: 'user', title: 'Your sub-agents' },
+    { scope: 'builtin', title: 'Built in' },
   ];
+  // Shadowing as every project sees it: yours over a built-in one of its name.
+  const yours = new Set(data.agents.filter((a) => a.scope === 'user').map((a) => a.name));
+  const shown = (a: AgentEntryInfo): AgentEntryInfo => ({ ...a, shadowed: a.scope === 'builtin' && yours.has(a.name) });
   return (
     <div className="flex flex-col gap-4">
       <SectionIntro title="Sub-agents">
         Helpers the agent hands a self-contained job to with its <Code>task</Code> tool — a search, a plan, a review. Each
         works in a context of its own, with the tools you give it, and only its report comes back; the agent picks one by its
-        description. The project’s win over yours of the same name, and yours over the built-in ones. Open sessions take a
-        change up before their next message.
+        description. These are yours, for every project — used over a built-in one of the same name; a project’s own are
+        files in its <Code>.agent/agents/</Code>. Open sessions take a change up before their next message.
       </SectionIntro>
       {groups.map(({ scope, title }) => {
-        const agents = data.agents.filter((a) => a.scope === scope);
+        const agents = data.agents.filter((a) => a.scope === scope).map(shown);
         const writable = scope !== 'builtin';
         return (
           <Card
             key={scope}
             label={title}
-            title={
-              <>
-                Sub-agents <span className="font-normal text-muted-foreground">· {title}</span>
-              </>
-            }
-            path={data.dirs[scope]}
+            title={title}
+            {...(scope === 'user' ? { path: data.dirs.user } : {})}
             aside={
               writable &&
               !isOpen('new', scope) && (

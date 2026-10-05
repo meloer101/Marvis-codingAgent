@@ -16,7 +16,7 @@ export function ToolsSection({ workspaceId }: { workspaceId: string }) {
   const [busy, setBusy] = useState(false);
   if (!data) return error ? <ErrorLine error={error} /> : <p className="text-xs text-muted-foreground">Reading the settings…</p>;
 
-  const { user, project } = data.backgroundProcesses;
+  const { user } = data.backgroundProcesses;
   const toggle = async (): Promise<void> => {
     setBusy(true);
     try {
@@ -42,7 +42,6 @@ export function ToolsSection({ workspaceId }: { workspaceId: string }) {
             <code className="font-mono">bash</code> takes <code className="font-mono">run_in_background</code>, and{' '}
             <code className="font-mono">bash_output</code> and <code className="font-mono">bash_kill</code> read and
             stop it. The session’s Processes tab shows each one, and stops it too.
-            {project && <span className="mt-1 block text-foreground">On in this project’s settings, whatever yours say.</span>}
           </p>
           <button
             type="button"

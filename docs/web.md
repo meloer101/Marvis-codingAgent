@@ -654,18 +654,23 @@ The token is as powerful as the user's shell — a client can switch a session t
   Trace tab. A session on a model without a price counts as `≥` what the rest
   cost, or `—` when nothing had one.
 - **Settings** (`components/settings/`, `#/settings/<section>`, from the gear in
-  the sidebar's footer or the palette), for the most recently used project or
-  the one picked in the header — what's yours, every project's, beside what's
-  the project's. **Permissions**: the allow, ask and deny lists of
-  `~/.agent/settings.json` and the project's `.agent/settings.json`, a rule
+  the sidebar's footer or the palette): yours, every project's, as in Claude
+  Code — a project's own settings, servers, skills, sub-agents and memory are
+  files in it, not on these pages, and there is no project chooser. The calls
+  go through the most recently used workspace, which settles where home is
+  and what the environment holds; Diagnostics, the one section about a
+  project, picks its own beside its buttons, and a check on a project's own
+  file points at the file rather than a section. **Permissions**: the allow,
+  ask and deny lists of `~/.agent/settings.json`, a rule
   added on Enter and removed with its ×, the server's reason shown when one
   doesn't parse; the built-in allow rules folded below. **Auto mode**: why it's
-  unavailable, if it is; what it refused in the open sessions, each with
+  unavailable, if it is; what it refused in the open sessions, every
+  project's, each with
   "Allow a retry" (`session.retryDenied`) and a paused session marked; the
   classifier's four groups, a group's built-in rules as one row that folds
   open (`$defaults` — removing it keeps only your own) and "Built-ins only" to
-  go back to them. **Memory**: the instruction files — or the `AGENTS.md` to
-  write — and each store's memories, opened in place in a mono field to edit
+  go back to them. **Memory**: your instruction file — or the `AGENTS.md` to
+  write — and your memories, opened in place in a mono field to edit
   (⌘↵ saves, Escape cancels); a memory sessions skip says why; delete arms
   first. **Connectors** (the MCP servers): yours and
   the project's, the project's winning by name, each tried as the page opens
@@ -695,9 +700,8 @@ The token is as powerful as the user's shell — a client can switch a session t
   from a folder (typed, or the system's chooser) or a Git URL — a conflict
   offers Replace — or Write a new one from a name and a description (its
   `SKILL.md` then opens to write). The `/skills` dialog in a session links
-  here. **Sub-agents**: the project's, yours and the built-in ones, each with
-  its tools, model and effort as chips; "New sub-agent" on yours and the
-  project's opens a form — a name, the description the agent picks it by,
+  here. **Sub-agents**: yours and the built-in ones, each with
+  its tools, model and effort as chips; "New sub-agent" on yours opens a form — a name, the description the agent picks it by,
   its tools (only the ones ticked, `read glob grep` to start, or all the
   session's built-in ones), a model (suggested from the workspace's) and an
   effort, and its instructions. On hover a row has Edit (the same form, or

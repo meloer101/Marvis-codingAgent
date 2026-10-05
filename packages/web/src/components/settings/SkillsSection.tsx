@@ -77,8 +77,11 @@ export function SkillsSection({ workspaceId }: { workspaceId: string }) {
     }
   };
 
-  const yours = data.skills.filter((s) => s.scope === 'user');
-  const builtin = data.skills.filter((s) => s.scope === 'builtin');
+  // Shadowing as every project sees it: yours over a built-in one of its name.
+  const yours = data.skills.filter((s) => s.scope === 'user').map((s) => ({ ...s, shadowed: false }));
+  const builtin = data.skills
+    .filter((s) => s.scope === 'builtin')
+    .map((s) => ({ ...s, shadowed: yours.some((y) => y.name === s.name) }));
   const editor = (s: SkillEntryInfo) =>
     open === keyOf(s.scope, s.name) && (
       <FileEditor
@@ -116,7 +119,6 @@ export function SkillsSection({ workspaceId }: { workspaceId: string }) {
               <SkillRow
                 key={s.name}
                 skill={s}
-                shadowedBy="this project has a skill of the same name, which is used"
                 actions={[
                   { label: 'Edit SKILL.md', icon: <Pencil />, onSelect: () => setOpen(keyOf(s.scope, s.name)) },
                 ]}
@@ -135,7 +137,7 @@ export function SkillsSection({ workspaceId }: { workspaceId: string }) {
               <SkillRow
                 key={s.name}
                 skill={s}
-                shadowedBy="one of yours or this project’s has its name, and is used"
+                shadowedBy="yours of the same name is used"
                 actions={[
                   { label: 'Read SKILL.md', icon: <Eye />, onSelect: () => setOpen(keyOf(s.scope, s.name)) },
                   ...(s.shadowed ? [] : [{ label: 'Copy to yours, to change it', icon: <Copy />, onSelect: () => void copy(s) }]),
@@ -178,7 +180,7 @@ function SkillRow({
 }: {
   skill: SkillEntryInfo;
   /** What to say when a skill of the same name before it is the one used. */
-  shadowedBy: string;
+  shadowedBy?: string;
   actions: MenuAction[];
   /** Yours: delete its folder, once confirmed. */
   onRemove?: () => Promise<void>;
