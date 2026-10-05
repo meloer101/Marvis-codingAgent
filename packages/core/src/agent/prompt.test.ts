@@ -11,6 +11,33 @@ describe('buildAgentSystemPrompt', () => {
     expect(segments.map((s) => s.id)).toEqual(['identity', 'conventions', 'environment']);
   });
 
+  it('says it is Marvis, and how MCP servers are added and signed in to', () => {
+    const [identity] = buildAgentSystemPrompt({ cwd: '/workspace', platform: 'linux' });
+    expect(identity?.text).toMatch(/^You are Marvis/);
+    expect(identity?.text).toContain('.mcp.json');
+    expect(identity?.text).toContain('marvis mcp login');
+  });
+
+  it('lists the MCP servers that are not connected, and why, before the mode overlays', () => {
+    const segments = buildAgentSystemPrompt({
+      cwd: '/workspace',
+      platform: 'linux',
+      mode: 'auto',
+      mcpUnavailable: [
+        { name: 'figma', needsAuth: true, error: 'needs authorization — run: marvis mcp login figma' },
+        { name: 'local', error: `spawn  nope\n  ENOENT ${'x'.repeat(300)}` },
+      ],
+    });
+    expect(segments.map((s) => s.id)).toEqual(['identity', 'conventions', 'mcp_status', 'auto_mode', 'environment']);
+    const text = segments.find((s) => s.id === 'mcp_status')?.text ?? '';
+    expect(text).toContain('- figma: needs the user to sign in');
+    expect(text).toMatch(/- local: couldn't connect — spawn nope ENOENT x+…/);
+    expect(text).not.toContain('\n  ENOENT');
+    expect(buildAgentSystemPrompt({ cwd: '/w', platform: 'linux', mcpUnavailable: [] }).map((s) => s.id)).not.toContain(
+      'mcp_status',
+    );
+  });
+
   it('states the read-before-edit invariant enforced by the edit tool', () => {
     const [, conventions] = buildAgentSystemPrompt({ cwd: '/workspace', platform: 'linux' });
     expect(conventions?.text).toMatch(/read.*before editing/i);

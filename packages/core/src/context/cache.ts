@@ -19,8 +19,9 @@ import type { SystemSegment } from '../provider/types.js';
 /**
  * Canonical order for system segments, most stable first. `identity` and
  * `conventions` never change; `available_skills`, `available_memory`, and
- * `project_memory` are fixed per project; `plan_mode` and `environment` vary
- * by mode / cwd and go last so the cacheable head stays put.
+ * `project_memory` are fixed per project; `mcp_status` changes only when a
+ * server connects or drops; `plan_mode` and `environment` vary by mode / cwd
+ * and go last so the cacheable head stays put.
  */
 export const SYSTEM_SEGMENT_ORDER = [
   'identity',
@@ -29,6 +30,7 @@ export const SYSTEM_SEGMENT_ORDER = [
   'available_skills',
   'available_memory',
   'project_memory',
+  'mcp_status',
   'plan_mode',
   'auto_mode',
   'environment',

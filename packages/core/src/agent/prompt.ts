@@ -1,13 +1,15 @@
 /**
  * The system prompt `marvis agent` sends to the model.
  *
- * Kept deliberately small: one factual identity line, a handful of tagged
- * behavioral blocks (not a persona paragraph — current models are steered
- * better by short, single-purpose instructions than by role narrative), and
- * one segment of per-invocation environment facts the model has no other
- * way to know. The static segments come first so they form a stable,
- * cacheable prefix across every run; `environment` varies by cwd and goes
- * last.
+ * Kept deliberately small: a factual identity — which harness this is, and
+ * how it is extended, since a model left to guess takes itself for Claude
+ * Code or Codex and sends the user to their config files — a handful of
+ * tagged behavioral blocks (not a persona paragraph — current models are
+ * steered better by short, single-purpose instructions than by role
+ * narrative), and one segment of per-invocation environment facts the model
+ * has no other way to know. The static segments come first so they form a
+ * stable, cacheable prefix across every run; `environment` varies by cwd and
+ * goes last.
  */
 
 import { tmpdir } from 'node:os';
@@ -16,7 +18,15 @@ import type { SystemSegment } from '../provider/types.js';
 import type { PermissionMode } from '../permissions/types.js';
 import { orderSystemSegments } from '../context/cache.js';
 
-const IDENTITY = "You are a coding agent working directly in a developer's codebase through tool calls.";
+const IDENTITY = `You are Marvis, a coding agent working directly in a developer's codebase through tool calls.
+
+<marvis>
+You run inside Marvis — its desktop app, its web UI, or the \`marvis\` command in a terminal — not inside Claude Code, Cursor or Codex, so their config files and commands don't apply. When the user wants to extend Marvis itself:
+- MCP servers go in \`.mcp.json\` at the project root, or \`~/.agent/.mcp.json\` for every project, in Claude Code's format: \`{"mcpServers": {"<name>": {"command": "...", "args": ["..."]}}}\`, or \`{"type": "http", "url": "..."}\` for a hosted server. Edit the project's file yourself when asked to add one; in the app the user can also add one in a click under Settings › Connectors. Marvis takes the change up before the user's next message, without a restart, and the server's tools then appear as \`mcp__<server>__<tool>\`.
+- A hosted server that uses OAuth needs the user to sign in once, in their browser; you can't do it for them, and a token is not something to look for in their files. In the app they click Sign in — on the notice in the conversation, or in Settings › Connectors — and the open session connects before their next message. In a terminal it's \`marvis mcp login <name>\`, then a new session.
+- Skills go in \`.agent/skills/<name>/SKILL.md\`, or \`~/.agent/skills/\` for every project, and are taken up the same way.
+- Settings › Diagnostics in the app, or \`marvis doctor\`, checks the whole setup.
+</marvis>`;
 
 /**
  * The behavioral blocks, exported so the compactor can pass them to the
@@ -73,6 +83,15 @@ export interface BuildAgentSystemPromptOptions {
   skillsManifest?: string;
   /** The `<available_memory>` manifest, from `MemoryCatalog.manifest()`. Omitted when empty. */
   memoryManifest?: string;
+  /** Configured MCP servers that didn't connect, from `McpHub.status()`. Omitted when empty. */
+  mcpUnavailable?: readonly UnavailableMcpServer[];
+}
+
+export interface UnavailableMcpServer {
+  name: string;
+  /** It wants a sign-in, rather than being unreachable or broken. */
+  needsAuth?: boolean;
+  error?: string;
 }
 
 export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): SystemSegment[] {
@@ -100,6 +119,9 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): Sys
         `${opts.projectMemory}\n</project_memory>`,
     });
   }
+  if (opts.mcpUnavailable && opts.mcpUnavailable.length > 0) {
+    segments.push(mcpStatusSegment(opts.mcpUnavailable));
+  }
   if (opts.mode === 'plan') {
     segments.push({ id: 'plan_mode', text: PLAN_MODE });
   }
@@ -109,6 +131,25 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): Sys
   segments.push(environmentSegment(opts.cwd, platform, opts.scratchDir));
   // Enforce the cache-stable order regardless of push order above.
   return orderSystemSegments(segments);
+}
+
+/**
+ * The servers the user configured whose tools are missing, and why. Without
+ * it the model sees only that the tools aren't there, and goes looking for
+ * another way in (other clients' configs, a hand-written client, the user's
+ * tokens) instead of telling the user the one thing that would fix it.
+ */
+function mcpStatusSegment(servers: readonly UnavailableMcpServer[]): SystemSegment {
+  const line = (s: UnavailableMcpServer): string => {
+    if (s.needsAuth) return `- ${s.name}: needs the user to sign in`;
+    // The error can come from the server; one short line of it is enough.
+    const error = (s.error ?? 'failed').replace(/\s+/g, ' ').trim();
+    return `- ${s.name}: couldn't connect — ${error.length > 200 ? `${error.slice(0, 200)}…` : error}`;
+  };
+  return {
+    id: 'mcp_status',
+    text: `<mcp_status>\nThese configured MCP servers aren't connected, so their tools are missing:\n${servers.map(line).join('\n')}\n</mcp_status>`,
+  };
 }
 
 /**

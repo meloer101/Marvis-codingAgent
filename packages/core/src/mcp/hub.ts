@@ -19,6 +19,8 @@ export interface McpServerStatus {
   transport: 'stdio' | 'http' | 'sse';
   state: McpConnectionState;
   error?: string;
+  /** It failed for want of a sign-in (OAuth), not for being unreachable. */
+  needsAuth?: true;
   toolCount: number;
 }
 
@@ -138,6 +140,7 @@ export class McpHub {
       transport: this.configByName.get(c.name)?.transport ?? 'stdio',
       state: c.state,
       ...(c.error !== undefined ? { error: c.error } : {}),
+      ...(c.needsAuth ? { needsAuth: true as const } : {}),
       toolCount: this.toolCountByName.get(c.name) ?? 0,
     }));
   }

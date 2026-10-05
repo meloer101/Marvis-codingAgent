@@ -122,6 +122,8 @@ export type NoticeKind =
   | 'skills-discovered'
   | 'agents-discovered'
   | 'mcp-status'
+  /** An MCP server needs the user to sign in; `data` is `{ server }`. */
+  | 'mcp-auth'
   | 'permission-mode'
   | 'mode-changed'
   | 'model-changed'
@@ -174,7 +176,7 @@ export interface CapabilityChanges {
   agents?: NamedChanges;
   mcp?: McpHubChanges & {
     /** Servers connected (again) that couldn't be reached, and why. */
-    failed: Array<{ name: string; error: string }>;
+    failed: Array<{ name: string; error: string; needsAuth?: true }>;
   };
 }
 
@@ -575,7 +577,8 @@ export class AgentSession {
     if (!hub.empty) {
       const s = hub.status();
       const ok = s.filter((x) => x.state === 'ready');
-      const failed = s.filter((x) => x.state === 'failed');
+      // One that wants a sign-in gets a notice of its own, which says how.
+      const failed = s.filter((x) => x.state === 'failed' && !x.needsAuth);
       notify({
         kind: 'mcp-status',
         level: 'info',
@@ -588,6 +591,7 @@ export class AgentSession {
                 .join(', ')}`
             : ''),
       });
+      for (const x of s) if (x.needsAuth) notify(mcpAuthNotice(x.name));
     }
     const mcpPrompts = await mcpPromptCommands(hub);
 
@@ -956,7 +960,7 @@ export class AgentSession {
           const failed = this.#hub
             .status()
             .filter((s) => touched.includes(s.name) && s.state === 'failed')
-            .map((s) => ({ name: s.name, error: s.error ?? 'failed' }));
+            .map((s) => ({ name: s.name, error: s.error ?? 'failed', ...(s.needsAuth ? { needsAuth: s.needsAuth } : {}) }));
           changes.mcp = { ...diff, failed };
         }
       } catch (err) {
@@ -978,12 +982,14 @@ export class AgentSession {
       task: this.#agents.length > 0,
       mcp: this.#mcpToolSpecs,
     });
+    const failed = changes.mcp?.failed ?? [];
     config.onNotice?.({
       kind: 'capabilities',
-      level: changes.mcp && changes.mcp.failed.length > 0 ? 'warn' : 'info',
+      level: failed.some((f) => !f.needsAuth) ? 'warn' : 'info',
       text: describeCapabilityChanges(changes, this.#hub.status()),
       data: changes,
     });
+    for (const f of failed) if (f.needsAuth) config.onNotice?.(mcpAuthNotice(f.name));
     return changes;
   }
 
@@ -1504,6 +1510,10 @@ export class AgentSession {
       ...(this.#config.memory !== false
         ? { memoryManifest: this.#memoryCatalog.manifest() ?? emptyMemoryManifest() }
         : {}),
+      mcpUnavailable: this.#hub
+        .status()
+        .filter((s) => s.state === 'failed')
+        .map((s) => ({ name: s.name, ...(s.needsAuth ? { needsAuth: true } : {}), ...(s.error ? { error: s.error } : {}) })),
     });
     // The system prompt changes mid-session whenever the mode, the loaded
     // skills or memory do. Rewriting the head invalidates the cached prefix for
@@ -1838,11 +1848,26 @@ function describeCapabilityChanges(changes: CapabilityChanges, status: readonly 
     ];
     if (bits.length > 0) parts.push(`MCP: ${bits.join('; ')}`);
   }
-  const failed = changes.mcp?.failed ?? [];
+  const failed = (changes.mcp?.failed ?? []).filter((f) => !f.needsAuth);
   return (
     `picked up changes — ${parts.join(' · ')}` +
     (failed.length > 0 ? ` — unavailable: ${failed.map((f) => `${f.name} (${f.error})`).join(', ')}` : '')
   );
+}
+
+/**
+ * An MCP server that needs the user to sign in. The text is for a terminal,
+ * where a session started before the sign-in doesn't connect it; the web
+ * shows a Sign in button instead (`data.server`), and connects open sessions
+ * once it's done.
+ */
+function mcpAuthNotice(server: string): Notice {
+  return {
+    kind: 'mcp-auth',
+    level: 'warn',
+    text: `MCP server ${server} needs you to sign in — run: marvis mcp login ${server}, then start a new session`,
+    data: { server },
+  };
 }
 
 function errorText(err: unknown): string {
