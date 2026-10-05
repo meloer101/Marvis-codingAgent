@@ -46,9 +46,10 @@ export async function inspectDirectory(
     return { ...found, problem: 'Your home directory is too broad for a project: pick a folder inside it' };
   }
 
-  // A directory with no `.git`/`.agent` of its own under a home that has
-  // `~/.agent` would be taken for part of a project rooted at home, and share
+  // A directory with no `.git`/`.agent` of its own under a home that is a
+  // repository would be taken for part of a project rooted at home, and share
   // its state dir with every other such directory: it gets its own `.agent/`.
+  // (`~/.agent` alone no longer marks home: `findMarkedProjectRoot`.)
   const marked = await findMarkedProjectRoot(root);
   const needsMarker = marked === realHome;
   const projectRoot = needsMarker || marked === undefined ? root : marked;

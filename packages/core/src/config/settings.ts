@@ -325,13 +325,21 @@ export async function findProjectRoot(cwd = process.cwd()): Promise<string> {
 /**
  * Nearest ancestor holding a `.agent` or `.git` directory, or the top of a
  * linked worktree (whose `.git` is a file); `undefined` when there is none.
+ * The home directory's `.agent` is the user's own (settings, skills, MCP
+ * servers for every project), not a project's: counted as one, every folder
+ * under home that isn't a repository would be the home directory, and its
+ * `.mcp.json`, settings and plans would land there.
  */
-export async function findMarkedProjectRoot(cwd = process.cwd()): Promise<string | undefined> {
+export async function findMarkedProjectRoot(
+  cwd = process.cwd(),
+  homeDir = homedir(),
+): Promise<string | undefined> {
   const { stat } = await import('node:fs/promises');
   let dir = resolve(cwd);
+  const home = resolve(homeDir);
 
   for (;;) {
-    const agent = await stat(join(dir, AGENT_DIR)).catch(() => undefined);
+    const agent = dir === home ? undefined : await stat(join(dir, AGENT_DIR)).catch(() => undefined);
     if (agent?.isDirectory()) return dir;
     const git = await stat(join(dir, '.git')).catch(() => undefined);
     if (git?.isDirectory()) return dir;

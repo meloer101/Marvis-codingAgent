@@ -71,6 +71,18 @@ describe('state directory', () => {
     expect(await resolveProjectMemoryDir(loose, home)).toBe(join(state, 'memory'));
   });
 
+  it("doesn't take the home directory's ~/.agent for a project marker", async () => {
+    await mkdir(join(home, '.agent'));
+    const loose = join(home, 'Desktop', 'app');
+    await mkdir(loose, { recursive: true });
+    expect(await findMarkedProjectRoot(loose, home)).toBeUndefined();
+    // A project's own `.agent` under home still marks it, and a repository at home is still one.
+    await mkdir(join(loose, '.agent'));
+    expect(await findMarkedProjectRoot(loose, home)).toBe(loose);
+    await mkdir(join(home, '.git'));
+    expect(await findMarkedProjectRoot(join(home, 'Desktop'), home)).toBe(home);
+  });
+
   it('keeps two same-named directories apart', async () => {
     await mkdir(join(base, 'a', 'app'), { recursive: true });
     await mkdir(join(base, 'b', 'app'), { recursive: true });
