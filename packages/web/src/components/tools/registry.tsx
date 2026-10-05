@@ -56,12 +56,6 @@ const rec = (input: unknown): Rec => (input && typeof input === 'object' ? (inpu
 const str = (r: Rec, k: string): string | undefined => (typeof r[k] === 'string' ? (r[k] as string) : undefined);
 const num = (r: Rec, k: string): number | undefined => (typeof r[k] === 'number' ? (r[k] as number) : undefined);
 
-/** Command output this short shows without a click. */
-const OPEN_OUTPUT_LINES = 8;
-
-function roughLineCount(...parts: string[]): number {
-  return parts.reduce((n, p) => n + p.split('\n').length, 0);
-}
 
 function Output({ tool }: { tool: ToolItem }) {
   const content = tool.result?.content;
@@ -184,8 +178,8 @@ const renderers: Record<string, Renderer> = {
         </>
       ),
       body: output && output !== '(no output)' ? <TerminalOutput text={output} error={failed && exitCode === undefined && !timedOut} /> : null,
-      // What a command printed is the point of running it: a short output shows, a long one waits to be opened.
-      defaultOpen: failed || roughLineCount(output) <= OPEN_OUTPUT_LINES,
+      // Folded to the command once it's done, however short its output: a click opens it. A failed one opens.
+      defaultOpen: failed,
     };
   },
 

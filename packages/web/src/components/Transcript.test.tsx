@@ -182,14 +182,13 @@ describe('bash cards', () => {
     expect(screen.queryByText(/\[exit code/)).toBeNull();
   });
 
-  it('show a short output, and fold a long one, when the command succeeds', () => {
+  it('fold the output of a command that succeeded, however short, until it is opened', () => {
     render(<Transcript view={view({ entries: bash({ result: { content: 'ok\n' }, durationMs: 300 }) })} />);
-    expect(screen.getByRole('button', { name: /make test/ }).textContent).toContain('300ms');
+    const header = screen.getByRole('button', { name: /make test/ });
+    expect(header.textContent).toContain('300ms');
+    expect(screen.queryByText('ok')).toBeNull();
+    fireEvent.click(header);
     expect(screen.getByText('ok')).toBeTruthy();
-    cleanup();
-    const long = Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n');
-    render(<Transcript view={view({ entries: bash({ result: { content: long }, durationMs: 300 }) })} />);
-    expect(screen.queryByText(/line 29/)).toBeNull();
   });
 });
 
