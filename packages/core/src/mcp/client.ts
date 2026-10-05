@@ -14,6 +14,7 @@ import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { OAuthError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 
 import { VERSION } from '../version.js';
@@ -147,13 +148,20 @@ export class McpConnection {
         } catch (err) {
           // A streamable-HTTP endpoint that is really SSE tends to fail the
           // handshake (405/404). Retry once on the other transport before
-          // giving up — unless it was an auth failure, which SSE won't fix.
+          // giving up — unless it was an auth failure, or the server's OAuth
+          // side answered, which SSE won't change. When SSE fails too, the
+          // first error is the one that says why, unless it was that mismatch.
           if (
             this.config.transport === 'http' &&
             !isAuthError(err) &&
+            !(err instanceof OAuthError) &&
             this.config.url.endsWith('/sse') === false
           ) {
-            await this.attempt(client, buildAuthTransport({ ...this.config, transport: 'sse' }, provider));
+            try {
+              await this.attempt(client, buildAuthTransport({ ...this.config, transport: 'sse' }, provider));
+            } catch (sseErr) {
+              throw isTransportMismatch(err) ? sseErr : err;
+            }
           } else {
             throw err;
           }
@@ -166,9 +174,9 @@ export class McpConnection {
       this._needsAuth = isAuthError(err);
       this._error = this._needsAuth
         ? `needs authorization — run: marvis mcp login ${this.name}`
-        : err instanceof Error
-          ? err.message
-          : String(err);
+        : err instanceof OAuthError
+          ? signInRefusal(err)
+          : errorMessage(err);
       try {
         await client.close();
       } catch {
@@ -307,6 +315,34 @@ export class McpConnection {
     this._state = 'failed';
     this._error = err instanceof Error ? err.message : String(err);
   }
+}
+
+/** An error's message, with the network code fetch keeps in its cause ("fetch failed (ECONNREFUSED)"). */
+function errorMessage(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const code = (err.cause as { code?: unknown } | undefined)?.code;
+  return typeof code === 'string' && !err.message.includes(code) ? `${err.message} (${code})` : err.message;
+}
+
+/** The handshake failed for speaking the wrong transport, not for anything the server said. */
+function isTransportMismatch(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === 404 || code === 405;
+}
+
+/**
+ * The server's OAuth side turned the connection away before any sign-in —
+ * most often refusing to register Marvis as a client (Figma's admits only
+ * the apps it lists). Signing in can't help, so it isn't `needsAuth`; the
+ * SDK's message ("HTTP 403: Invalid OAuth error response: SyntaxError: …")
+ * is cut to its status.
+ */
+function signInRefusal(err: OAuthError): string {
+  const status = /^HTTP (\d{3})\b/.exec(err.message)?.[1];
+  const why = status ? `HTTP ${status}` : err.message;
+  return status === '401' || status === '403'
+    ? `its sign-in turned Marvis away (${why}): the server may admit only the apps it has approved`
+    : `its sign-in failed: ${why}`;
 }
 
 function isAuthError(err: unknown): boolean {

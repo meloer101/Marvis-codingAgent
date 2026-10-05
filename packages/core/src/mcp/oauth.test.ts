@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { McpConnection } from './client.js';
+import { McpHub } from './hub.js';
 import type { McpHttpServerConfig } from './config.js';
 import { FileOAuthStore, OAuthNeedsLoginError, createOAuthProvider, serverSlug } from './oauth.js';
 import { loginToServer } from './oauth-login.js';
@@ -84,6 +85,8 @@ describe('loginToServer (mock OAuth + MCP server)', () => {
   let home: string;
   let realHome: string | undefined;
   const VALID = 'access-token-xyz';
+  /** Act as Figma's does: refuse to register a client it doesn't list, and answer an SSE GET with 405. */
+  const behavior = { refuseRegistration: false };
   const authDir = (url: string): string => join(home, '.agent', 'mcp-auth', serverSlug(url));
 
   beforeEach(async () => {
@@ -91,7 +94,8 @@ describe('loginToServer (mock OAuth + MCP server)', () => {
     realHome = process.env.HOME;
     process.env.HOME = home;
 
-    http = createServer((req, res) => void handle(req, res, origin, VALID));
+    behavior.refuseRegistration = false;
+    http = createServer((req, res) => void handle(req, res, origin, VALID, behavior));
     const port = await listen(http);
     origin = `http://127.0.0.1:${port}`;
   });
@@ -142,6 +146,30 @@ describe('loginToServer (mock OAuth + MCP server)', () => {
       await conn.close();
     }
   });
+
+  it("says the server's sign-in turned it away, rather than what the SSE fallback ran into", async () => {
+    behavior.refuseRegistration = true;
+    const conn = new McpConnection(config());
+    try {
+      await conn.listTools();
+      expect(conn.state).toBe('failed');
+      expect(conn.needsAuth).toBe(false); // signing in can't help
+      expect(conn.error).toMatch(/turned Marvis away \(HTTP 403\)/);
+      expect(conn.error).not.toMatch(/SSE/);
+    } finally {
+      await conn.close();
+    }
+  });
+
+  it("the hub's status says which servers want a sign-in", async () => {
+    const hub = new McpHub([config()]);
+    try {
+      await hub.toolSpecs();
+      expect(hub.status()).toMatchObject([{ name: 'mock', state: 'failed', needsAuth: true }]);
+    } finally {
+      await hub.closeAll();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -165,6 +193,7 @@ async function handle(
   res: ServerResponse,
   origin: string,
   validToken: string,
+  behavior: { refuseRegistration: boolean },
 ): Promise<void> {
   const url = new URL(req.url ?? '/', origin);
   const json = (body: unknown, status = 200): void => {
@@ -187,6 +216,10 @@ async function handle(
     });
   }
   if (url.pathname === '/register' && req.method === 'POST') {
+    if (behavior.refuseRegistration) {
+      res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden');
+      return;
+    }
     const meta = JSON.parse(await readBody(req));
     return json({ client_id: 'mock-client', client_id_issued_at: 1, ...meta }, 201);
   }
@@ -208,6 +241,10 @@ async function handle(
     });
   }
   if (url.pathname === '/mcp') {
+    if (behavior.refuseRegistration && req.method === 'GET') {
+      res.writeHead(405).end();
+      return;
+    }
     if (req.headers.authorization !== `Bearer ${validToken}`) {
       res
         .writeHead(401, {

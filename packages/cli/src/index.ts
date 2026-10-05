@@ -461,7 +461,8 @@ mcp
       if (server && server.transport !== 'stdio') {
         const hasStatic = Object.keys(server.headers).some((h) => h.toLowerCase() === 'authorization');
         const authed = (await new FileOAuthStore(server.url).tokens()) !== undefined;
-        auth = hasStatic && server.auth !== 'oauth' ? '  [static token]' : authed ? '  [oauth ✓]' : '  [oauth — run: marvis mcp login]';
+        // One that wants a sign-in says so in its error; one that connects without one has nothing to add.
+        auth = hasStatic && server.auth !== 'oauth' ? '  [static token]' : authed ? '  [oauth ✓]' : '';
       }
       console.log(
         `${mark} ${s.name} (${s.transport})  ${s.state}${auth}${s.error ? ` — ${s.error}` : ''}`,

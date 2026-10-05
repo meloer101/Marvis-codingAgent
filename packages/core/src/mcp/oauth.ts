@@ -131,7 +131,8 @@ export function createOAuthProvider(opts: OAuthProviderOptions): OAuthClientProv
 
     get clientMetadata(): OAuthClientMetadata {
       return {
-        client_name: 'harness-code',
+        // What the provider's consent page names: the product, not the package.
+        client_name: 'Marvis',
         redirect_uris: [redirect],
         grant_types: ['authorization_code', 'refresh_token'],
         response_types: ['code'],
