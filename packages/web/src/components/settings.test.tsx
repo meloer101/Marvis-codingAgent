@@ -437,38 +437,41 @@ describe('SkillsSection', () => {
     dirs: { project: '/p/.agent/skills', user: '/home/me/.agent/skills', builtin: '/marvis/skills' },
     ...over,
   });
-
-  it("lists each scope's skills, says why one is skipped, and opens a built-in one to read only", async () => {
-    const { sync } = syncFor((method) => (method === 'skills.read' ? { text: '---\nname: code-review\n---\n' } : skills()));
+  const renderSection = (sync: SessionSync) =>
     render(
       <SyncProvider sync={sync}>
-        <SkillsSection workspaceId="w1" projectName="repo" />
+        <SkillsSection workspaceId="w1" />
       </SyncProvider>,
     );
-    expect(await screen.findByText('release-notes')).toBeTruthy();
-    expect(screen.getByText(/Sessions skip it: name "Bad" must be lowercase/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Delete code-review' })).toBeNull();
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Read code-review' })));
+  const openMenu = async (name: string) =>
+    fireEvent.pointerDown(await screen.findByRole('button', { name: `More for ${name}` }), { button: 0, ctrlKey: false, pointerType: 'mouse' });
+
+  it("lists yours and the built-in ones, not the project's, and opens a built-in one to read only", async () => {
+    const { sync } = syncFor((method) => (method === 'skills.read' ? { text: '---\nname: code-review\n---\n' } : skills()));
+    renderSection(sync);
+    expect(await screen.findByText(/Sessions skip it: name "Bad" must be lowercase/)).toBeTruthy();
+    expect(screen.queryByText('release-notes')).toBeNull();
+    await openMenu('code-review');
+    expect(screen.queryByRole('menuitem', { name: 'Remove' })).toBeNull();
+    await act(async () => fireEvent.click(await screen.findByRole('menuitem', { name: 'Read SKILL.md' })));
     expect(((await screen.findByRole('textbox', { name: 'File text' })) as HTMLTextAreaElement).readOnly).toBe(true);
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
   it('writes a new skill from a template, then opens it to write', async () => {
     const { sync, settingsCall } = syncFor((method, params) => (method === 'skills.read' ? { text: skillTemplate('pdf-forms', 'Fill PDF forms') } : skills({ skills: method === 'skills.write' ? [{ name: params.name as string, description: 'Fill PDF forms', scope: 'user', dir: '/home/me/.agent/skills/pdf-forms' }] : [] })));
-    render(
-      <SyncProvider sync={sync}>
-        <SkillsSection workspaceId="w1" projectName="repo" />
-      </SyncProvider>,
-    );
-    fireEvent.click(await screen.findByRole('button', { name: 'Write a new skill' }));
+    renderSection(sync);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add skill' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Write a new one' }));
     fireEvent.change(screen.getByRole('textbox', { name: /^Name/ }), { target: { value: 'pdf-forms' } });
     fireEvent.change(screen.getByRole('textbox', { name: /^Description/ }), { target: { value: 'Fill PDF forms' } });
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Create' })));
     expect(settingsCall).toHaveBeenCalledWith('skills.write', { workspaceId: 'w1', scope: 'user', name: 'pdf-forms', text: skillTemplate('pdf-forms', 'Fill PDF forms'), create: true });
     expect(((await screen.findByRole('textbox', { name: 'File text' })) as HTMLTextAreaElement).value).toContain('name: pdf-forms');
+    expect(screen.queryByRole('form', { name: 'New skill' })).toBeNull();
   });
 
-  it('imports from a URL, and replaces what is here only when asked', async () => {
+  it('imports from a URL to yours, and replaces one of yours only when asked', async () => {
     let replace = false;
     const { sync, settingsCall } = syncFor((method, params) => {
       if (method !== 'skills.import') return skills();
@@ -476,19 +479,26 @@ describe('SkillsSection', () => {
       replace = true;
       return { view: skills(), imported: ['pdf'], skipped: [] };
     });
-    render(
-      <SyncProvider sync={sync}>
-        <SkillsSection workspaceId="w1" projectName="repo" />
-      </SyncProvider>,
-    );
+    renderSection(sync);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add skill' }));
     const url = 'https://github.com/anthropics/skills/tree/main/skills/pdf';
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Folder or Git URL' }), { target: { value: url } });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Folder or Git URL' }), { target: { value: url } });
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Import' })));
     expect(settingsCall).toHaveBeenCalledWith('skills.import', { workspaceId: 'w1', scope: 'user', source: url });
     expect(await screen.findByText(/is here already/)).toBeTruthy();
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Replace' })));
     expect(replace).toBe(true);
-    expect(await screen.findByText('Added pdf.')).toBeTruthy();
+    expect(screen.queryByRole('form', { name: 'Import a skill' })).toBeNull();
+  });
+
+  it('removes one of yours only once confirmed', async () => {
+    const { sync, settingsCall } = syncFor(() => skills());
+    renderSection(sync);
+    await openMenu('Bad');
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Remove' }));
+    expect(settingsCall).not.toHaveBeenCalledWith('skills.delete', expect.anything());
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Remove' })));
+    expect(settingsCall).toHaveBeenCalledWith('skills.delete', { workspaceId: 'w1', scope: 'user', name: 'Bad' });
   });
 });
 

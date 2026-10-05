@@ -686,13 +686,15 @@ The token is as powerful as the user's shell — a client can switch a session t
   server or several; `lib/mcpEntry.ts`); Edit… opens it on a server, a value
   the file keeps hidden shown as "set — type to replace it". In a session, a
   connector that needs a sign-in is a notice with its own Sign in button,
-  under the startup line rather than folded into it. **Skills**: one block to add a skill — yours or the project's — from a
-  folder (typed, or the system's chooser) or a Git URL, or written new from a
-  name and a description (its `SKILL.md` then opens to write); a conflict
-  offers Replace. Below, the project's, yours and the built-in skills, each
-  with what it does, why sessions skip it or that another of its name is
-  used; opened in place to edit (a built-in one to read, or copied to yours
-  whole), deleted once confirmed. The `/skills` dialog in a session links
+  under the startup line rather than folded into it. **Skills**: yours (`~/.agent/skills/`) and the built-in ones only — a
+  project's own skills are files in its `.agent/skills/`, written there like
+  any other, as in Claude Code. Each a white row with what it does, why
+  sessions skip it, or that another of its name is used; its ⋯ opens the
+  `SKILL.md` in place to edit (a built-in one to read, or copy to yours whole)
+  and removes one of yours once confirmed. "Add skill" opens a dialog: Import
+  from a folder (typed, or the system's chooser) or a Git URL — a conflict
+  offers Replace — or Write a new one from a name and a description (its
+  `SKILL.md` then opens to write). The `/skills` dialog in a session links
   here. **Sub-agents**: the project's, yours and the built-in ones, each with
   its tools, model and effort as chips; "New sub-agent" on yours and the
   project's opens a form — a name, the description the agent picks it by,

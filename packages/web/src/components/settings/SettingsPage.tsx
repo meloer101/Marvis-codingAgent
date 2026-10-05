@@ -98,7 +98,7 @@ export function SettingsPage({ section }: { section: SettingsSection }) {
             ) : section === 'mcp' ? (
               <McpSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
             ) : section === 'skills' ? (
-              <SkillsSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
+              <SkillsSection key={workspace.id} workspaceId={workspace.id} />
             ) : section === 'agents' ? (
               <AgentsSection key={workspace.id} workspaceId={workspace.id} projectName={workspace.name} />
             ) : section === 'doctor' ? (
